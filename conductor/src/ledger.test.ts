@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -227,5 +228,56 @@ describe("Ledger verify", () => {
 		tamper("UPDATE events SET actor = '{not json' WHERE seq = 4");
 
 		expect(l.verify()).toMatchObject({ ok: false, seq: 4 });
+	});
+});
+
+describe("Ledger single writer", () => {
+	const lockPath = () => join(home, "ledger.sqlite.lock");
+
+	it("refuses a second writer while the first is open, naming the holder", () => {
+		openWriter();
+
+		expect(() => openLedger({ home, writer: true })).toThrow(
+			`LedgerLocked: ${lockPath()} held by pid ${process.pid}`,
+		);
+	});
+
+	it("lets a second writer open after the first closes", () => {
+		openWriter().append(paused("before"));
+		ledger?.close();
+
+		ledger = openLedger({ home, writer: true });
+		ledger.append(paused("after"));
+
+		expect(ledger.all().map((e) => e.seq)).toEqual([1, 2]);
+		ledger.close();
+		ledger = undefined;
+		expect(existsSync(lockPath())).toBe(false);
+	});
+
+	it("takes over a lock left by a process that no longer runs", () => {
+		const exited = spawnSync(process.execPath, ["-e", ""]);
+		writeFileSync(lockPath(), String(exited.pid));
+
+		openWriter().append(paused("recovered"));
+
+		expect(ledger?.all()).toHaveLength(1);
+	});
+
+	it("lets a reader verify while a writer holds the Ledger, but not append", () => {
+		openWriter().append(paused("one"));
+		const reader = openLedger({ home, writer: false });
+		try {
+			expect(reader.verify()).toEqual({ ok: true, count: 1 });
+			expect(() => reader.append(paused("two"))).toThrow(/read-only/);
+		} finally {
+			reader.close();
+		}
+	});
+
+	it("refuses to open a reader where no Ledger exists", () => {
+		expect(() => openLedger({ home, writer: false })).toThrow(
+			`no Ledger at ${join(home, "ledger.sqlite")}`,
+		);
 	});
 });

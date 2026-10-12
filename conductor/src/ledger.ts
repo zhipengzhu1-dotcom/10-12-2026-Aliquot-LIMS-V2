@@ -1,4 +1,10 @@
-import { mkdirSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -61,6 +67,12 @@ const Row = z.object({
 	hash: z.string(),
 });
 type Row = z.infer<typeof Row>;
+
+const insertStatement = (db: DatabaseSync) =>
+	db.prepare(
+		`INSERT INTO events (seq, ts, actor, task_id, causation_id, kind, payload, prev_hash, hash)
+		 VALUES (:seq, :ts, :actor, :task_id, :causation_id, :kind, :payload, :prev_hash, :hash)`,
+	);
 
 /** The fields the hash covers, with absent optional fields omitted. */
 const hashedFields = (row: Row) => ({
@@ -127,37 +139,109 @@ const verifyRows = (rows: Iterable<unknown>): VerifyResult => {
 	return { ok: true, count: expected - 1 };
 };
 
+/** Another process holds the Ledger for writing. */
+export class LedgerLocked extends Error {
+	override readonly name = "LedgerLocked";
+	constructor(lockPath: string, pid: number | "unknown") {
+		super(`LedgerLocked: ${lockPath} held by pid ${pid}`);
+	}
+}
+
+const errnoIs = (error: unknown, code: string) =>
+	error instanceof Error && "code" in error && error.code === code;
+
+const isRunning = (pid: number) => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return errnoIs(error, "EPERM");
+	}
+};
+
+/** Create the lock file with our pid, taking over one whose pid is dead. */
+const acquireLock = (lockPath: string) => {
+	for (let attempt = 0; attempt < 2; attempt++) {
+		try {
+			writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+			return;
+		} catch (error) {
+			if (!errnoIs(error, "EEXIST")) throw error;
+		}
+		const pid = Number(readFileSync(lockPath, "utf8").trim());
+		if (!Number.isInteger(pid) || pid <= 0) {
+			throw new LedgerLocked(lockPath, "unknown");
+		}
+		if (isRunning(pid)) throw new LedgerLocked(lockPath, pid);
+		rmSync(lockPath, { force: true });
+	}
+	throw new LedgerLocked(lockPath, "unknown");
+};
+
+const releaseLock = (lockPath: string) => {
+	if (
+		existsSync(lockPath) &&
+		readFileSync(lockPath, "utf8") === String(process.pid)
+	) {
+		rmSync(lockPath);
+	}
+};
+
+const openDatabase = (path: string, writer: boolean) => {
+	if (!writer) {
+		if (!existsSync(path)) throw new Error(`no Ledger at ${path}`);
+		return new DatabaseSync(path, { readOnly: true });
+	}
+	const db = new DatabaseSync(path);
+	db.exec(SCHEMA);
+	return db;
+};
+
 export const openLedger = (options: LedgerOptions): Ledger => {
 	const path = join(options.home, "ledger.sqlite");
+	const lockPath = `${path}.lock`;
 	const clock = options.clock ?? (() => new Date());
 	const guards = options.guards ?? appendGuards;
 
-	mkdirSync(options.home, { recursive: true });
-	const db = new DatabaseSync(path);
-	db.exec(SCHEMA);
+	if (options.writer) {
+		mkdirSync(options.home, { recursive: true });
+		acquireLock(lockPath);
+	}
+	let db: DatabaseSync;
+	try {
+		db = openDatabase(path, options.writer);
+	} catch (error) {
+		if (options.writer) releaseLock(lockPath);
+		throw error;
+	}
 
 	const selectAll = db.prepare("SELECT * FROM events ORDER BY seq");
-	const insert = db.prepare(
-		`INSERT INTO events (seq, ts, actor, task_id, causation_id, kind, payload, prev_hash, hash)
-		 VALUES (:seq, :ts, :actor, :task_id, :causation_id, :kind, :payload, :prev_hash, :hash)`,
-	);
+	const insert = options.writer ? insertStatement(db) : undefined;
 
 	function* events(): IterableIterator<Event> {
 		for (const row of selectAll.iterate()) yield eventOf(Row.parse(row));
 	}
 
+	// The writer holds the lock, so no one else appends; the Events it has
+	// read once stay current and each append only adds to them.
+	let history: Event[] | undefined;
+
 	const append = (newEvent: NewEvent): Event => {
-		const parsed = NewEvent.safeParse(newEvent);
-		if (!parsed.success) {
-			throw new AppendRefused(
-				`invalid Event: ${z.prettifyError(parsed.error)}`,
+		if (!insert) {
+			throw new Error(
+				`Ledger at ${path} is open read-only; open it with writer: true to append`,
 			);
 		}
-		const body = parsed.data;
-
 		db.exec("BEGIN IMMEDIATE");
 		try {
-			const history = [...events()];
+			const parsed = NewEvent.safeParse(newEvent);
+			if (!parsed.success) {
+				throw new AppendRefused(
+					`invalid Event: ${z.prettifyError(parsed.error)}`,
+				);
+			}
+			const body = parsed.data;
+			history ??= [...events()];
 			const last = history.at(-1);
 			const unhashed = {
 				seq: Seq.parse((last?.seq ?? 0) + 1),
@@ -186,6 +270,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 				hash: event.hash,
 			});
 			db.exec("COMMIT");
+			history.push(event);
 			return event;
 		} catch (error) {
 			db.exec("ROLLBACK");
@@ -199,6 +284,9 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 		events,
 		all: () => [...events()],
 		verify: () => verifyRows(selectAll.iterate()),
-		close: () => db.close(),
+		close: () => {
+			db.close();
+			if (options.writer) releaseLock(lockPath);
+		},
 	};
 };
