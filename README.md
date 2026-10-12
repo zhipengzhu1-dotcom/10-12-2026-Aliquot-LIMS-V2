@@ -65,7 +65,7 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing.
 
-Append one Event. The body is JSON with `actor`, `kind`, and `payload`, plus optional `task_id` and `causation_id`; give a file path, or pipe the body to stdin. The command prints the stored Event, or refuses an unknown `kind` or a malformed payload and writes nothing.
+Append one Event. The body is JSON with `actor`, `kind`, and `payload`, plus optional `task_id` and `causation_id`; give a file path, or pipe the body to stdin. The command prints the stored Event, or refuses an unknown `kind` or a malformed payload and writes nothing. Domain guards also refuse Events that break a rule, such as pausing an Agent that was never recruited, so this example needs `org seed` first (see Org).
 
 ```sh
 echo '{"actor":{"tag":"Operator"},"kind":"AgentPaused","payload":{"agent_id":"A-odile","reason":"maintenance"}}' \
@@ -79,3 +79,30 @@ Verify the hash chain. The command exits 0 when every Event is intact, and other
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot ledger verify
 ```
+
+## Org
+
+The Org Projection folds the Agent Events (`AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`) into each Agent's current definition and its reporting tree. Every change is an Event; nothing is edited in place (ADR-0005).
+
+Recruit the eight-agent starting roster, all on `Probation`. A second run appends nothing.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org seed
+```
+
+Print the tree: the Operator at the root, the Director, Steward and Auditor under it, the Supervisors under the Director, and the Specialist pool under both Supervisors. Retired Agents are left out.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org tree
+```
+
+Pause, resume, retire, or revise an Agent. `revise` takes a JSON file with the full next definition; its `version` must be the current version plus 1.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org pause A-rin --reason "Energy budget review"
+pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
+pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced"
+pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
+```
+
+These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused.
