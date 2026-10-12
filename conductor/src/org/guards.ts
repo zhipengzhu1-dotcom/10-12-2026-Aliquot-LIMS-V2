@@ -10,7 +10,7 @@ import { canonicalJson } from "../hash.js";
 import type { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
-import { tierRefusal } from "../vitality/trust.js";
+import { tierCauseRefusal, tierRefusal } from "../vitality/trust.js";
 import { type AgentState, type OrgState, orgState } from "./projection.js";
 
 const existing = (state: OrgState, id: AgentId): AgentState => {
@@ -101,9 +101,10 @@ const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 
 /**
  * The Conductor authors only the tier Revisions that Merit and Gates require
- * (ADR-0011): each names the Event that caused it and changes the tier and
- * nothing else. The rules every Revision follows, including that the tier
- * is the projected one, run after this in `orgGuard`.
+ * (ADR-0011): each changes the tier and nothing else, and names the Event
+ * where the projected tier last changed to the tier it records. The rules
+ * every Revision follows, including that the tier is the projected one, run
+ * after this in `orgGuard`.
  */
 const conductorGuard: AppendGuard = (ctx, event) => {
 	if (event.actor.tag !== "Conductor") return;
@@ -141,6 +142,13 @@ const conductorGuard: AppendGuard = (ctx, event) => {
 			`the Conductor's Revision of ${definition.id} leaves its Trust tier at ${current.trust_tier}`,
 		);
 	}
+	const wrongCause = tierCauseRefusal(
+		ctx.events,
+		definition.id,
+		definition.trust_tier,
+		causation_id,
+	);
+	if (wrongCause !== undefined) refuse(wrongCause);
 };
 
 /**

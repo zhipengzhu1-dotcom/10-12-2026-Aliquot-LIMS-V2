@@ -5,6 +5,7 @@ import type { EventActor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Mood, Policy, Vitality } from "../types/vitality.js";
+import type { Standing } from "./merit.js";
 import { moodOf } from "./mood.js";
 import { policyOf } from "./policy.js";
 import { type TrustStanding, trustTierOf } from "./trust.js";
@@ -73,9 +74,13 @@ export const vitalityProjection = (
 
 const CONDUCTOR: EventActor = { tag: "Conductor" };
 
-/** The Merit or Gate change behind a tier Revision. */
-const reasonFor = (from: TrustTier, t: TrustStanding): string => {
-	const { merit, reviewedTasks, window } = t.standing;
+/** The Merit or Gate change behind a tier Revision, given the standing at that change. */
+const reasonFor = (
+	from: TrustTier,
+	t: TrustStanding,
+	standing: Standing = t.standing,
+): string => {
+	const { merit, reviewedTasks, window } = standing;
 	const zero = [...window].reverse().find((r) => r.boundary_adherence === 0);
 	const meritText = `Merit ${merit === undefined ? "none" : merit.toFixed(2)} over ${reviewedTasks} reviewed Tasks`;
 	const why =
@@ -86,6 +91,26 @@ const reasonFor = (from: TrustTier, t: TrustStanding): string => {
 				: `Demotion for boundary score 0 on ${zero.task_id}; ${meritText}`;
 	return `Trust tier ${from} -> ${t.tier}: ${why}`;
 };
+
+const tierRevision = (
+	definition: AgentDefinition,
+	tier: TrustTier,
+	cause: Seq,
+	reason: string,
+): NewEvent => ({
+	actor: CONDUCTOR,
+	causation_id: cause,
+	kind: "AgentDefinitionRevised",
+	payload: {
+		definition: {
+			...definition,
+			version: definition.version + 1,
+			trust_tier: tier,
+			revised_by: CONDUCTOR,
+			revision_reason: reason,
+		},
+	},
+});
 
 /**
  * The Ledger's follow-on for every append (ADR-0011): one Revision by the
@@ -102,20 +127,46 @@ export const tierRevisions = (
 		if (retired) continue;
 		const projected = trustTierOf(events, definition.id);
 		if (projected.tier === definition.trust_tier) continue;
-		revisions.push({
-			actor: CONDUCTOR,
-			causation_id: cause.seq,
-			kind: "AgentDefinitionRevised",
-			payload: {
-				definition: {
-					...definition,
-					version: definition.version + 1,
-					trust_tier: projected.tier,
-					revised_by: CONDUCTOR,
-					revision_reason: reasonFor(definition.trust_tier, projected),
-				},
-			},
-		});
+		revisions.push(
+			tierRevision(
+				definition,
+				projected.tier,
+				cause.seq,
+				reasonFor(definition.trust_tier, projected),
+			),
+		);
+	}
+	return revisions;
+};
+
+/**
+ * The Ledger's catch-up when it opens for writing (ADR-0011): one Revision
+ * by the Conductor for each Agent, Retired ones too, whose `trust_tier`
+ * differs from its projected Trust tier. A Ledger written before ADR-0011
+ * left these out, so each names the Event where the projected tier last
+ * changed, gives the Merit or Gate change there, and says that it is
+ * recorded late.
+ */
+export const tierCatchUp = (events: readonly Event[]): NewEvent[] => {
+	const revisions: NewEvent[] = [];
+	for (const { definition } of orgState(events).agents.values()) {
+		const projected = trustTierOf(events, definition.id);
+		const { lastChange } = projected;
+		if (projected.tier === definition.trust_tier || lastChange === undefined) {
+			continue;
+		}
+		const reason =
+			lastChange.at === "Recruitment"
+				? `Trust tier ${definition.trust_tier} -> ${projected.tier}: no Review or PromoteToMentor Gate has changed the projected tier since Recruitment`
+				: reasonFor(definition.trust_tier, projected, lastChange.standing);
+		revisions.push(
+			tierRevision(
+				definition,
+				projected.tier,
+				lastChange.seq,
+				`${reason}; recorded late: the Ledger before ADR-0011 did not record this Revision`,
+			),
+		);
 	}
 	return revisions;
 };
