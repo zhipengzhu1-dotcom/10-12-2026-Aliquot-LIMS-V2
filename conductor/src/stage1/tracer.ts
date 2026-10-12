@@ -35,7 +35,7 @@ import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
 import { appendTierRevisions } from "../vitality/projection.js";
-import { reviewSampled, trustTierOf } from "../vitality/trust.js";
+import { reviewSampleOf } from "../vitality/trust.js";
 import { evaluateSubmission, type SubmissionEvaluation } from "./evaluate.js";
 
 const OPERATOR: Actor = { tag: "Operator" };
@@ -108,8 +108,8 @@ export const reviewOf = (
 	task_id: TaskId,
 	owner: AgentId,
 ): Completion => {
-	const { tier } = trustTierOf(events, owner);
-	if (!reviewSampled(task_id, tier)) {
+	const { tier, sampled } = reviewSampleOf(events, owner, task_id);
+	if (!sampled) {
 		return { tag: "Skipped", reason: `not sampled for Review at tier ${tier}` };
 	}
 	const supervisor =

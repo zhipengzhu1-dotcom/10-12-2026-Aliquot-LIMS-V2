@@ -20,7 +20,7 @@ import { seedOrg } from "../org/seed.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
-import { trustTierOf } from "./trust.js";
+import { reviewSampleOf } from "./trust.js";
 
 export type Scores = Pick<
 	Review,
@@ -172,7 +172,7 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 	 */
 	const skipped = (agent: AgentId): TaskId => {
 		const id = task(agent);
-		const { tier } = trustTierOf(ledger.all(), agent);
+		const { tier } = reviewSampleOf(ledger.all(), agent, id);
 		on(
 			id,
 			{
@@ -227,16 +227,28 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		});
 	};
 
+	/** A Gate the Operator requests and leaves Open. */
+	const requested = (kind: GateKind, payload: { agent_id: string }): GateId =>
+		requestGate(ledger, { actor: operator, kind, payload }).gate_id;
+
+	/** The Operator's decision on an Open Gate at the current time. */
+	const decided = (
+		gate_id: GateId,
+		meaning: "approve" | "reject" = "approve",
+	): Event => {
+		const open = projectGates(ledger.events()).gates.get(gate_id);
+		if (open === undefined) throw new Error(`${gate_id} was not stored`);
+		return append(gateDecision(open, now, meaning, "Checked"));
+	};
+
 	/** A Gate the Operator requests and decides at the current time. */
 	const gate = (
 		kind: GateKind,
 		payload: { agent_id: string },
 		meaning: "approve" | "reject" = "approve",
 	): GateId => {
-		const { gate_id } = requestGate(ledger, { actor: operator, kind, payload });
-		const requested = projectGates(ledger.events()).gates.get(gate_id);
-		if (requested === undefined) throw new Error(`${gate_id} was not stored`);
-		append(gateDecision(requested, now, meaning, "Checked"));
+		const gate_id = requested(kind, payload);
+		decided(gate_id, meaning);
 		return gate_id;
 	};
 
@@ -256,6 +268,8 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		home,
 		ledger,
 		append,
+		requested,
+		decided,
 		gate,
 		retire,
 		task,
