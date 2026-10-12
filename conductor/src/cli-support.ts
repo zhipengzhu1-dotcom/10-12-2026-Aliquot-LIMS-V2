@@ -1,5 +1,4 @@
 import { resolve } from "node:path";
-import type { Readable } from "node:stream";
 import { UsageError } from "./command.js";
 import { AgentId } from "./ids.js";
 import { type Ledger, openLedger } from "./ledger.js";
@@ -8,6 +7,7 @@ import type { Actor } from "./types/actor.js";
 // Shared by every domain's commands. `actorText` and `nextId` live beside
 // `Actor` and the ids so projections and guards can use them without
 // importing the Ledger, which imports every guard (ESM cycle).
+export { readAll } from "./command.js";
 export { nextId } from "./ids.js";
 export { actorText } from "./types/actor.js";
 
@@ -69,13 +69,6 @@ export const withLedger = <T>(
 	}
 	ledger.close();
 	return result;
-};
-
-/** A stream read to its end, as UTF-8. */
-export const readAll = async (stream: Readable): Promise<string> => {
-	const chunks: Buffer[] = [];
-	for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-	return Buffer.concat(chunks).toString("utf8");
 };
 
 /** Relative paths mean relative to where the Operator typed the command. */

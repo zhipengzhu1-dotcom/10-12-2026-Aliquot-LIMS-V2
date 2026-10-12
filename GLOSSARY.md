@@ -97,8 +97,20 @@ The move of a Task up the reporting line because the assignee cannot finish it w
 _Avoid_: bump, raise
 
 **Help request**:
-A message in which an Agent asks another Agent for help or Coaching on a Task, recorded as a `HelpRequested` Event.
+A request in which an Agent asks another Agent for help or Coaching on a Task, recorded as a `HelpRequested` Event.
 _Avoid_: ask, ping, SOS
+
+**Room**:
+A named place where a listed set of Agents, or every Agent, exchange Messages. The Operator is a member of every Room. A Room is a Projection of `RoomOpened` and `MessageSent` Events.
+_Avoid_: channel, chat room, chat, group, DM, thread
+
+**Lab Room**:
+The one Room every Agent belongs to, seeded with the roster, where the society stays on the same page.
+_Avoid_: general, lobby, all-hands
+
+**Message**:
+Text that an Agent or the Operator posts in a Room, recorded as a `MessageSent` Event. A reply names the Message it answers through `causation_id`.
+_Avoid_: chat, post, ping, DM
 
 **Gate**:
 A request for an Operator decision on an action that touches the world outside the Sandbox or changes the society in a way that cannot be undone. The decision Event is the electronic signature record.
