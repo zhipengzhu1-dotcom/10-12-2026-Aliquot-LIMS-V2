@@ -1,21 +1,23 @@
-import type { Event } from "./events.js";
+import type { AppendGuard } from "./append-guard.js";
+import { gateGuards } from "./gate/guards.js";
+import { orgGuards } from "./org/guards.js";
+import { sandboxGuards } from "./sandbox/guards.js";
+import { stage1Guards } from "./stage1/guards.js";
+import { taskGuards } from "./task/guards.js";
+import { vitalityGuards } from "./vitality/guards.js";
 
-/** What a guard sees: every Event already in the Ledger, in seq order. */
-export type GuardContext = {
-	readonly events: readonly Event[];
-};
+export {
+	type AppendGuard,
+	AppendRefused,
+	type GuardContext,
+} from "./append-guard.js";
 
-/**
- * Runs before an Event is written. Throws `AppendRefused` to stop the append;
- * the message names the reason and the current state. Guards build whatever
- * Projection they need from `ctx.events` and never read the clock.
- */
-export type AppendGuard = (ctx: GuardContext, event: Event) => void;
-
-/** The Ledger refused an append. Nothing was written. */
-export class AppendRefused extends Error {
-	override readonly name = "AppendRefused";
-}
-
-/** Every guard the Ledger runs, in order. */
-export const appendGuards: readonly AppendGuard[] = [];
+/** Every guard the Ledger runs, in order. Each domain owns its own list. */
+export const appendGuards: readonly AppendGuard[] = [
+	...orgGuards,
+	...taskGuards,
+	...gateGuards,
+	...sandboxGuards,
+	...vitalityGuards,
+	...stage1Guards,
+];
