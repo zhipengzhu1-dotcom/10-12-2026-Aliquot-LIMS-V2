@@ -175,21 +175,68 @@ const isRunning = (pid: number) => {
 	}
 };
 
-/** Create the lock file with our pid, taking over one whose pid is dead. */
+/** The pid a lock file names; undefined when the file is gone. */
+const lockHolder = (path: string): number | "unknown" | undefined => {
+	let text: string;
+	try {
+		text = readFileSync(path, "utf8");
+	} catch (error) {
+		if (errnoIs(error, "ENOENT")) return undefined;
+		throw error;
+	}
+	const pid = Number(text.trim());
+	return Number.isInteger(pid) && pid > 0 ? pid : "unknown";
+};
+
+/** Create `path` holding our pid; false when it already exists. */
+const createExclusive = (path: string): boolean => {
+	try {
+		writeFileSync(path, String(process.pid), { flag: "wx" });
+		return true;
+	} catch (error) {
+		if (errnoIs(error, "EEXIST")) return false;
+		throw error;
+	}
+};
+
+/**
+ * Create the lock file with our pid, taking over one whose pid is dead.
+ *
+ * Two processes can find the same stale lock at once. If each deleted it
+ * and created its own, the slower one would delete the faster one's fresh
+ * lock and both would write. Renaming the stale file aside first does not
+ * help: the slower rename can move the faster process's fresh lock, and a
+ * third process can create the lock in the gap. So a takeover happens only
+ * under a second lock, `<lock>.takeover`, created with `wx`. While a process
+ * holds it, nobody else removes the lock file, and nobody creates one while
+ * it exists, so the dead pid that process reads is still the one it removes.
+ * A process that finds a takeover in progress reports the lock as held.
+ */
 const acquireLock = (lockPath: string) => {
-	for (let attempt = 0; attempt < 2; attempt++) {
+	const takeover = `${lockPath}.takeover`;
+	for (let attempt = 0; attempt < 3; attempt++) {
+		if (createExclusive(lockPath)) return;
+		const stale = lockHolder(lockPath);
+		if (stale === undefined) continue; // released meanwhile; try again
+		if (stale === "unknown" || isRunning(stale)) {
+			throw new LedgerLocked(lockPath, stale);
+		}
+		if (!createExclusive(takeover)) {
+			const other = lockHolder(takeover);
+			if (typeof other === "number" && !isRunning(other)) {
+				throw new Error(
+					`${takeover} was left by pid ${other}, which stopped while taking over ${lockPath}; check that no Conductor runs, then delete ${takeover}`,
+				);
+			}
+			throw new LedgerLocked(lockPath, other ?? "unknown");
+		}
 		try {
-			writeFileSync(lockPath, String(process.pid), { flag: "wx" });
-			return;
-		} catch (error) {
-			if (!errnoIs(error, "EEXIST")) throw error;
+			if (lockHolder(lockPath) === stale) rmSync(lockPath, { force: true });
+			if (createExclusive(lockPath)) return;
+			throw new LedgerLocked(lockPath, lockHolder(lockPath) ?? "unknown");
+		} finally {
+			rmSync(takeover, { force: true });
 		}
-		const pid = Number(readFileSync(lockPath, "utf8").trim());
-		if (!Number.isInteger(pid) || pid <= 0) {
-			throw new LedgerLocked(lockPath, "unknown");
-		}
-		if (isRunning(pid)) throw new LedgerLocked(lockPath, pid);
-		rmSync(lockPath, { force: true });
 	}
 	throw new LedgerLocked(lockPath, "unknown");
 };

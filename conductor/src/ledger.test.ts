@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -276,6 +283,24 @@ describe("Ledger single writer", () => {
 		openWriter().append(paused("recovered"));
 
 		expect(ledger?.all()).toHaveLength(1);
+		expect(readFileSync(lockPath(), "utf8")).toBe(String(process.pid));
+		expect(readdirSync(home).filter((f) => f.includes(".stale-"))).toEqual([]);
+	});
+
+	it("leaves a stale lock alone while another process is taking it over", () => {
+		const exited = spawnSync(process.execPath, ["-e", ""]);
+		writeFileSync(lockPath(), String(exited.pid));
+		writeFileSync(`${lockPath()}.takeover`, String(process.pid));
+
+		expect(() => openLedger({ home, writer: true })).toThrow(
+			`${lockPath()} held by pid ${process.pid}`,
+		);
+		expect(readFileSync(lockPath(), "utf8")).toBe(String(exited.pid));
+
+		writeFileSync(`${lockPath()}.takeover`, String(exited.pid));
+		expect(() => openLedger({ home, writer: true })).toThrow(
+			`${lockPath()}.takeover was left by pid ${exited.pid}, which stopped while taking over`,
+		);
 	});
 
 	it("lets a reader verify while a writer holds the Ledger, but not append", () => {
