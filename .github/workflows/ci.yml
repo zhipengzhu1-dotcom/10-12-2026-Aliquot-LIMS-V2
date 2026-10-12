@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conductor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: conductor/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: conductor/pnpm-lock.yaml
+      - run: pnpm -C conductor install --frozen-lockfile
+      - run: pnpm -C conductor lint
+      - run: pnpm -C conductor typecheck
+      - run: pnpm -C conductor test
+
+  sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.12.12"
+          working-directory: sandbox
+          enable-cache: true
+      - run: uv sync --directory sandbox --locked
+      - run: uv run --directory sandbox ruff check .
+      - run: uv run --directory sandbox ruff format --check .
+      - run: uv run --directory sandbox pytest
