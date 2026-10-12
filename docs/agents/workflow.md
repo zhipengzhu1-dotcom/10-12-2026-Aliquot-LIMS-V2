@@ -15,6 +15,6 @@ A ticket has three sections: **What to build**, **Acceptance criteria** as a che
 
 ## Land the ticket
 
-Run `tools/land-ticket.sh <N>` from a clean checkout of the slice branch. It merges `ticket-<N>` with `--no-ff` as `Merge ticket-<N>: <issue title> (#<N>)`, runs lint, typecheck and the test suites, pushes the slice branch, and closes the issue with a comment naming the merge commit. A failed check resets the merge and leaves the slice branch as it was.
+Run `tools/land-ticket.sh <N>` from a clean checkout of the slice branch. It merges `ticket-<N>` with `--no-ff` as `Merge ticket-<N>: <issue title> (#<N>)`, runs `tools/check.sh` (every check CI runs, for both languages) on the merged result, pushes the slice branch, and closes the issue with a comment naming the merge commit. A failed check resets the merge and leaves the slice branch as it was.
 
 Done means: the merge commit is on `origin/<slice>`, CI is green on it, and the issue is closed.

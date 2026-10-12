@@ -16,7 +16,15 @@ Aliquot LIMS is a society of AI Agents that does the paperwork and computation o
 
 ## Development
 
-Install Node 24, pnpm 12, and uv first. Run every command from the repository root.
+Install Node 24, pnpm 12, and uv first, and start Docker. Run every command from the repository root.
+
+### Check everything
+
+`tools/check.sh` runs every check CI runs, for both languages, and exits non-zero at the first failure. It prints one `check: <step>` line per step: conductor install, lint, typecheck, the Sandbox image build, vitest; Sandbox sync, ruff check, ruff format check, pytest, the synthetic generator; then `stage1 run-all` on `fixtures/` against a fresh temporary home and `ledger verify` on that home. It works from any directory. `--conductor-only` runs the conductor steps and stage 1; `--sandbox-only` runs the Sandbox steps. Run it before every commit.
+
+```sh
+tools/check.sh
+```
 
 ### Conductor (TypeScript)
 
@@ -59,7 +67,7 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. Then it runs stage 1 on every Fixture with `stage1 run-all fixtures` (see Stage 1 tracer). The `sandbox` job runs ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), the synthetic generator, and `docker build` of the Sandbox image.
+`.github/workflows/ci.yml` runs on every push and pull request, in two jobs that each call `tools/check.sh`. The `conductor` job runs `tools/check.sh --conductor-only`: lint, typecheck, the Sandbox image build, and test, so the Docker-backed runner tests run there too, then stage 1 on every Fixture (see Stage 1 tracer) and `ledger verify`. The `sandbox` job runs `tools/check.sh --sandbox-only`: ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), and the synthetic generator.
 
 ## Ledger
 

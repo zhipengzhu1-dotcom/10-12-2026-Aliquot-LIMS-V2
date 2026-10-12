@@ -26,16 +26,7 @@ before="$(git rev-parse HEAD)"
 
 git merge --no-ff "ticket-$n" -m "Merge ticket-$n: $title (#$n)"
 
-check() {
-	pnpm -C conductor install --frozen-lockfile
-	pnpm -C conductor lint
-	pnpm -C conductor typecheck
-	pnpm -C conductor test
-	uv run --directory sandbox ruff check .
-	uv run --directory sandbox ruff format --check .
-	uv run --directory sandbox pytest
-}
-if ! check; then
+if ! tools/check.sh; then
 	git reset --hard "$before"
 	echo "land-ticket: a check failed; $base is back at $before" >&2
 	exit 1
