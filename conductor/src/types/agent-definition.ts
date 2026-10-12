@@ -33,7 +33,7 @@ export const AgentDefinition = z.strictObject({
 	}),
 	tools: z.array(z.string().min(1)),
 	skills: z.array(SkillId),
-	memory_ref: z.string().min(1),
+	memory_notes_ref: z.string().min(1),
 	model: z.string().min(1),
 	capacity: z.number().int().positive(),
 	trust_tier: TrustTier,

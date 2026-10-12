@@ -118,13 +118,6 @@ const ALLOWED: readonly Exemption[] = [
 	{ phrase: "edit", in: "vitality/work.ts", reason: "a source-code edit" },
 ];
 
-/** True positives left in place for a rename. A fixed one fails the test until its line here goes. */
-const KNOWN_DRIFT: readonly { readonly file: string; readonly word: string }[] =
-	[
-		{ file: "org/seed.ts", word: "memory" },
-		{ file: "types/agent-definition.ts", word: "memory" },
-	];
-
 type Entry = { readonly term: string; readonly avoided: readonly string[] };
 
 const parseGlossary = (text: string): Entry[] => {
@@ -213,9 +206,6 @@ const scan = (allowed: readonly Compiled[]) =>
 
 const hits = scan(exemptions);
 
-const isKnown = (hit: { file: string; word: string }) =>
-	KNOWN_DRIFT.some((k) => k.file === hit.file && k.word === hit.word);
-
 describe("GLOSSARY.md", () => {
 	it("parses an avoided-word list for every term", () => {
 		expect(entries.length).toBeGreaterThan(60);
@@ -229,14 +219,7 @@ describe("GLOSSARY.md", () => {
 	});
 
 	it("keeps every avoided word out of the conductor source", () => {
-		expect(hits.filter((h) => !isKnown(h)).map((h) => h.text)).toEqual([]);
-	});
-
-	it("still finds every known drift, so a fixed one leaves the list", () => {
-		const unfound = KNOWN_DRIFT.filter(
-			(k) => !hits.some((h) => h.file === k.file && h.word === k.word),
-		);
-		expect(unfound).toEqual([]);
+		expect(hits.map((h) => h.text)).toEqual([]);
 	});
 
 	it("needs every exemption", () => {

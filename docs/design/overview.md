@@ -69,7 +69,7 @@ type AgentDefinition = {
 	charter: { purpose: string; responsibilities: string[]; forbidden: Action[]; escalation: string };
 	tools: ToolName[];
 	skills: SkillId[];
-	memory_ref: MemoryRef;
+	memory_notes_ref: MemoryNotesRef;
 	model: ModelName;
 	capacity: number;
 	trust_tier: TrustTier;
