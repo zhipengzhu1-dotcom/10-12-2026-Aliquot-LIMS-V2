@@ -65,7 +65,7 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing.
 
-Append one Event. The body is JSON with `actor`, `kind`, and `payload`, plus optional `task_id` and `causation_id`; give a file path, or pipe the body to stdin. The command prints the stored Event, or refuses an unknown `kind` or a malformed payload and writes nothing.
+Append one Event. The body is JSON with `actor`, `kind`, and `payload`, plus optional `task_id` and `causation_id`; give a file path, or pipe the body to stdin. The command prints the stored Event, or refuses an unknown `kind` or a malformed payload and writes nothing. Domain guards also refuse Events that break a rule, such as pausing an Agent that was never recruited, so this example needs `org seed` first (see Org).
 
 ```sh
 echo '{"actor":{"tag":"Operator"},"kind":"AgentPaused","payload":{"agent_id":"A-odile","reason":"maintenance"}}' \
@@ -79,6 +79,76 @@ Verify the hash chain. The command exits 0 when every Event is intact, and other
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot ledger verify
 ```
+
+## Org
+
+The Org Projection folds the Agent Events (`AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`) into each Agent's current definition and its reporting tree. Every change is an Event; nothing is edited in place (ADR-0005).
+
+Recruit the eight-agent starting roster, all on `Probation`. A second run appends nothing.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org seed
+```
+
+Print the tree: the Operator at the root, the Director, Steward and Auditor under it, the Supervisors under the Director, and the Specialist pool under both Supervisors. Retired Agents are left out.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org tree
+```
+
+Pause, resume, retire, or revise an Agent. `revise` takes a JSON file with the full next definition; its `version` must be the current version plus 1.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org pause A-rin --reason "Energy budget review"
+pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
+pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced"
+pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
+```
+
+These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused.
+
+## Tasks
+
+A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. A Task that the Trust tier rules skip for Review goes from `InProgress` straight to `Done`.
+
+Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot task propose --title "Parse the Submission Form" \
+  --goal "Extract every field" --tat Rush1to2Days --priority 2   # prints T-1
+pnpm -C conductor cli --home /tmp/aliquot task assign T-1 A-odile
+pnpm -C conductor cli --home /tmp/aliquot task start T-1 --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --review-required --reviewer Operator --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewed
+pnpm -C conductor cli --home /tmp/aliquot task list
+```
+
+`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. The other commands are `task handoff <id> <agent> --reason`, `task complete <id> --skip-review --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
+
+## Gates
+
+A Gate is a request for an Operator decision on an action outside the Sandbox (ADR-0006). There are five kinds: `Deploy`, `WriteSystemOfRecord`, `ExternalMessage`, `RetireAgent`, and `PromoteToMentor`. The decision Event is the electronic signature record: it names the Operator, the time, the sha256 of the exact payload, and the meaning (approve or reject).
+
+Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to an `InProgress` Task, which shows as `Blocked` until the Operator decides the Gate; `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --task T-3 --as A-bram
+```
+
+List the open Gates with their kind, requester, age, and a one-line payload summary. `--all` lists every Gate with its state. A Gate that nobody decides within its lifetime shows as `Expired`; no Event records the expiry.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot gate list
+pnpm -C conductor cli --home /tmp/aliquot gate show G-1
+```
+
+Decide a Gate as the Operator. The command hashes the payload stored in the Ledger and prints the decision Event.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --reason "diff checked"
+```
+
+The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate.
 
 ## Sandbox
 

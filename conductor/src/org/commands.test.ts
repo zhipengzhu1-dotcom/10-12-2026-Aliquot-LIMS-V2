@@ -1,0 +1,100 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { rosterDefinitions } from "./seed.js";
+
+const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
+
+let home: string;
+
+const org = (...args: string[]) =>
+	spawnSync(
+		process.execPath,
+		["--import", "tsx", cli, "--home", home, "org", ...args],
+		{ encoding: "utf8", env: { ...process.env, ALIQUOT_HOME: "" } },
+	);
+
+beforeEach(() => {
+	home = mkdtempSync(join(tmpdir(), "aliquot-org-cli-"));
+});
+
+afterEach(() => {
+	rmSync(home, { recursive: true, force: true });
+});
+
+describe("aliquot org", () => {
+	it("seeds the roster once and prints the tree", () => {
+		const first = org("seed");
+		const second = org("seed");
+		const printed = org("tree");
+
+		expect(first.stderr).toBe("");
+		expect(first.stdout).toBe(
+			"Recruited 8 Agents: A-odile, A-mabel, A-thorne, A-pia, A-anselm, A-rin, A-ines, A-bram\n",
+		);
+		expect(second.status).toBe(0);
+		expect(second.stdout).toBe(
+			"Org already seeded: all 8 roster Agents are in the Ledger, nothing appended\n",
+		);
+		expect(printed.status).toBe(0);
+		expect(printed.stdout).toBe(`Operator
++-- Odile, Director, Probation
+|   +-- Pia, Supervisor, Probation
+|   |   +-- Rin, Specialist, Probation
+|   |   +-- Ines, Specialist, Probation
+|   |   \\-- Bram, Specialist, Probation
+|   \\-- Anselm, Supervisor, Probation
+|       +-- Rin, Specialist, Probation
+|       +-- Ines, Specialist, Probation
+|       \\-- Bram, Specialist, Probation
++-- Mabel, Steward, Probation
+\\-- Thorne, Auditor, Probation
+`);
+	});
+
+	it("revises the Auditor only as the Operator", () => {
+		org("seed");
+		const thorne = rosterDefinitions().find((d) => d.id === "A-thorne");
+		const file = join(home, "thorne-v2.json");
+		writeFileSync(
+			file,
+			JSON.stringify({
+				...thorne,
+				version: 2,
+				revision_reason: "Sample more Reviews",
+			}),
+		);
+
+		const asDirector = org("revise", "A-thorne", file, "--as", "A-odile");
+		const asOperator = org("revise", "A-thorne", file);
+
+		expect(asDirector.status).toBe(1);
+		expect(asDirector.stderr).toMatch(
+			/^AppendRefused: the Auditor can only be revised by the Operator; A-odile tried/,
+		);
+		expect(asOperator.stderr).toBe("");
+		expect(asOperator.stdout).toBe("Revised A-thorne to version 2\n");
+	});
+
+	it("pauses, resumes and retires an Agent from the command line", () => {
+		org("seed");
+
+		const paused = org("pause", "A-mabel", "--reason", "Energy budget review");
+		const whilePaused = org("tree").stdout;
+		const resumed = org("resume", "A-mabel");
+		const retired = org("retire", "A-mabel", "--reason", "Replaced");
+		const afterRetire = org("tree").stdout;
+		const noReason = org("pause", "A-pia");
+
+		expect(paused.stdout).toBe("Paused A-mabel\n");
+		expect(whilePaused).toContain("+-- Mabel, Steward, Probation (paused)\n");
+		expect(resumed.stdout).toBe("Resumed A-mabel\n");
+		expect(retired.stdout).toBe("Retired A-mabel\n");
+		expect(afterRetire).not.toContain("Mabel");
+		expect(noReason.status).toBe(2);
+		expect(noReason.stderr).toMatch(/^UsageError: org pause needs --reason/);
+	});
+});

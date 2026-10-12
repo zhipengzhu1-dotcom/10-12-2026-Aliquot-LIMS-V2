@@ -70,8 +70,10 @@ afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 });
 
+// These tests cover the Ledger's mechanics; domain guards would refuse the
+// sample Events, which name Agents and Tasks that were never created.
 const openWriter = () => {
-	ledger = openLedger({ home, writer: true });
+	ledger = openLedger({ home, writer: true, guards: [] });
 	return ledger;
 };
 
@@ -128,6 +130,7 @@ describe("Ledger append", () => {
 			home,
 			writer: true,
 			clock: () => new Date("2026-10-12T09:30:00Z"),
+			guards: [],
 		});
 
 		expect(ledger.append(paused("timed")).ts).toBe("2026-10-12T09:30:00.000Z");
@@ -257,7 +260,7 @@ describe("Ledger single writer", () => {
 		openWriter().append(paused("before"));
 		ledger?.close();
 
-		ledger = openLedger({ home, writer: true });
+		ledger = openLedger({ home, writer: true, guards: [] });
 		ledger.append(paused("after"));
 
 		expect(ledger.all().map((e) => e.seq)).toEqual([1, 2]);

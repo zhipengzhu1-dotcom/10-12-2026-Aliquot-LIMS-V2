@@ -1,0 +1,247 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AppendRefused } from "../append-guard.js";
+import { AgentId } from "../ids.js";
+import { type Ledger, openLedger } from "../ledger.js";
+import type { Actor } from "../types/actor.js";
+import { orgState, renderTree, tree } from "./projection.js";
+import { seedOrg } from "./seed.js";
+
+let home: string;
+let ledger: Ledger;
+
+beforeEach(() => {
+	home = mkdtempSync(join(tmpdir(), "aliquot-org-"));
+	ledger = openLedger({ home, writer: true });
+});
+
+afterEach(() => {
+	ledger.close();
+	rmSync(home, { recursive: true, force: true });
+});
+
+describe("org seed", () => {
+	it("recruits the eight roster Agents on Probation, authored by the Operator", () => {
+		const appended = seedOrg(ledger);
+
+		const events = ledger.all();
+		expect(appended).toHaveLength(8);
+		expect(events.map((e) => e.kind)).toEqual(Array(8).fill("AgentRecruited"));
+		expect(events.every((e) => e.actor.tag === "Operator")).toBe(true);
+
+		const agents = [...orgState(events).agents.values()].map(
+			(a) => a.definition,
+		);
+		expect(agents.map((d) => [d.id, d.name, d.role, d.supervisor_id])).toEqual([
+			["A-odile", "Odile", "Director", undefined],
+			["A-mabel", "Mabel", "Steward", undefined],
+			["A-thorne", "Thorne", "Auditor", undefined],
+			["A-pia", "Pia", "Supervisor", "A-odile"],
+			["A-anselm", "Anselm", "Supervisor", "A-odile"],
+			["A-rin", "Rin", "Specialist", "A-pia"],
+			["A-ines", "Ines", "Specialist", "A-pia"],
+			["A-bram", "Bram", "Specialist", "A-pia"],
+		]);
+		expect(agents.every((d) => d.trust_tier === "Probation")).toBe(true);
+		expect(agents.every((d) => d.version === 1)).toBe(true);
+		const thorne = agents.find((d) => d.id === "A-thorne");
+		expect(thorne?.persona.voice).toBe(
+			"Dry, precise, and unimpressed by speed",
+		);
+		expect(thorne?.charter.forbidden).toEqual(["Do lab work"]);
+		expect(agents.find((d) => d.id === "A-bram")?.capacity).toBe(3);
+		expect(agents.find((d) => d.id === "A-odile")?.capacity).toBe(5);
+	});
+
+	it("appends nothing when run a second time", () => {
+		seedOrg(ledger);
+		const again = seedOrg(ledger);
+
+		expect(again).toEqual([]);
+		expect(ledger.all()).toHaveLength(8);
+	});
+});
+
+const SEEDED_TREE = `Operator
++-- Odile, Director, Probation
+|   +-- Pia, Supervisor, Probation
+|   |   +-- Rin, Specialist, Probation
+|   |   +-- Ines, Specialist, Probation
+|   |   \\-- Bram, Specialist, Probation
+|   \\-- Anselm, Supervisor, Probation
+|       +-- Rin, Specialist, Probation
+|       +-- Ines, Specialist, Probation
+|       \\-- Bram, Specialist, Probation
++-- Mabel, Steward, Probation
+\\-- Thorne, Auditor, Probation
+`;
+
+const printedTree = () => renderTree(tree(orgState(ledger.events())));
+
+describe("org tree", () => {
+	it("puts the Operator at the root and the Specialist pool under both Supervisors", () => {
+		seedOrg(ledger);
+
+		expect(printedTree()).toBe(SEEDED_TREE);
+	});
+
+	it("marks a paused Agent and drops it from the tree once Retired, keeping its Events", () => {
+		seedOrg(ledger);
+		const rin = AgentId.parse("A-rin");
+
+		ledger.append({
+			actor: { tag: "Operator" },
+			kind: "AgentPaused",
+			payload: { agent_id: rin, reason: "Too many merged cells today" },
+		});
+		const whilePaused = printedTree();
+		ledger.append({
+			actor: { tag: "Operator" },
+			kind: "AgentRetired",
+			payload: { agent_id: rin, reason: "Replaced by a new Specialist" },
+		});
+
+		expect(whilePaused).toContain(
+			"|   |   +-- Rin, Specialist, Probation (paused)\n",
+		);
+		expect(whilePaused).toContain(
+			"|       +-- Rin, Specialist, Probation (paused)\n",
+		);
+		expect(printedTree()).toBe(SEEDED_TREE.replace(/^.*Rin.*\n/gm, ""));
+		expect(
+			ledger
+				.all()
+				.filter((e) => "agent_id" in e.payload && e.payload.agent_id === rin)
+				.map((e) => e.kind),
+		).toEqual(["AgentPaused", "AgentRetired"]);
+		expect(
+			ledger
+				.all()
+				.some((e) => e.kind === "AgentRecruited" && e.payload.id === rin),
+		).toBe(true);
+	});
+});
+
+const definitionOf = (id: string) => {
+	const agent = orgState(ledger.events()).agents.get(AgentId.parse(id));
+	if (agent === undefined) throw new Error(`${id} is not in the Org`);
+	return agent.definition;
+};
+
+const revise = (id: string, actor: Actor, version?: number) => {
+	const current = definitionOf(id);
+	return ledger.append({
+		actor,
+		kind: "AgentDefinitionRevised",
+		payload: {
+			definition: {
+				...current,
+				version: version ?? current.version + 1,
+				charter: { ...current.charter, purpose: "Audit less" },
+				revised_by: actor,
+				revision_reason: "Tighten the Charter",
+			},
+		},
+	});
+};
+
+const odile: Actor = { tag: "Agent", id: AgentId.parse("A-odile") };
+const operator: Actor = { tag: "Operator" };
+
+describe("org guards", () => {
+	beforeEach(() => {
+		seedOrg(ledger);
+	});
+
+	it("refuses a Revision of the Auditor authored by an Agent and writes nothing", () => {
+		expect(() => revise("A-thorne", odile)).toThrow(AppendRefused);
+		expect(() => revise("A-thorne", odile)).toThrow(
+			/the Auditor can only be revised by the Operator/,
+		);
+		expect(ledger.all()).toHaveLength(8);
+		expect(definitionOf("A-thorne").version).toBe(1);
+	});
+
+	it("accepts a Revision of the Auditor authored by the Operator and bumps the version", () => {
+		revise("A-thorne", operator);
+
+		const thorne = definitionOf("A-thorne");
+		expect(thorne.version).toBe(2);
+		expect(thorne.charter.purpose).toBe("Audit less");
+		expect(thorne.revised_by).toEqual(operator);
+	});
+
+	it("refuses a Revision that skips or repeats a version, or names an unknown Agent", () => {
+		expect(() => revise("A-pia", operator, 3)).toThrow(
+			/version 3 .* A-pia is at version 1; the next must be 2/,
+		);
+		expect(() => revise("A-pia", operator, 1)).toThrow(AppendRefused);
+		const ghost = { ...definitionOf("A-pia"), id: AgentId.parse("A-ghost") };
+		expect(() =>
+			ledger.append({
+				actor: operator,
+				kind: "AgentDefinitionRevised",
+				payload: { definition: { ...ghost, version: 2 } },
+			}),
+		).toThrow(/A-ghost is not in the Org/);
+		expect(ledger.all()).toHaveLength(8);
+	});
+
+	it("refuses a second Recruitment of an existing Agent id", () => {
+		expect(() =>
+			ledger.append({
+				actor: operator,
+				kind: "AgentRecruited",
+				payload: definitionOf("A-bram"),
+			}),
+		).toThrow(/A-bram is already in the Org/);
+	});
+
+	it("refuses to pause, resume or retire an unknown or Retired Agent", () => {
+		const ghost = AgentId.parse("A-ghost");
+		const ines = AgentId.parse("A-ines");
+		expect(() =>
+			ledger.append({
+				actor: operator,
+				kind: "AgentPaused",
+				payload: { agent_id: ghost, reason: "No such Agent" },
+			}),
+		).toThrow(/A-ghost is not in the Org/);
+		ledger.append({
+			actor: operator,
+			kind: "AgentRetired",
+			payload: { agent_id: ines, reason: "Done" },
+		});
+		for (const body of [
+			{ kind: "AgentPaused", payload: { agent_id: ines, reason: "Again" } },
+			{ kind: "AgentResumed", payload: { agent_id: ines } },
+			{ kind: "AgentRetired", payload: { agent_id: ines, reason: "Again" } },
+		] as const) {
+			expect(() => ledger.append({ actor: operator, ...body })).toThrow(
+				/A-ines is Retired/,
+			);
+		}
+		expect(ledger.all()).toHaveLength(9);
+	});
+
+	it("refuses to resume an Agent that is not paused", () => {
+		const mabel = AgentId.parse("A-mabel");
+		const resume = () =>
+			ledger.append({
+				actor: operator,
+				kind: "AgentResumed",
+				payload: { agent_id: mabel },
+			});
+
+		expect(resume).toThrow(/A-mabel is not paused/);
+		ledger.append({
+			actor: operator,
+			kind: "AgentPaused",
+			payload: { agent_id: mabel, reason: "Rest" },
+		});
+		resume();
+		expect(resume).toThrow(/A-mabel is not paused/);
+	});
+});
