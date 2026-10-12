@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AppendRefused } from "../append-guard.js";
 import type { NewEvent } from "../events.js";
 import { AgentId, ArtifactId, RubricId, TaskId } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
@@ -98,5 +99,46 @@ describe("TaskProjection", () => {
 		]);
 		expect(ledger.all()).toHaveLength(5);
 		expect(tasks().get(T1)?.outputs).toEqual([output]);
+	});
+});
+
+describe("taskGuards", () => {
+	it("refuses starting a Task that is not Assigned, naming its state, and writes nothing", () => {
+		ledger.append(proposed());
+
+		expect(() => ledger.append(started())).toThrow(
+			new AppendRefused(
+				"TaskStarted refused: T-1 is Proposed, expected Assigned",
+			),
+		);
+		expect(ledger.all()).toHaveLength(1);
+	});
+
+	it("refuses completing a Task that is not InProgress or UnderReview, naming its state", () => {
+		ledger.append(proposed());
+		ledger.append(assigned());
+
+		expect(() =>
+			ledger.append(completed({ tag: "Skipped", reason: "Trusted tier" })),
+		).toThrow(
+			"TaskCompleted (review Skipped) refused: T-1 is Assigned, expected InProgress",
+		);
+		expect(() => ledger.append(completed({ tag: "Reviewed" }))).toThrow(
+			"TaskCompleted (review Reviewed) refused: T-1 is Assigned, expected UnderReview",
+		);
+	});
+
+	it("refuses an Event for a Task that does not exist", () => {
+		expect(() => ledger.append(assigned())).toThrow(
+			"TaskAssigned refused: T-1 does not exist",
+		);
+	});
+
+	it("refuses proposing a Task id that already exists", () => {
+		ledger.append(proposed());
+
+		expect(() => ledger.append(proposed())).toThrow(
+			"TaskProposed refused: T-1 already exists and is Proposed",
+		);
 	});
 });

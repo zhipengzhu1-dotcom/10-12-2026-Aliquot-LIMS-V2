@@ -70,8 +70,10 @@ afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 });
 
+// These tests cover the Ledger's mechanics, so the domain guards stay out:
+// the sample Events name Tasks that were never proposed.
 const openWriter = () => {
-	ledger = openLedger({ home, writer: true });
+	ledger = openLedger({ home, writer: true, guards: [] });
 	return ledger;
 };
 
