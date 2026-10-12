@@ -240,7 +240,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 
 	// The writer holds the lock, so no one else appends; the Events it has
 	// read once stay current and each append only adds to them.
-	let history: Event[] | undefined;
+	let appended: Event[] | undefined;
 
 	const append = (newEvent: NewEvent): Event => {
 		if (!insert) {
@@ -251,8 +251,8 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 		db.exec("BEGIN IMMEDIATE");
 		try {
 			const body = parseNewEvent(newEvent);
-			history ??= [...events()];
-			const last = history.at(-1);
+			appended ??= [...events()];
+			const last = appended.at(-1);
 			const unhashed = {
 				seq: Seq.parse((last?.seq ?? 0) + 1),
 				ts: IsoTime.parse(clock().toISOString()),
@@ -266,7 +266,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 			const hash = sha256Hex(canonicalJson(unhashed));
 			const event = Event.parse(stripUndefined({ ...unhashed, hash }));
 
-			for (const guard of guards) guard({ events: history }, event);
+			for (const guard of guards) guard({ events: appended }, event);
 
 			insert.run({
 				seq: event.seq,
@@ -280,7 +280,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 				hash: event.hash,
 			});
 			db.exec("COMMIT");
-			history.push(event);
+			appended.push(event);
 			return event;
 		} catch (error) {
 			db.exec("ROLLBACK");

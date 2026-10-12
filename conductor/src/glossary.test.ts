@@ -121,10 +121,6 @@ const ALLOWED: readonly Exemption[] = [
 /** True positives left in place for a rename. A fixed one fails the test until its line here goes. */
 const KNOWN_DRIFT: readonly { readonly file: string; readonly word: string }[] =
 	[
-		{ file: "ledger.ts", word: "history" },
-		{ file: "sandbox/commands.ts", word: "user" },
-		{ file: "stage1/commands.ts", word: "user" },
-		{ file: "org/seed.ts", word: "trainer" },
 		{ file: "sandbox/artifacts.ts", word: "provenance" },
 		{ file: "sandbox/commands.ts", word: "provenance" },
 		{ file: "sandbox/guards.ts", word: "provenance" },

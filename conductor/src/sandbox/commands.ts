@@ -13,7 +13,7 @@ import { projectScripts, registerScript } from "./scripts.js";
 
 const operator = { tag: "Operator" } as const;
 
-/** Relative paths mean relative to where the user typed the command. */
+/** Relative paths mean relative to where the Operator typed the command. */
 const fromInvocation = (path: string) =>
 	resolve(process.env.INIT_CWD ?? process.cwd(), path);
 

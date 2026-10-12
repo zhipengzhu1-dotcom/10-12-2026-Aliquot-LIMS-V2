@@ -50,14 +50,14 @@ const ROSTER: readonly RosterEntry[] = [
 		traits: ["warm"],
 		quirk: "Notices who has gone quiet",
 		purpose:
-			"Watches Vitality, aggregates Merit, holds the Energy budget, orders Rest, proposes Recruitment and Retirement, and writes Revisions as the society's trainer",
+			"Watches Vitality, aggregates Merit, holds the Energy budget, orders Rest, proposes Recruitment and Retirement, and writes Revisions that Train the society",
 		responsibilities: [
 			"Watch Vitality",
 			"Aggregate Merit",
 			"Hold the Energy budget",
 			"Order Rest",
 			"Propose Recruitment and Retirement",
-			"Write Revisions as the society's trainer",
+			"Write Revisions that Train the society",
 		],
 		forbidden: ["Assign lab work", "Accept its own proposals"],
 		escalation: "Escalate to the Operator",
