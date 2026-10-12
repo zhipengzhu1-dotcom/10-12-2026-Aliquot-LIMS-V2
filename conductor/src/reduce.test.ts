@@ -64,9 +64,13 @@ afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 });
 
+// A toy board over Tasks that were never proposed; the Task guards would
+// refuse it, and fold itself is what is under test.
+const noDomainRules = [] as const;
+
 describe("fold", () => {
 	it("folds Events into a Projection in seq order", () => {
-		const ledger = openLedger({ home, writer: true });
+		const ledger = openLedger({ home, writer: true, guards: noDomainRules });
 		ledger.append(assigned(1, odile));
 		ledger.append(assigned(2, odile));
 		ledger.append(handedOff(1));
@@ -80,7 +84,7 @@ describe("fold", () => {
 	});
 
 	it("gives equal Projections from two folds of the same Ledger", () => {
-		const writer = openLedger({ home, writer: true });
+		const writer = openLedger({ home, writer: true, guards: noDomainRules });
 		for (let n = 1; n <= 60; n++) {
 			writer.append(assigned(n, odile));
 			if (n % 4 === 0) writer.append(handedOff(n));
