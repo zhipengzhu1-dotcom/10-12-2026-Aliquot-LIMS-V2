@@ -1,13 +1,18 @@
 import { readdirSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
+import {
+	fromInvocation,
+	parseOrUsage,
+	parseTimeout,
+	withLedger,
+} from "../cli-support.js";
 import {
 	type CommandContext,
 	type CommandTable,
 	UsageError,
 } from "../command.js";
 import { AgentId } from "../ids.js";
-import { openLedger } from "../ledger.js";
 import {
 	buildImage,
 	defaultImageTag,
@@ -20,10 +25,6 @@ import {
 	runStage1,
 	type Stage1Result,
 } from "./tracer.js";
-
-/** Relative paths mean relative to where the Operator typed the command. */
-const fromInvocation = (path: string) =>
-	resolve(process.env.INIT_CWD ?? process.cwd(), path);
 
 const OPTIONS = {
 	owner: { type: "string", default: "A-rin" },
@@ -44,6 +45,10 @@ const summary = (form: string, r: Stage1Result): string => {
 		`  output    ${r.record ? `${r.record} submission.json` : "none"}`,
 		`  eval      ${r.eval_id} score ${r.evaluation.score.toFixed(3)}, ${r.evaluation.passed ? "passed" : "failed"}`,
 		...r.evaluation.findings.map((f) => `  finding   ${f}`),
+		...r.revisions.map(
+			(d) =>
+				`  revised   ${d.id} to version ${d.version}: ${d.revision_reason}`,
+		),
 	];
 	return `${lines.join("\n")}\n`;
 };
@@ -59,18 +64,12 @@ const runForms = async (
 	values: Options,
 	ctx: CommandContext,
 ): Promise<{ done: number; failed: number }> => {
-	const owner = AgentId.safeParse(values.owner);
-	if (!owner.success) {
-		throw new UsageError(
-			`--owner ${values.owner} is not an Agent id (A-<slug>)`,
-		);
-	}
-	const timeoutMs = Number(values.timeout);
-	if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
-		throw new UsageError(
-			`--timeout ${values.timeout} is not a positive whole number of ms`,
-		);
-	}
+	const owner = parseOrUsage(
+		AgentId,
+		values.owner,
+		"--owner must be an Agent id like A-rin",
+	);
+	const timeoutMs = parseTimeout(values.timeout);
 	const source = values["script-dir"]
 		? fromInvocation(values["script-dir"])
 		: join(scriptsRoot, "parse_submission");
@@ -81,14 +80,13 @@ const runForms = async (
 		(await buildImage({ tag, onOutput: (chunk) => ctx.stderr.write(chunk) }))
 			.id;
 
-	const ledger = openLedger({ home: ctx.home, writer: true });
-	try {
-		ensureOwner(ledger, owner.data);
+	return withLedger(ctx.home, true, async (ledger) => {
+		ensureOwner(ledger, owner);
 		const script = ensureScript({
 			ledger,
 			home: ctx.home,
 			source,
-			owner: owner.data,
+			owner: owner,
 			image,
 		});
 		let done = 0;
@@ -98,16 +96,14 @@ const runForms = async (
 				home: ctx.home,
 				formPath: form,
 				script: { id: script.id, version: script.version },
-				owner: owner.data,
+				owner: owner,
 				timeoutMs,
 			});
 			ctx.stdout.write(summary(basename(form), result));
 			if (result.state.tag === "Done") done++;
 		}
 		return { done, failed: forms.length - done };
-	} finally {
-		ledger.close();
-	}
+	});
 };
 
 export const stage1Commands: CommandTable = {

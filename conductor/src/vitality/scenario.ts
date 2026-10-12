@@ -2,10 +2,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Event, NewEvent } from "../events.js";
+import { projectGates } from "../gate/projection.js";
+import { gateDecision, requestGate } from "../gate/request.js";
 import {
 	AgentId,
 	ArtifactId,
 	EvaluationId,
+	type GateId,
 	RubricId,
 	RunId,
 	ScriptId,
@@ -15,7 +18,9 @@ import {
 import { type Ledger, openLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import type { Actor } from "../types/actor.js";
+import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
+import { trustTierOf } from "./trust.js";
 
 export type Scores = Pick<
 	Review,
@@ -161,9 +166,13 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		return id;
 	};
 
-	/** A Task that the Trust tier rules skip for Review. */
+	/**
+	 * A Task that the Trust tier rules skip for Review. The Ledger refuses it
+	 * unless the sample for the Agent's tier leaves the next Task id out.
+	 */
 	const skipped = (agent: AgentId): TaskId => {
 		const id = task(agent);
+		const { tier } = trustTierOf(ledger.all(), agent);
 		on(
 			id,
 			{
@@ -171,7 +180,10 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 				payload: {
 					task_id: id,
 					outputs: [artifact],
-					review: { tag: "Skipped", reason: "not sampled" },
+					review: {
+						tag: "Skipped",
+						reason: `not sampled for Review at tier ${tier}`,
+					},
 				},
 			},
 			self(agent),
@@ -215,10 +227,37 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		});
 	};
 
+	/** A Gate the Operator requests and decides at the current time. */
+	const gate = (
+		kind: GateKind,
+		payload: { agent_id: string },
+		meaning: "approve" | "reject" = "approve",
+	): GateId => {
+		const { gate_id } = requestGate(ledger, { actor: operator, kind, payload });
+		const requested = projectGates(ledger.events()).gates.get(gate_id);
+		if (requested === undefined) throw new Error(`${gate_id} was not stored`);
+		append(gateDecision(requested, now, meaning, "Checked"));
+		return gate_id;
+	};
+
+	/** Retire `agent` through an approved RetireAgent Gate. */
+	const retire = (agent: AgentId, reason: string) =>
+		append({
+			actor: operator,
+			kind: "AgentRetired",
+			payload: {
+				agent_id: agent,
+				reason,
+				gate_id: gate("RetireAgent", { agent_id: agent }),
+			},
+		});
+
 	return {
 		home,
 		ledger,
 		append,
+		gate,
+		retire,
 		task,
 		submit,
 		review,

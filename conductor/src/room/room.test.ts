@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { projectGates } from "../gate/projection.js";
+import { gateDecision, requestGate } from "../gate/request.js";
 import { AgentId, RoomId, type Seq } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
 import { orgState } from "../org/projection.js";
@@ -30,10 +32,12 @@ const listed = (...slugs: string[]): Membership => ({
 
 let home: string;
 let ledger: Ledger;
+const NOW = new Date("2026-10-12T09:00:00.000Z");
 
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-room-"));
-	ledger = openLedger({ home, writer: true });
+	// A fixed clock, so a Gate decision can sign the time the Ledger records.
+	ledger = openLedger({ home, writer: true, clock: () => NOW });
 	seedOrg(ledger);
 });
 
@@ -64,12 +68,21 @@ const say = (room_id: RoomId, actor: Actor, body: string, replyTo?: Seq) =>
 		...(replyTo === undefined ? {} : { causation_id: replyTo }),
 	});
 
+/** Retire an Agent through an approved RetireAgent Gate (ADR-0006). */
 const retire = (who: Actor) => {
 	if (who.tag !== "Agent") throw new Error("only an Agent retires");
+	const { gate_id } = requestGate(ledger, {
+		actor: operator,
+		kind: "RetireAgent",
+		payload: { agent_id: who.id },
+	});
+	const gate = projectGates(ledger.events()).gates.get(gate_id);
+	if (gate === undefined) throw new Error(`${gate_id} was not requested`);
+	ledger.append(gateDecision(gate, NOW, "approve", "left the lab"));
 	ledger.append({
 		actor: operator,
 		kind: "AgentRetired",
-		payload: { agent_id: who.id, reason: "left the lab" },
+		payload: { agent_id: who.id, reason: "left the lab", gate_id },
 	});
 };
 

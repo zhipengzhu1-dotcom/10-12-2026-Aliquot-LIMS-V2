@@ -41,6 +41,10 @@ jobs:
       - run: uv sync --directory sandbox --locked
       - run: uv run --directory sandbox ruff check .
       - run: uv run --directory sandbox ruff format --check .
+      # The forbidden real terms live only in a repository secret (ADR-0009);
+      # without it the forbidden-terms test skips with a notice.
       - run: uv run --directory sandbox pytest
+        env:
+          ALIQUOT_FORBIDDEN_TERMS: ${{ secrets.ALIQUOT_FORBIDDEN_TERMS }}
       - run: uv run --directory sandbox synth --seed 42 --out "$RUNNER_TEMP/synth-42"
       - run: docker build -f sandbox/Dockerfile -t aliquot-sandbox:ci sandbox

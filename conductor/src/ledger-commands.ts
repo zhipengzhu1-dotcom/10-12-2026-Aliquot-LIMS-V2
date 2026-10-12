@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { type CommandTable, readAll, UsageError } from "./command.js";
+import { readAll, withLedger } from "./cli-support.js";
+import { type CommandTable, UsageError } from "./command.js";
 import { canonicalJson } from "./hash.js";
-import { openLedger, parseNewEvent } from "./ledger.js";
+import { parseNewEvent } from "./ledger.js";
 
 const parseJson = (text: string): unknown => {
 	try {
@@ -28,37 +29,27 @@ export const ledgerCommands: CommandTable = {
 					? await readAll(ctx.stdin)
 					: readFileSync(file, "utf8");
 			const body = parseNewEvent(parseJson(text));
-			const ledger = openLedger({ home: ctx.home, writer: true });
-			try {
-				const event = ledger.append(body);
-				ctx.stdout.write(`${canonicalJson(event)}\n`);
-				return 0;
-			} finally {
-				ledger.close();
-			}
+			const event = withLedger(ctx.home, true, (l) => l.append(body));
+			ctx.stdout.write(`${canonicalJson(event)}\n`);
+			return 0;
 		},
 	},
 	verify: {
 		describe: "Walk the hash chain and report the first broken seq",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ledger = openLedger({ home: ctx.home, writer: false });
-			try {
-				const result = ledger.verify();
-				if (result.ok) {
-					const noun = result.count === 1 ? "Event" : "Events";
-					ctx.stdout.write(
-						`Ledger verified: ${result.count} ${noun}, chain intact\n`,
-					);
-					return 0;
-				}
-				ctx.stderr.write(
-					`Ledger broken at seq ${result.seq}: ${result.reason}\n`,
+			const result = withLedger(ctx.home, false, (l) => l.verify());
+			if (result.ok) {
+				const noun = result.count === 1 ? "Event" : "Events";
+				ctx.stdout.write(
+					`Ledger verified: ${result.count} ${noun}, chain intact\n`,
 				);
-				return 1;
-			} finally {
-				ledger.close();
+				return 0;
 			}
+			ctx.stderr.write(
+				`Ledger broken at seq ${result.seq}: ${result.reason}\n`,
+			);
+			return 1;
 		},
 	},
 };

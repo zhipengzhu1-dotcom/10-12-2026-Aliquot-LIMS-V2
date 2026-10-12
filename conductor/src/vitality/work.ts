@@ -31,6 +31,26 @@ export const openTasks = (
 	return { open, inProgress };
 };
 
+/** The assignment an Event makes: TaskAssigned or TaskHandedOff. */
+const assignmentOf = (e: Event): [TaskId, AgentId] | undefined => {
+	if (e.kind === "TaskAssigned") return [e.payload.task_id, e.payload.assignee];
+	if (e.kind === "TaskHandedOff") return [e.payload.task_id, e.payload.to];
+	return undefined;
+};
+
+/** The Agent the Task was last assigned or handed off to. */
+export const lastAssignee = (
+	events: Iterable<Event>,
+	task: TaskId,
+): AgentId | undefined => {
+	let assignee: AgentId | undefined;
+	for (const e of events) {
+		const assignment = assignmentOf(e);
+		if (assignment?.[0] === task) assignee = assignment[1];
+	}
+	return assignee;
+};
+
 /** A Review of a Task, with when it was recorded. */
 export type DatedReview = {
 	readonly review: Review;
@@ -53,19 +73,16 @@ export const workOf = (
 	const assignedAt = new Map<TaskId, number>();
 	const skipped = new Set<TaskId>();
 	const reviews: DatedReview[] = [];
-	const assign = (task: TaskId, to: AgentId, seq: number) => {
-		assignee.set(task, to);
-		if (to === agent) assignedAt.set(task, seq);
-		else assignedAt.delete(task);
-	};
 	for (const e of events) {
+		const assignment = assignmentOf(e);
+		if (assignment !== undefined) {
+			const [task, to] = assignment;
+			assignee.set(task, to);
+			if (to === agent) assignedAt.set(task, e.seq);
+			else assignedAt.delete(task);
+			continue;
+		}
 		switch (e.kind) {
-			case "TaskAssigned":
-				assign(e.payload.task_id, e.payload.assignee, e.seq);
-				break;
-			case "TaskHandedOff":
-				assign(e.payload.task_id, e.payload.to, e.seq);
-				break;
 			case "TaskCompleted":
 				if (e.payload.review.tag === "Skipped") skipped.add(e.payload.task_id);
 				break;

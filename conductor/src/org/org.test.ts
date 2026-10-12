@@ -3,18 +3,52 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
-import { AgentId } from "../ids.js";
+import { projectGates } from "../gate/projection.js";
+import { gateDecision, requestGate } from "../gate/request.js";
+import { AgentId, GateId } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
 import type { Actor } from "../types/actor.js";
+import type { GateKind } from "../types/gate.js";
 import { orgState, renderTree, tree } from "./projection.js";
 import { seedOrg } from "./seed.js";
 
 let home: string;
 let ledger: Ledger;
+const NOW = new Date("2026-10-12T09:00:00.000Z");
+
+/** Request a Gate as the Operator and decide it. */
+const decidedGate = (
+	kind: GateKind,
+	payload: { agent_id: string; reason?: string },
+	meaning: "approve" | "reject" = "approve",
+): GateId => {
+	const { gate_id } = requestGate(ledger, {
+		actor: { tag: "Operator" },
+		kind,
+		payload,
+	});
+	const gate = projectGates(ledger.events()).gates.get(gate_id);
+	if (gate === undefined) throw new Error(`${gate_id} was not requested`);
+	ledger.append(gateDecision(gate, NOW, meaning, "Checked"));
+	return gate_id;
+};
+
+/** Retire `id` as the Operator through an approved RetireAgent Gate. */
+const retire = (id: AgentId, reason: string) =>
+	ledger.append({
+		actor: { tag: "Operator" },
+		kind: "AgentRetired",
+		payload: {
+			agent_id: id,
+			reason,
+			gate_id: decidedGate("RetireAgent", { agent_id: id, reason }),
+		},
+	});
 
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-org-"));
-	ledger = openLedger({ home, writer: true });
+	// A fixed clock, so a Gate decision can sign the time the Ledger records.
+	ledger = openLedger({ home, writer: true, clock: () => NOW });
 });
 
 afterEach(() => {
@@ -67,10 +101,8 @@ describe("org seed", () => {
 const SEEDED_TREE = `Operator
 +-- Odile, Director, Probation
 |   +-- Pia, Supervisor, Probation
-|   |   +-- Rin, Specialist, Probation
-|   |   +-- Ines, Specialist, Probation
-|   |   \\-- Bram, Specialist, Probation
-|   \\-- Anselm, Supervisor, Probation
+|   +-- Anselm, Supervisor, Probation
+|   \\-- Specialist pool, reports to Pia and Anselm
 |       +-- Rin, Specialist, Probation
 |       +-- Ines, Specialist, Probation
 |       \\-- Bram, Specialist, Probation
@@ -81,10 +113,21 @@ const SEEDED_TREE = `Operator
 const printedTree = () => renderTree(tree(orgState(ledger.events())));
 
 describe("org tree", () => {
-	it("puts the Operator at the root and the Specialist pool under both Supervisors", () => {
+	it("puts the Operator at the root and the Specialist pool once under the Director, beside both Supervisors", () => {
 		seedOrg(ledger);
 
 		expect(printedTree()).toBe(SEEDED_TREE);
+	});
+
+	it("names only the live Supervisors the Specialist pool reports to", () => {
+		seedOrg(ledger);
+		retire(AgentId.parse("A-pia"), "Merged intake into review");
+
+		expect(printedTree()).toContain(
+			"|   +-- Anselm, Supervisor, Probation\n" +
+				"|   \\-- Specialist pool, reports to Anselm\n" +
+				"|       +-- Rin, Specialist, Probation\n",
+		);
 	});
 
 	it("marks a paused Agent and drops it from the tree once Retired, keeping its Events", () => {
@@ -97,17 +140,13 @@ describe("org tree", () => {
 			payload: { agent_id: rin, reason: "Too many merged cells today" },
 		});
 		const whilePaused = printedTree();
-		ledger.append({
-			actor: { tag: "Operator" },
-			kind: "AgentRetired",
-			payload: { agent_id: rin, reason: "Replaced by a new Specialist" },
-		});
+		retire(rin, "Replaced by a new Specialist");
 
-		expect(whilePaused).toContain(
-			"|   |   +-- Rin, Specialist, Probation (paused)\n",
-		);
-		expect(whilePaused).toContain(
-			"|       +-- Rin, Specialist, Probation (paused)\n",
+		expect(whilePaused).toBe(
+			SEEDED_TREE.replace(
+				"Rin, Specialist, Probation",
+				"Rin, Specialist, Probation (paused)",
+			),
 		);
 		expect(printedTree()).toBe(SEEDED_TREE.replace(/^.*Rin.*\n/gm, ""));
 		expect(
@@ -189,6 +228,90 @@ describe("org guards", () => {
 		expect(ledger.all()).toHaveLength(8);
 	});
 
+	it("revises an Agent to Mentor only through an approved PromoteToMentor Gate, one Gate per Promotion", () => {
+		const toTier = (trust_tier: "Senior" | "Mentor") => {
+			const current = definitionOf("A-pia");
+			return ledger.append({
+				actor: operator,
+				kind: "AgentDefinitionRevised",
+				payload: {
+					definition: {
+						...current,
+						version: current.version + 1,
+						trust_tier,
+						revised_by: operator,
+						revision_reason: `Trust tier ${current.trust_tier} -> ${trust_tier}`,
+					},
+				},
+			});
+		};
+		const refusal =
+			/AgentDefinitionRevised refused: A-pia cannot become Mentor without an approved PromoteToMentor Gate naming it/;
+
+		expect(() => toTier("Mentor")).toThrow(refusal);
+		decidedGate("PromoteToMentor", { agent_id: "A-ines" });
+		decidedGate("PromoteToMentor", { agent_id: "A-pia" }, "reject");
+		decidedGate("RetireAgent", { agent_id: "A-pia" });
+		expect(() => toTier("Mentor")).toThrow(refusal);
+
+		decidedGate("PromoteToMentor", { agent_id: "A-pia" });
+		toTier("Mentor");
+		expect(definitionOf("A-pia").trust_tier).toBe("Mentor");
+
+		toTier("Senior");
+		expect(() => toTier("Mentor")).toThrow(refusal);
+		decidedGate("PromoteToMentor", { agent_id: "A-pia" });
+		toTier("Mentor");
+		expect(definitionOf("A-pia").trust_tier).toBe("Mentor");
+	});
+
+	it("refuses a definition whose author is not the actor, or that gives no reason", () => {
+		const pia = definitionOf("A-pia");
+		const next = { ...pia, version: 2, revision_reason: "Sharper Charter" };
+		const recruit = (revised_by: Actor, actor: Actor) =>
+			ledger.append({
+				actor,
+				kind: "AgentRecruited",
+				payload: {
+					...pia,
+					id: AgentId.parse("A-nova"),
+					name: "Nova",
+					revised_by,
+				},
+			});
+
+		expect(() => recruit(odile, operator)).toThrow(
+			/AgentRecruited refused: A-nova's definition names A-odile as revised_by, but the actor is Operator/,
+		);
+		expect(() =>
+			ledger.append({
+				actor: odile,
+				kind: "AgentDefinitionRevised",
+				payload: { definition: { ...next, revised_by: operator } },
+			}),
+		).toThrow(
+			/AgentDefinitionRevised refused: A-pia's definition names Operator as revised_by, but the actor is A-odile/,
+		);
+		expect(() =>
+			ledger.append({
+				actor: operator,
+				kind: "AgentDefinitionRevised",
+				payload: {
+					definition: { ...next, revised_by: operator, revision_reason: "" },
+				},
+			}),
+		).toThrow(/revision_reason/);
+		expect(ledger.all()).toHaveLength(8);
+
+		recruit(odile, odile);
+		ledger.append({
+			actor: odile,
+			kind: "AgentDefinitionRevised",
+			payload: { definition: { ...next, revised_by: odile } },
+		});
+		expect(definitionOf("A-pia").revised_by).toEqual(odile);
+	});
+
 	it("refuses a second Recruitment of an existing Agent id", () => {
 		expect(() =>
 			ledger.append({
@@ -209,11 +332,7 @@ describe("org guards", () => {
 				payload: { agent_id: ghost, reason: "No such Agent" },
 			}),
 		).toThrow(/A-ghost is not in the Org/);
-		ledger.append({
-			actor: operator,
-			kind: "AgentRetired",
-			payload: { agent_id: ines, reason: "Done" },
-		});
+		retire(ines, "Done");
 		for (const body of [
 			{ kind: "AgentPaused", payload: { agent_id: ines, reason: "Again" } },
 			{ kind: "AgentResumed", payload: { agent_id: ines } },
@@ -223,7 +342,53 @@ describe("org guards", () => {
 				/A-ines is Retired/,
 			);
 		}
-		expect(ledger.all()).toHaveLength(9);
+		expect(ledger.all().at(-1)?.kind).toBe("AgentRetired");
+	});
+
+	it("retires an Agent only through an approved RetireAgent Gate naming it, as the Operator", () => {
+		const bram = AgentId.parse("A-bram");
+		const retireWith = (gate_id: GateId | undefined, actor: Actor = operator) =>
+			ledger.append({
+				actor,
+				kind: "AgentRetired",
+				payload: {
+					agent_id: bram,
+					reason: "Replaced",
+					...(gate_id === undefined ? {} : { gate_id }),
+				},
+			});
+		const forInes = decidedGate("RetireAgent", { agent_id: "A-ines" });
+		const rejected = decidedGate(
+			"RetireAgent",
+			{ agent_id: "A-bram" },
+			"reject",
+		);
+		const wrongKind = decidedGate("PromoteToMentor", { agent_id: "A-bram" });
+		const approved = decidedGate("RetireAgent", { agent_id: "A-bram" });
+		const before = ledger.all().length;
+
+		expect(() => retireWith(undefined)).toThrow(
+			/AgentRetired refused: retiring A-bram needs an approved RetireAgent Gate naming it/,
+		);
+		expect(() => retireWith(forInes)).toThrow(
+			/G-1 is a RetireAgent Gate, Approved, naming A-ines/,
+		);
+		expect(() => retireWith(rejected)).toThrow(
+			/G-2 is a RetireAgent Gate, Rejected, naming A-bram/,
+		);
+		expect(() => retireWith(wrongKind)).toThrow(
+			/G-3 is a PromoteToMentor Gate, Approved, naming A-bram/,
+		);
+		expect(() => retireWith(GateId.parse("G-9"))).toThrow(
+			/AgentRetired refused: no Gate G-9 was requested/,
+		);
+		expect(() => retireWith(approved, odile)).toThrow(
+			/AgentRetired refused: only the Operator retires an Agent; A-odile tried to retire A-bram/,
+		);
+		expect(ledger.all()).toHaveLength(before);
+
+		retireWith(approved);
+		expect(orgState(ledger.events()).agents.get(bram)?.retired).toBe(true);
 	});
 
 	it("refuses to resume an Agent that is not paused", () => {

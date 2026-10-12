@@ -109,7 +109,7 @@ describe("artifact projection", () => {
 	});
 });
 
-describe("provenance", () => {
+describe("productions", () => {
 	it("records each Run that produces bytes the Ledger already holds, once, and keeps the Operator's record canonical", () => {
 		const artifacts = openArtifacts({ ledger, home });
 		const input = artifacts.store(Buffer.from("lot LT-0042\n"), form, {
@@ -164,7 +164,7 @@ describe("provenance", () => {
 
 		const projection = projectArtifacts(ledger);
 		expect(projection.artifacts.get(input.id)).toEqual(input);
-		expect(projection.provenance.get(input.id)).toEqual([input, copy]);
+		expect(projection.productions.get(input.id)).toEqual([input, copy]);
 		expect(lineageOf(projection, input.id)).toEqual([]);
 		expect(lineageOf(projection, input.id, { tag: "Run", id: run })).toEqual([
 			input.id,

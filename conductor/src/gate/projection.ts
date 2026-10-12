@@ -1,6 +1,6 @@
-import type { PayloadOf } from "../events.js";
-import type { GateId, IsoTime, Sha256, TaskId } from "../ids.js";
-import type { Projection } from "../reduce.js";
+import type { Event, PayloadOf } from "../events.js";
+import type { AgentId, GateId, IsoTime, Sha256, TaskId } from "../ids.js";
+import { fold, type Projection } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { GateDecision, GateKind, GateState } from "../types/gate.js";
 
@@ -70,3 +70,34 @@ export const gateState = (gate: Gate, now: Date): GateState => {
 	}
 	return now.getTime() >= expiresAt(gate).getTime() ? "Expired" : "Open";
 };
+
+export const projectGates = (events: Iterable<Event>): Gates =>
+	fold(events, GateProjection.reduce, GateProjection.init);
+
+/** A string field of a Gate payload that is a JSON object, if it has one. */
+export const payloadText = (gate: Gate, field: string): string | undefined => {
+	const p = gate.payload;
+	if (typeof p !== "object" || p === null || Array.isArray(p)) return undefined;
+	const value = p[field];
+	return typeof value === "string" ? value : undefined;
+};
+
+/** The Agent a Gate payload names as `agent_id`, if any. */
+export const agentNamedBy = (gate: Gate): string | undefined =>
+	payloadText(gate, "agent_id");
+
+/**
+ * Gates of `kind` that the Operator approved and whose payload names
+ * `agentId` as `agent_id`, in request order.
+ */
+export const approvedGatesFor = (
+	gates: Gates,
+	kind: GateKind,
+	agentId: AgentId,
+): readonly Gate[] =>
+	[...gates.gates.values()].filter(
+		(gate) =>
+			gate.kind === kind &&
+			gate.decision?.meaning === "approve" &&
+			agentNamedBy(gate) === agentId,
+	);

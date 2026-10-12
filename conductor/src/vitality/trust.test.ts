@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { canonicalJson, sha256Hex } from "../hash.js";
-import { AgentId, GateId, IsoTime, TaskId } from "../ids.js";
+import { AgentId, TaskId } from "../ids.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { standingOf } from "./merit.js";
 import { type Scenario, type Scores, scenario, scores } from "./scenario.js";
@@ -180,43 +179,13 @@ describe("trustTierOf", () => {
 	});
 
 	it("needs an approved PromoteToMentor Gate naming the Agent for Mentor", () => {
-		const promote = (
-			gate: string,
-			agent: string,
-			meaning: "approve" | "reject",
-		) => {
-			const payload = { agent_id: agent };
-			const payload_hash = sha256Hex(canonicalJson(payload));
-			const gate_id = GateId.parse(gate);
-			s.append({
-				actor: { tag: "Agent", id: AgentId.parse("A-mabel") },
-				kind: "GateRequested",
-				payload: {
-					gate_id,
-					kind: "PromoteToMentor",
-					payload,
-					payload_hash,
-					lifetime_s: 3600,
-				},
-			});
-			s.append({
-				actor: { tag: "Operator" },
-				kind: "GateDecided",
-				payload: {
-					gate_id,
-					decided_by: { tag: "Operator" },
-					decided_at: IsoTime.parse(s.now().toISOString()),
-					payload_hash,
-					meaning,
-					reason: "Mentor review",
-				},
-			});
-		};
+		const promote = (agent: string, meaning: "approve" | "reject") =>
+			s.gate("PromoteToMentor", { agent_id: agent }, meaning);
 		repeat(20, () => s.reviewed(rin, scores(3)));
-		promote("G-1", "A-ines", "approve");
-		promote("G-2", "A-rin", "reject");
+		promote("A-ines", "approve");
+		promote("A-rin", "reject");
 		expect(tier()).toBe("Senior");
-		promote("G-3", "A-rin", "approve");
+		promote("A-rin", "approve");
 		expect(tier()).toBe("Mentor");
 	});
 });

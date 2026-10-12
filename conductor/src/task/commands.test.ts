@@ -42,6 +42,21 @@ const propose = (title: string, tat: string, priority: string) =>
 		priority,
 	).trim();
 
+const REVIEW_SCORES = [
+	"--quality",
+	"3",
+	"--traceability",
+	"3",
+	"--boundary",
+	"3",
+	"--collaboration",
+	"3",
+	"--timeliness",
+	"3",
+	"--note",
+	"Clean work",
+];
+
 const ledgerEvents = () => {
 	const ledger = openLedger({ home, writer: false });
 	try {
@@ -74,6 +89,7 @@ describe("aliquot task", () => {
 			"--as",
 			"A-odile",
 		);
+		ok("vitality", "review", id, ...REVIEW_SCORES, "--as", "A-rin");
 		ok("task", "complete", id, "--reviewed", "--as", "A-rin");
 
 		expect(id).toBe("T-1");
@@ -82,6 +98,7 @@ describe("aliquot task", () => {
 			["TaskAssigned", "T-1", { tag: "Operator" }],
 			["TaskStarted", "T-1", { tag: "Agent", id: "A-odile" }],
 			["TaskCompleted", "T-1", { tag: "Agent", id: "A-odile" }],
+			["ReviewRecorded", "T-1", { tag: "Agent", id: "A-rin" }],
 			["TaskCompleted", "T-1", { tag: "Agent", id: "A-rin" }],
 		]);
 		expect(ok("task", "list")).toBe(
@@ -117,7 +134,7 @@ describe("aliquot task", () => {
 		);
 		ok("task", "assign", "T-3", "A-odile");
 		ok("task", "start", "T-3");
-		ok(
+		const skip = aliquot(
 			"task",
 			"complete",
 			"T-3",
@@ -125,8 +142,22 @@ describe("aliquot task", () => {
 			"--reason",
 			"Trusted tier, 1 in 3",
 		);
+		expect(skip.status).toBe(1);
+		expect(skip.stderr).toBe(
+			"AppendRefused: TaskCompleted (review Skipped) refused: A-odile is on Probation; every Task is reviewed\n",
+		);
+		ok(
+			"task",
+			"complete",
+			"T-3",
+			"--review-required",
+			"--reviewer",
+			"Operator",
+		);
+		ok("vitality", "review", "T-3", ...REVIEW_SCORES);
+		ok("task", "complete", "T-3", "--reviewed");
 
-		expect(ledgerEvents().at(-4)?.payload).toMatchObject({
+		expect(ledgerEvents().at(-6)?.payload).toMatchObject({
 			from: "A-odile",
 			to: "A-rin",
 		});

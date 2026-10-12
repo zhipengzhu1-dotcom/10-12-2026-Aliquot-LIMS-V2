@@ -51,7 +51,7 @@ uv run --directory sandbox synth --seed 42 --out /tmp/synth-42
 
 The output directory gets `submission_form.docx`, `receiving_log.xlsx`, `result_worksheet.xlsx`, `report_of_analysis.xlsx`, and `manifest.json`, which holds the invented record so tests can check the documents without parsing them. `uv run --directory sandbox` runs in `sandbox/`, so a relative `--out` path lands under `sandbox/`. Every name, address, code, and Lot number is invented.
 
-To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Keep the list out of the repository. Without the variable, that test is skipped.
+To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms, and until then the test skips with a notice.
 
 ### Data directory
 
@@ -59,11 +59,11 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. Then it runs stage 1 on every Fixture with `stage1 run-all fixtures` (see Stage 1 tracer). The `sandbox` job runs ruff check, ruff format check, pytest, the synthetic generator, and `docker build` of the Sandbox image.
+`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. Then it runs stage 1 on every Fixture with `stage1 run-all fixtures` (see Stage 1 tracer). The `sandbox` job runs ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), the synthetic generator, and `docker build` of the Sandbox image.
 
 ## Ledger
 
-The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing.
+The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
 Append one Event. The body is JSON with `actor`, `kind`, and `payload`, plus optional `task_id` and `causation_id`; give a file path, or pipe the body to stdin. The command prints the stored Event, or refuses an unknown `kind` or a malformed payload and writes nothing. Domain guards also refuse Events that break a rule, such as pausing an Agent that was never recruited, so this example needs `org seed` first (see Org).
 
@@ -90,26 +90,48 @@ Recruit the eight-agent starting roster, all on `Probation`. A second run append
 pnpm -C conductor cli --home /tmp/aliquot org seed
 ```
 
-Print the tree: the Operator at the root, the Director, Steward and Auditor under it, the Supervisors under the Director, and the Specialist pool under both Supervisors. Retired Agents are left out.
+Print the tree: the Operator at the root, the Director, Steward and Auditor under it, and the Supervisors under the Director. The Specialists report to both Supervisors as one pool, so they appear once, under a `Specialist pool, reports to Pia and Anselm` line beside the Supervisors. Retired Agents are left out.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot org tree
 ```
 
-Pause, resume, retire, or revise an Agent. `revise` takes a JSON file with the full next definition; its `version` must be the current version plus 1.
+```text
+Operator
++-- Odile, Director, Probation
+|   +-- Pia, Supervisor, Probation
+|   +-- Anselm, Supervisor, Probation
+|   \-- Specialist pool, reports to Pia and Anselm
+|       +-- Rin, Specialist, Probation
+|       +-- Ines, Specialist, Probation
+|       \-- Bram, Specialist, Probation
++-- Mabel, Steward, Probation
+\-- Thorne, Auditor, Probation
+```
+
+Pause, resume, or revise an Agent. `revise` takes a JSON file with the full next definition; its `version` must be the current version plus 1.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot org pause A-rin --reason "Energy budget review"
 pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
-pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced"
 pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
 ```
 
-These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused.
+These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty.
+
+Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced" --as A-mabel   # prints G-1 and its hash
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "Rin is replaced"
+pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --gate G-1
+```
+
+The Ledger refuses an `AgentRetired` that is not written by the Operator, or whose `gate_id` does not name an approved `RetireAgent` Gate with that Agent as `agent_id` in its payload.
 
 ## Tasks
 
-A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. A Task that the Trust tier rules skip for Review goes from `InProgress` straight to `Done`.
+A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. A Task that the Trust tier rules skip for Review goes from `InProgress` straight to `Done`. The Ledger refuses that skip unless the sample for the assignee's current Trust tier leaves the Task out (every Task on `Probation` is reviewed; 1 in 3 at `Trusted`; 1 in 5 at `Senior` and `Mentor`, picked from the hash of the Task id). It also refuses `TaskCompleted` with `review: Reviewed` until the reviewer named at `--review-required` has recorded a Review of the Task, and from anyone but that reviewer.
 
 Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
 
@@ -119,6 +141,8 @@ pnpm -C conductor cli --home /tmp/aliquot task propose --title "Parse the Submis
 pnpm -C conductor cli --home /tmp/aliquot task assign T-1 A-odile
 pnpm -C conductor cli --home /tmp/aliquot task start T-1 --as A-odile
 pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --review-required --reviewer Operator --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 --boundary 3 \
+  --collaboration 3 --timeliness 3 --note "Clean work"
 pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewed
 pnpm -C conductor cli --home /tmp/aliquot task list
 ```
@@ -159,26 +183,26 @@ Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the
 pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --task T-3 --as A-bram
 ```
 
-List the open Gates with their kind, requester, age, and a one-line payload summary. `--all` lists every Gate with its state. A Gate that nobody decides within its lifetime shows as `Expired`; no Event records the expiry.
+List the open Gates with their kind, requester, age, payload hash, and a one-line payload summary. `--all` lists every Gate with its state. A Gate that nobody decides within its lifetime shows as `Expired`; no Event records the expiry.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate list
 pnpm -C conductor cli --home /tmp/aliquot gate show G-1
 ```
 
-Decide a Gate as the Operator. The command hashes the payload stored in the Ledger and prints the decision Event.
+`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The command refuses with a usage error, and writes nothing, when that hash is not the Gate's stored `payload_hash`. Otherwise it records the decision and prints the decision Event.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --reason "diff checked"
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
 ```
 
 The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate.
 
 ## Sandbox
 
-Every Script runs in a Docker container, never in the Conductor's process (ADR-0003). The image is `sandbox/Dockerfile`: `python:3.13-slim` with openpyxl, python-docx, pdfplumber, and reportlab from the hash-locked `sandbox/image-requirements.txt`, run as uid 10001. Each Run gets `--network none --cap-drop ALL --cpus 1 --memory 512m --pids-limit 256 --read-only --tmpfs /tmp`, the Script and its inputs mounted read-only, and a fresh output directory. A Run that outlives its time limit is stopped with `docker kill` and finishes with exit code 137.
+Every Script runs in a Docker container, never in the Conductor's process (ADR-0003). The image is `sandbox/Dockerfile`: `python:3.13-slim` with openpyxl, python-docx, pdfplumber, and reportlab from the hash-locked `sandbox/image-requirements.txt`, run as uid 10001. Each Run gets `--network none --cap-drop ALL --cpus 1 --memory 512m --pids-limit 256 --read-only --tmpfs /tmp`, the Script and its inputs mounted read-only, and a fresh output directory. A Run that outlives its time limit is stopped with `docker kill` and finishes with exit code 124, the timeout convention, and a closing line in its stderr Artifact saying so. Exit code 137 means Docker killed the container for another reason, such as running out of memory.
 
-Artifacts are stored by content in `<home>/blobs/<sha256>`, so the same bytes always get the same id. Identity is per content and provenance is per production: the first store of some bytes is their canonical record, and each Run that produces the same bytes again appends its own `ArtifactStored` record with its Lineage, so a copy Run's output is the input's id with a second record whose Lineage lists the input.
+Artifacts are stored by content in `<home>/blobs/<sha256>`, so the same bytes always get the same id. Identity is per content, and each production has its own record: the first store of some bytes is their canonical record, and each Run that produces the same bytes again appends its own `ArtifactStored` record with its Lineage, so a copy Run's output is the input's id with a second record whose Lineage lists the input.
 
 ```sh
 H=/tmp/aliquot   # an absolute path, because pnpm -C conductor runs from conductor/
@@ -210,7 +234,7 @@ Vitality, Mood, Policy, Merit, and the Trust tier are Projections over the Ledge
 - Vitality is computed from Events: `load` from open Tasks against `capacity`, `friction` and `confidence` from the Agent's last 10 Tasks, and `morale` from the slope of Review means over the last 7 days. No Event records token use yet, so `fatigue` comes from `--tokens`, and is 0 without it. From slice 1 the Conductor supplies it from each Turn's `modelUsage`.
 - Mood follows the first matching rule of the Mood table, and Policy follows from Mood. A resting Agent is unschedulable.
 - Merit is the mean of every dimension score over the Agent's last 20 reviewed Tasks. Tasks skipped for Review do not count.
-- The Trust tier starts at `Probation` and rises when Merit and tenure meet a tier's bar with no boundary score below 2 in the window. A boundary score of 0 demotes one tier at once, and the Agent cannot regain that tier until the 0 leaves its window. `Mentor` also needs an approved `PromoteToMentor` Gate whose payload has the Agent as its `agent_id`.
+- The Trust tier starts at `Probation` and rises when Merit and tenure meet a tier's bar with no boundary score below 2 in the window. A boundary score of 0 demotes one tier at once, and the Agent cannot regain that tier until the 0 leaves its window. `Mentor` also needs an approved `PromoteToMentor` Gate whose payload has the Agent as its `agent_id`. Each Promotion to `Mentor` uses one such Gate, so a return after a Demotion needs a new one; the Ledger refuses a Revision to `Mentor` without an unused approved Gate.
 
 Show every live Agent, or one:
 
@@ -219,14 +243,14 @@ pnpm -C conductor cli --home /tmp/aliquot vitality show
 pnpm -C conductor cli --home /tmp/aliquot vitality show A-rin
 ```
 
-Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee.
+Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee. In the same command, after the Review, it appends any Revision that brings a `trust_tier` in line with the projected tier, caused by the Review, and prints it. So a boundary score of 0 on a `Trusted` Agent records the Review and the Demotion together.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 \
   --boundary 3 --collaboration 2 --timeliness 3 --note "IDs agree across Artifacts"
 ```
 
-List the Revisions that bring each Agent definition's `trust_tier` in line with its projected tier, then append them with `--apply`. When every tier is already in line, the command appends nothing.
+List the Revisions that bring each Agent definition's `trust_tier` in line with its projected tier, then append them with `--apply`. `vitality review` and the stage 1 tracer already do this after each Review, so `--apply` only catches up a Ledger written without them, or a tier that changed through a `PromoteToMentor` Gate. When every tier is already in line, the command appends nothing.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality tiers
@@ -258,7 +282,8 @@ The command does these steps in one process:
 4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
 5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
 6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
-7. It records `EvaluationRecorded`. Then it records `TaskCompleted` (Review skipped, the record as output) when the Evaluation passed, or `TaskFailed` with the findings when it did not.
+7. It records `EvaluationRecorded`. When the Evaluation failed, it records `TaskFailed` with the findings.
+8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. After the Review it appends any Trust tier Revision the Review earned, caused by the Review, and prints it as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
 The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
 
@@ -266,7 +291,7 @@ The command prints the Task, Run, output Artifact, and score, and exits 0 when t
 - `--timeout <ms>` sets the Run's time limit. The default is 60000.
 - `--script-dir <dir>` runs another copy of the Script. The tests use it to prove that a record without a Lot fails.
 
-After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`.
+After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin` is on `Probation`, so the Task goes through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`.
 
 | seq | kind | task | causation |
 |---|---|---|---|
@@ -280,6 +305,8 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 | 15–17 | ArtifactStored (`submission.json`, stdout, stderr; Lineage the Fixture) | T-1 | 14 |
 | 18 | RunFinished | T-1 | 14 |
 | 19 | EvaluationRecorded (score 1, passed) | T-1 | 18 |
-| 20 | TaskCompleted (Review skipped) | T-1 | 19 |
+| 20 | TaskCompleted (Review required from A-pia), as A-rin | T-1 | 19 |
+| 21 | ReviewRecorded (3 on every dimension), as A-pia | T-1 | 20 |
+| 22 | TaskCompleted (Reviewed), as A-pia | T-1 | 21 |
 
 `task list` shows T-1 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage and the record with a Lineage of the Fixture. CI runs `stage1 run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. To add a Fixture, see [fixtures/README.md](fixtures/README.md).

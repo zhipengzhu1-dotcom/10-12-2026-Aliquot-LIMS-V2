@@ -22,8 +22,8 @@ type RosterEntry = {
 //
 // The Specialists report to both Supervisors as one pool, but `supervisor_id`
 // holds one Agent, so it names Pia (intake, the first stage a Specialist
-// works on) as the primary line. The tree lists the pool under every
-// Supervisor; see `tree` in projection.ts.
+// works on) as the primary line. The tree prints the pool once, as a node
+// that reports to every live Supervisor; see `tree` in projection.ts.
 const ROSTER: readonly RosterEntry[] = [
 	{
 		slug: "odile",

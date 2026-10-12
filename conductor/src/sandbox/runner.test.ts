@@ -87,11 +87,11 @@ describe.skipIf(!docker)(suite, () => {
 			"lot LT-0042, 3 containers\n",
 		);
 
-		// Identity is per content, provenance is per production: the input keeps
-		// its Operator record as canonical, and the Run adds its own record.
+		// Identity is per content, and each production has its own record: the
+		// input keeps its Operator record as canonical, and the Run adds its own.
 		const projection = projectArtifacts(ledger);
 		expect(projection.artifacts.get(input.id)).toEqual(input);
-		const records = projection.provenance.get(input.id);
+		const records = projection.productions.get(input.id);
 		expect(records).toHaveLength(2);
 		expect(records?.[0]).toEqual(input);
 		expect(records?.[1]).toMatchObject({
@@ -187,11 +187,15 @@ describe.skipIf(!docker)(suite, () => {
 		});
 
 		expect(performance.now() - started).toBeLessThan(30_000);
-		expect(run.exit_code).toBe(137);
+		// 124, the timeout convention, so Docker's 137 keeps meaning an OOM or
+		// an outside kill.
+		expect(run.exit_code).toBe(124);
 		expect(run.duration_ms).toBeGreaterThanOrEqual(3_000);
 		expect(
 			openArtifacts({ ledger, home }).read(run.stderr_ref).toString(),
-		).toMatch(/killed after the 3000 ms time limit/);
+		).toMatch(
+			/killed after the 3000 ms time limit \(docker kill [^)]+\); exit code 124, the time-limit code/,
+		);
 		expect(projectRuns(ledger).runs.get(run.id)?.finished).toEqual(run);
 	}, 120_000);
 });

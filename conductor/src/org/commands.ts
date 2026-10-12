@@ -1,15 +1,16 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { z } from "zod";
+import { parseActor, parseOrUsage, withLedger } from "../cli-support.js";
 import {
 	type CommandContext,
 	type CommandTable,
 	UsageError,
 } from "../command.js";
 import type { NewEvent } from "../events.js";
-import { AgentId } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
-import type { Actor } from "../types/actor.js";
+import { payloadText, projectGates } from "../gate/projection.js";
+import { requestGate } from "../gate/request.js";
+import { AgentId, GateId } from "../ids.js";
 import { AgentDefinition } from "../types/agent-definition.js";
 import { orgState, renderTree, tree } from "./projection.js";
 import { rosterDefinitions, seedOrg } from "./seed.js";
@@ -17,6 +18,7 @@ import { rosterDefinitions, seedOrg } from "./seed.js";
 const options = {
 	reason: { type: "string" },
 	as: { type: "string" },
+	gate: { type: "string" },
 } as const;
 
 /** Parse `<id> [more positionals] [--reason R] [--as A-<id>]`. */
@@ -27,26 +29,17 @@ const parse = (command: string, args: string[], positionals: string[]) => {
 			`org ${command} takes ${positionals.map((p) => `<${p}>`).join(" ")}`,
 		);
 	}
-	const id = AgentId.safeParse(parsed.positionals[0]);
-	if (!id.success) {
-		throw new UsageError(
-			`org ${command}: ${parsed.positionals[0]} is not an Agent id (A-<slug>)`,
-		);
-	}
-	const as = parsed.values.as;
-	let actor: Actor = { tag: "Operator" };
-	if (as !== undefined) {
-		const asId = AgentId.safeParse(as);
-		if (!asId.success) {
-			throw new UsageError(`org ${command}: --as ${as} is not an Agent id`);
-		}
-		actor = { tag: "Agent", id: asId.data };
-	}
 	return {
-		id: id.data,
+		id: parseOrUsage(
+			AgentId,
+			parsed.positionals[0],
+			`org ${command} takes an Agent id like A-rin`,
+		),
 		rest: parsed.positionals.slice(1),
 		reason: parsed.values.reason,
-		actor,
+		as: parsed.values.as,
+		gate: parsed.values.gate,
+		actor: parseActor(parsed.values.as),
 	};
 };
 
@@ -57,17 +50,8 @@ const needReason = (command: string, reason: string | undefined) => {
 	return reason;
 };
 
-const withWriter = <T>(ctx: CommandContext, use: (ledger: Ledger) => T): T => {
-	const ledger = openLedger({ home: ctx.home, writer: true });
-	try {
-		return use(ledger);
-	} finally {
-		ledger.close();
-	}
-};
-
 const appendOne = (ctx: CommandContext, event: NewEvent, done: string) => {
-	withWriter(ctx, (ledger) => ledger.append(event));
+	withLedger(ctx.home, true, (ledger) => ledger.append(event));
 	ctx.stdout.write(`${done}\n`);
 	return 0;
 };
@@ -86,7 +70,7 @@ export const orgCommands: CommandTable = {
 			"Recruit the eight-agent starting roster; a second run appends nothing",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ids = withWriter(ctx, seedOrg);
+			const ids = withLedger(ctx.home, true, seedOrg);
 			if (ids.length === 0) {
 				const count = rosterDefinitions().length;
 				ctx.stdout.write(
@@ -103,13 +87,9 @@ export const orgCommands: CommandTable = {
 		describe: "Print the reporting tree of live Agents under the Operator",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ledger = openLedger({ home: ctx.home, writer: false });
-			try {
-				ctx.stdout.write(renderTree(tree(orgState(ledger.events()))));
-				return 0;
-			} finally {
-				ledger.close();
-			}
+			const state = withLedger(ctx.home, false, (l) => orgState(l.events()));
+			ctx.stdout.write(renderTree(tree(state)));
+			return 0;
 		},
 	},
 	pause: {
@@ -141,19 +121,47 @@ export const orgCommands: CommandTable = {
 		},
 	},
 	retire: {
-		args: "<id> --reason <text> [--as <agent>]",
-		describe: "Retire an Agent; its Events stay in the Ledger",
+		args: "<id> --reason <text> [--as <agent>] | <id> --gate G-n [--reason <text>]",
+		describe:
+			"Request a RetireAgent Gate for an Agent, or retire it through the approved Gate; its Events stay in the Ledger",
 		run: async (args, ctx) => {
-			const { id, reason, actor } = parse("retire", args, ["id"]);
-			return appendOne(
-				ctx,
-				{
-					actor,
+			const { id, reason, as, gate, actor } = parse("retire", args, ["id"]);
+			if (gate === undefined) {
+				const why = needReason("retire", reason);
+				const { gate_id, payload_hash } = withLedger(ctx.home, true, (ledger) =>
+					requestGate(ledger, {
+						actor,
+						kind: "RetireAgent",
+						payload: { agent_id: id, reason: why },
+					}),
+				);
+				ctx.stdout.write(
+					`Requested ${gate_id} to retire ${id}; payload hash ${payload_hash}\n` +
+						`Decide it with \`aliquot gate decide ${gate_id} --approve --hash ${payload_hash} --reason <text>\`, then run \`aliquot org retire ${id} --gate ${gate_id}\`\n`,
+				);
+				return 0;
+			}
+			if (as !== undefined) {
+				throw new UsageError(
+					"org retire --gate writes as the Operator; --as only names who requests the Gate",
+				);
+			}
+			const gate_id = parseOrUsage(GateId, gate, "--gate must look like G-1");
+			withLedger(ctx.home, true, (ledger) => {
+				const requested = projectGates(ledger.events()).gates.get(gate_id);
+				const gateReason = requested && payloadText(requested, "reason");
+				ledger.append({
+					actor: { tag: "Operator" },
 					kind: "AgentRetired",
-					payload: { agent_id: id, reason: needReason("retire", reason) },
-				},
-				`Retired ${id}`,
-			);
+					payload: {
+						agent_id: id,
+						reason: reason ?? gateReason ?? `Retired through ${gate_id}`,
+						gate_id,
+					},
+				});
+			});
+			ctx.stdout.write(`Retired ${id} through ${gate_id}\n`);
+			return 0;
 		},
 	},
 	revise: {

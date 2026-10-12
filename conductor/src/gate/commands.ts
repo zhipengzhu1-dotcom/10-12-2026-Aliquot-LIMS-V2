@@ -1,74 +1,46 @@
 import { readFileSync } from "node:fs";
-import type { Readable } from "node:stream";
 import { parseArgs } from "node:util";
 import { z } from "zod";
+import {
+	actorText,
+	parseActor,
+	parseOrUsage,
+	readAll,
+	withLedger,
+} from "../cli-support.js";
 import {
 	type CommandContext,
 	type CommandTable,
 	UsageError,
 } from "../command.js";
-import type { NewEvent } from "../events.js";
-import { canonicalJson, sha256Hex } from "../hash.js";
-import { AgentId, GateId, IsoTime, TaskId } from "../ids.js";
+import type { Event } from "../events.js";
+import { canonicalJson } from "../hash.js";
+import { GateId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
-import { fold } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
 import { GateKind } from "../types/gate.js";
 import {
 	expiresAt,
 	type Gate,
-	GateProjection,
 	type Gates,
 	gateState,
+	projectGates,
 } from "./projection.js";
+import { DEFAULT_LIFETIME_S, gateDecision, requestGate } from "./request.js";
 
-const DEFAULT_LIFETIME_S = 86400;
 const SUMMARY_WIDTH = 60;
 
-const readAll = async (stream: Readable) => {
-	const chunks: Buffer[] = [];
-	for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-	return Buffer.concat(chunks).toString("utf8");
-};
+const gatesOf = (ledger: { events(): Iterable<Event> }): Gates =>
+	projectGates(ledger.events());
 
-const parseOr = <T>(
-	schema: {
-		safeParse(v: unknown): { success: true; data: T } | { success: false };
-	},
-	value: string,
-	what: string,
-): T => {
-	const parsed = schema.safeParse(value);
-	if (!parsed.success)
-		throw new UsageError(`${what} ${JSON.stringify(value)} is not valid`);
-	return parsed.data;
-};
-
-const readGates = (home: string): Gates => {
-	const ledger = openLedger({ home, writer: false });
-	try {
-		return fold(ledger.events(), GateProjection.reduce, GateProjection.init);
-	} finally {
-		ledger.close();
-	}
-};
+const readGates = (home: string): Gates => withLedger(home, false, gatesOf);
 
 const gateOf = (gates: Gates, id: string): Gate => {
-	const gate = gates.gates.get(parseOr(GateId, id, "gate id"));
+	const gate = gates.gates.get(
+		parseOrUsage(GateId, id, "the gate id must look like G-1"),
+	);
 	if (gate === undefined) throw new Error(`no Gate ${id} was requested`);
 	return gate;
 };
-
-const nextGateId = (gates: Gates): GateId => {
-	const highest = Math.max(
-		0,
-		...[...gates.gates.keys()].map((id) => Number(id.slice(2))),
-	);
-	return GateId.parse(`G-${highest + 1}`);
-};
-
-const actorName = (actor: Actor) =>
-	actor.tag === "Operator" ? "Operator" : actor.id;
 
 /** `45s`, `12m`, `2h 5m`, `3d 0h`. */
 const ageOf = (ms: number): string => {
@@ -116,20 +88,22 @@ const gateListing = (gates: Gates, now: Date, all: boolean): string => {
 		"KIND",
 		"REQUESTER",
 		"AGE",
+		"HASH",
 		"PAYLOAD",
 	];
 	const rows = listed.map((gate) => [
 		gate.id,
 		...(all ? [gateState(gate, now)] : []),
 		gate.kind,
-		actorName(gate.requester),
+		actorText(gate.requester),
 		ageOf(now.getTime() - Date.parse(gate.requested_at)),
+		gate.payload_hash,
 		summaryOf(gate.payload),
 	]);
 	return `${table([header, ...rows])}\n`;
 };
 
-const requestGate = async (args: string[], ctx: CommandContext) => {
+const requestCommand = async (args: string[], ctx: CommandContext) => {
 	const { values } = parseArgs({
 		args,
 		options: {
@@ -143,7 +117,11 @@ const requestGate = async (args: string[], ctx: CommandContext) => {
 	if (values.kind === undefined || values.payload === undefined) {
 		throw new UsageError("gate request needs --kind and --payload");
 	}
-	const kind = parseOr(GateKind, values.kind, "--kind");
+	const kind = parseOrUsage(
+		GateKind,
+		values.kind,
+		`--kind must be one of ${GateKind.options.join(", ")}`,
+	);
 	const lifetime_s =
 		values.lifetime === undefined
 			? DEFAULT_LIFETIME_S
@@ -153,14 +131,11 @@ const requestGate = async (args: string[], ctx: CommandContext) => {
 			`--lifetime ${values.lifetime} is not a positive whole number of seconds`,
 		);
 	}
-	const actor: Actor =
-		values.as === undefined
-			? { tag: "Operator" }
-			: { tag: "Agent", id: parseOr(AgentId, values.as, "--as") };
+	const actor = parseActor(values.as);
 	const task_id =
 		values.task === undefined
 			? undefined
-			: parseOr(TaskId, values.task, "--task");
+			: parseOrUsage(TaskId, values.task, "--task must look like T-1");
 
 	const text =
 		values.payload === "-"
@@ -175,32 +150,17 @@ const requestGate = async (args: string[], ctx: CommandContext) => {
 		);
 	}
 
-	const ledger = openLedger({ home: ctx.home, writer: true });
-	try {
-		const gates = fold(
-			ledger.events(),
-			GateProjection.reduce,
-			GateProjection.init,
-		);
-		const gate_id = nextGateId(gates);
-		const payload_hash = sha256Hex(canonicalJson(payload));
-		ledger.append({
+	return withLedger(ctx.home, true, (ledger) => {
+		const { gate_id, payload_hash } = requestGate(ledger, {
 			actor,
+			kind,
+			payload,
+			lifetime_s,
 			...(task_id === undefined ? {} : { task_id }),
-			kind: "GateRequested",
-			payload: {
-				gate_id,
-				kind,
-				payload,
-				payload_hash,
-				lifetime_s,
-			},
 		});
 		ctx.stdout.write(`${gate_id} ${payload_hash}\n`);
 		return 0;
-	} finally {
-		ledger.close();
-	}
+	});
 };
 
 const decideGate = async (args: string[], ctx: CommandContext) => {
@@ -210,6 +170,7 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 		options: {
 			approve: { type: "boolean" },
 			reject: { type: "boolean" },
+			hash: { type: "string" },
 			reason: { type: "string" },
 		},
 	});
@@ -225,28 +186,31 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 	if (!values.reason?.trim()) {
 		throw new UsageError("gate decide needs --reason");
 	}
+	if (values.hash === undefined) {
+		throw new UsageError(
+			"gate decide needs --hash, the payload hash shown by gate show",
+		);
+	}
 
-	// The signature time and the Event's ts are one instant.
+	// The signature time and the Event's ts are one instant, so this opens
+	// the Ledger with its own clock rather than through withLedger.
 	const now = new Date();
 	const ledger = openLedger({ home: ctx.home, writer: true, clock: () => now });
 	try {
-		const gate = gateOf(
-			fold(ledger.events(), GateProjection.reduce, GateProjection.init),
-			id,
+		const gate = gateOf(gatesOf(ledger), id);
+		// The signature binds the payload the Operator looked at: refuse here,
+		// before anything is written, when it is not the one stored.
+		if (values.hash !== gate.payload_hash) {
+			throw new UsageError(
+				`--hash ${values.hash} is not ${gate.id}'s payload hash, ${gate.payload_hash}; run gate show ${gate.id} and check the payload again`,
+			);
+		}
+		const decision = gateDecision(
+			gate,
+			now,
+			values.approve ? "approve" : "reject",
+			values.reason,
 		);
-		const decision: NewEvent = {
-			actor: { tag: "Operator" },
-			...(gate.task_id === undefined ? {} : { task_id: gate.task_id }),
-			kind: "GateDecided",
-			payload: {
-				gate_id: gate.id,
-				decided_by: { tag: "Operator" },
-				decided_at: IsoTime.parse(now.toISOString()),
-				payload_hash: sha256Hex(canonicalJson(gate.payload)),
-				meaning: values.approve ? "approve" : "reject",
-				reason: values.reason,
-			},
-		};
 		ctx.stdout.write(`${canonicalJson(ledger.append(decision))}\n`);
 		return 0;
 	} finally {
@@ -259,7 +223,7 @@ const showGate = (gate: Gate, now: Date) => {
 		`Gate ${gate.id}`,
 		`kind: ${gate.kind}`,
 		`state: ${gateState(gate, now)}`,
-		`requester: ${actorName(gate.requester)}`,
+		`requester: ${actorText(gate.requester)}`,
 		`requested_at: ${gate.requested_at}`,
 		...(gate.task_id === undefined ? [] : [`task: ${gate.task_id}`]),
 		`expires_at: ${expiresAt(gate).toISOString()}`,
@@ -278,11 +242,12 @@ export const gateCommands: CommandTable = {
 	request: {
 		args: "--kind <kind> --payload <file|-> [--task T-n] [--lifetime s] [--as A-id]",
 		describe: `Request a Gate (${GateKind.options.join(", ")}); prints its id and payload hash`,
-		run: requestGate,
+		run: requestCommand,
 	},
 	list: {
 		args: "[--all]",
-		describe: "List open Gates, or every Gate with its state",
+		describe:
+			"List open Gates with their payload hash, or every Gate with its state",
 		run: async (args, ctx) => {
 			const { values } = parseArgs({
 				args,
@@ -308,8 +273,9 @@ export const gateCommands: CommandTable = {
 		},
 	},
 	decide: {
-		args: "<gate id> --approve|--reject --reason <text>",
-		describe: "Sign the Operator's decision on an open Gate",
+		args: "<gate id> --approve|--reject --hash <sha256> --reason <text>",
+		describe:
+			"Sign the Operator's decision on an open Gate, for the payload hash the Operator checked",
 		run: decideGate,
 	},
 };

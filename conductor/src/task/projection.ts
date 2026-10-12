@@ -1,5 +1,5 @@
 import type { Event, PayloadOf } from "../events.js";
-import { type GateId, TaskId } from "../ids.js";
+import { type GateId, nextId, TaskId } from "../ids.js";
 import type { Projection } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { Task, TaskState } from "../types/task.js";
@@ -250,7 +250,5 @@ export const TaskProjection: Projection<TaskView> = {
 };
 
 /** The id after the highest `T-<n>` in the view: `T-1` for an empty one. */
-export const nextTaskId = (view: TaskView): TaskId => {
-	const numbers = [...view.tasks.keys()].map((id) => Number(id.slice(2)));
-	return TaskId.parse(`T-${Math.max(0, ...numbers) + 1}`);
-};
+export const nextTaskId = (view: TaskView): TaskId =>
+	TaskId.parse(nextId("T", view.tasks.keys()));

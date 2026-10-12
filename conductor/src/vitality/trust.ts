@@ -1,6 +1,7 @@
 import type { Event } from "../events.js";
+import { approvedGatesFor, projectGates } from "../gate/projection.js";
 import { sha256Hex } from "../hash.js";
-import type { AgentId, GateId, TaskId } from "../ids.js";
+import type { AgentId, TaskId } from "../ids.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { type Standing, standingOf } from "./merit.js";
 import { workOf } from "./work.js";
@@ -49,7 +50,7 @@ export const tierOf = (input: TierInput): TrustTier =>
 		: meritTier(input);
 
 /**
- * One step of the Trust tier after a Review or a Gate approval:
+ * One step of the Trust tier after a Review or an approved PromoteToMentor Gate:
  * - a boundary score of 0 demotes one tier at once;
  * - otherwise the Agent is promoted to the tier it qualifies for, if higher;
  * - and falls to the tier its Merit and tenure still reach, if lower.
@@ -75,37 +76,26 @@ export type TrustStanding = {
 };
 
 /**
- * Approvals of PromoteToMentor Gates whose payload names the Agent as
- * `agent_id`, by the seq of the decision.
+ * The seqs of the decisions approving PromoteToMentor Gates that name the
+ * Agent, so they interleave with its Reviews in Ledger order.
  */
-const mentorApprovals = (events: Iterable<Event>, agent: AgentId): number[] => {
-	const forAgent = new Set<GateId>();
-	const approvals: number[] = [];
-	for (const e of events) {
-		if (e.kind === "GateRequested" && e.payload.kind === "PromoteToMentor") {
-			const p = e.payload.payload;
-			if (
-				typeof p === "object" &&
-				p !== null &&
-				!Array.isArray(p) &&
-				p.agent_id === agent
-			) {
-				forAgent.add(e.payload.gate_id);
-			}
-		} else if (
-			e.kind === "GateDecided" &&
-			e.payload.meaning === "approve" &&
-			forAgent.has(e.payload.gate_id)
-		) {
-			approvals.push(e.seq);
-		}
-	}
-	return approvals;
+const mentorApprovals = (
+	events: readonly Event[],
+	agent: AgentId,
+): number[] => {
+	const approved = new Set(
+		approvedGatesFor(projectGates(events), "PromoteToMentor", agent).map(
+			(gate) => gate.id,
+		),
+	);
+	return events
+		.filter((e) => e.kind === "GateDecided" && approved.has(e.payload.gate_id))
+		.map((e) => e.seq);
 };
 
 /**
  * The Agent's Trust tier, folded from Probation at Recruitment over its
- * counted Reviews and Mentor Gate approvals in Ledger order. A Demotion from
+ * counted Reviews and approved PromoteToMentor Gates in Ledger order. A Demotion from
  * Mentor uses up the Gate: returning to Mentor needs a new one.
  */
 export const trustTierOf = (

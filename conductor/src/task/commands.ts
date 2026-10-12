@@ -2,59 +2,31 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
+	actorText,
+	parseActor,
+	parseOrUsage,
+	withLedger,
+} from "../cli-support.js";
+import {
 	type CommandContext,
 	type CommandTable,
 	UsageError,
 } from "../command.js";
 import type { EventBody, NewEvent } from "../events.js";
 import { AgentId, ArtifactId, RubricId, TaskId } from "../ids.js";
-import { openLedger } from "../ledger.js";
 import { fold } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import { type Task, TaskState, TatClass } from "../types/task.js";
 import { nextTaskId, TaskProjection, type TaskView } from "./projection.js";
 
-const OPERATOR: Actor = { tag: "Operator" };
-
 /** Rubric for Tasks proposed without `--rubric`: the five-dimension rubric. */
 const DEFAULT_RUBRIC = RubricId.parse("default");
 
-const parseWith = <T>(
-	schema: {
-		safeParse(v: unknown): { success: true; data: T } | { success: false };
-	},
-	text: string,
-	expected: string,
-): T => {
-	const parsed = schema.safeParse(text);
-	if (!parsed.success) {
-		throw new UsageError(`${expected}, not ${JSON.stringify(text)}`);
-	}
-	return parsed.data;
-};
-
 const agentId = (text: string, what: string) =>
-	parseWith(AgentId, text, `${what} must be an Agent id like A-odile`);
+	parseOrUsage(AgentId, text, `${what} must be an Agent id like A-odile`);
 
 const taskId = (text: string) =>
-	parseWith(TaskId, text, "the Task id must look like T-1");
-
-/** `Operator`, or an Agent id. */
-const actorArg = (text: string, flag: string): Actor =>
-	text === "Operator"
-		? OPERATOR
-		: {
-				tag: "Agent",
-				id: parseWith(
-					AgentId,
-					text,
-					`${flag} must be Operator or an Agent id like A-odile`,
-				),
-			};
-
-/** Who writes the Event: the Operator, unless `--as A-<id>` names an Agent. */
-const writer = (as: string | undefined): Actor =>
-	as === undefined ? OPERATOR : { tag: "Agent", id: agentId(as, "--as") };
+	parseOrUsage(TaskId, text, "the Task id must look like T-1");
 
 const required = (value: string | undefined, flag: string): string => {
 	if (value === undefined) throw new UsageError(`${flag} is required`);
@@ -76,12 +48,9 @@ const asOption = { as: { type: "string" } } as const;
 
 const readView = (home: string): TaskView => {
 	if (!existsSync(join(home, "ledger.sqlite"))) return TaskProjection.init;
-	const ledger = openLedger({ home, writer: false });
-	try {
-		return fold(ledger.events(), TaskProjection.reduce, TaskProjection.init);
-	} finally {
-		ledger.close();
-	}
+	return withLedger(home, false, (ledger) =>
+		fold(ledger.events(), TaskProjection.reduce, TaskProjection.init),
+	);
 };
 
 type TaskBody = Extract<EventBody, { payload: { task_id: TaskId } }>;
@@ -94,9 +63,8 @@ const record = (
 	ctx: CommandContext,
 	actor: Actor,
 	build: (view: TaskView) => TaskBody,
-): Task => {
-	const ledger = openLedger({ home: ctx.home, writer: true });
-	try {
+): Task =>
+	withLedger(ctx.home, true, (ledger) => {
 		const view = fold(ledger.all(), TaskProjection.reduce, TaskProjection.init);
 		const body = build(view);
 		const newEvent: NewEvent = {
@@ -110,13 +78,7 @@ const record = (
 		);
 		if (!task) throw new Error(`${body.payload.task_id} vanished`);
 		return task;
-	} finally {
-		ledger.close();
-	}
-};
-
-const actorText = (actor: Actor) =>
-	actor.tag === "Operator" ? "Operator" : actor.id;
+	});
 
 const stateText = (state: TaskState) => {
 	const { tag, ...fields } = state;
@@ -167,7 +129,7 @@ export const taskCommands: CommandTable = {
 			expectPositionals(positionals, [], "propose");
 			const title = required(values.title, "--title");
 			const goal = required(values.goal, "--goal");
-			const tat_class = parseWith(
+			const tat_class = parseOrUsage(
 				TatClass,
 				required(values.tat, "--tat"),
 				`--tat must be ${TatClass.options.slice(0, -1).join(", ")} or ${TatClass.options.at(-1)}`,
@@ -180,15 +142,19 @@ export const taskCommands: CommandTable = {
 			}
 			const priority = Number(priorityText);
 			const inputs = (values.input ?? []).map((text) =>
-				parseWith(ArtifactId, text, "--input must be an Artifact id (64 hex)"),
+				parseOrUsage(
+					ArtifactId,
+					text,
+					"--input must be an Artifact id (64 hex)",
+				),
 			);
 			const rubric_id =
 				values.rubric === undefined
 					? DEFAULT_RUBRIC
-					: parseWith(RubricId, values.rubric, "--rubric must not be empty");
+					: parseOrUsage(RubricId, values.rubric, "--rubric must not be empty");
 			const parent_task =
 				values.parent === undefined ? undefined : taskId(values.parent);
-			const task = record(ctx, writer(values.as), (view) => ({
+			const task = record(ctx, parseActor(values.as), (view) => ({
 				kind: "TaskProposed",
 				payload: {
 					task_id: nextTaskId(view),
@@ -223,7 +189,7 @@ export const taskCommands: CommandTable = {
 			const assignee = agentId(agent as string, "the assignee");
 			return report(
 				ctx,
-				record(ctx, writer(values.as), () => ({
+				record(ctx, parseActor(values.as), () => ({
 					kind: "TaskAssigned",
 					payload: { task_id, assignee },
 				})),
@@ -243,7 +209,7 @@ export const taskCommands: CommandTable = {
 			const task_id = taskId(id as string);
 			return report(
 				ctx,
-				record(ctx, writer(values.as), () => ({
+				record(ctx, parseActor(values.as), () => ({
 					kind: "TaskStarted",
 					payload: { task_id },
 				})),
@@ -269,7 +235,7 @@ export const taskCommands: CommandTable = {
 			const reason = required(values.reason, "--reason");
 			return report(
 				ctx,
-				record(ctx, writer(values.as), (view) => {
+				record(ctx, parseActor(values.as), (view) => {
 					const state = view.tasks.get(task_id)?.state;
 					// A Task with no assignee is not InProgress, so the guard refuses
 					// it on its state before `from` matters.
@@ -315,7 +281,7 @@ export const taskCommands: CommandTable = {
 			const review = values["review-required"]
 				? {
 						tag: "Required" as const,
-						reviewer: actorArg(
+						reviewer: parseActor(
 							required(values.reviewer, "--reviewer"),
 							"--reviewer",
 						),
@@ -327,11 +293,15 @@ export const taskCommands: CommandTable = {
 						}
 					: { tag: "Reviewed" as const };
 			const outputs = (values.output ?? []).map((text) =>
-				parseWith(ArtifactId, text, "--output must be an Artifact id (64 hex)"),
+				parseOrUsage(
+					ArtifactId,
+					text,
+					"--output must be an Artifact id (64 hex)",
+				),
 			);
 			return report(
 				ctx,
-				record(ctx, writer(values.as), () => ({
+				record(ctx, parseActor(values.as), () => ({
 					kind: "TaskCompleted",
 					payload: { task_id, outputs, review },
 				})),
@@ -352,7 +322,7 @@ export const taskCommands: CommandTable = {
 			const reason = required(values.reason, "--reason");
 			return report(
 				ctx,
-				record(ctx, writer(values.as), () => ({
+				record(ctx, parseActor(values.as), () => ({
 					kind: "TaskFailed",
 					payload: { task_id, reason },
 				})),
@@ -374,11 +344,11 @@ export const taskCommands: CommandTable = {
 			});
 			const [id] = expectPositionals(positionals, ["<task id>"], "escalate");
 			const task_id = taskId(id as string);
-			const to = actorArg(required(values.to, "--to"), "--to");
+			const to = parseActor(required(values.to, "--to"), "--to");
 			const reason = required(values.reason, "--reason");
 			return report(
 				ctx,
-				record(ctx, writer(values.as), () => ({
+				record(ctx, parseActor(values.as), () => ({
 					kind: "TaskEscalated",
 					payload: { task_id, to, reason },
 				})),

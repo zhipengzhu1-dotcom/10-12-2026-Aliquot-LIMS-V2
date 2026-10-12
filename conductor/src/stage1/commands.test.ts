@@ -15,13 +15,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CommandContext } from "../command.js";
 import type { Event } from "../events.js";
 import { sha256Hex } from "../hash.js";
-import { ArtifactId, RunId, TaskId } from "../ids.js";
+import { AgentId, ArtifactId, RunId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { fold } from "../reduce.js";
 import { lineageOf, projectArtifacts } from "../sandbox/artifacts.js";
 import { scriptsRoot } from "../sandbox/image.js";
 import { projectRuns } from "../sandbox/runs.js";
 import { TaskProjection } from "../task/projection.js";
+import { scenario, scores } from "../vitality/scenario.js";
 import { stage1Commands } from "./commands.js";
 
 const docker = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
@@ -129,7 +130,7 @@ describe.skipIf(!docker)(suite, () => {
 		expect(verify.ok).toBe(true);
 		expect(taskState(events, "T-1")).toEqual({ tag: "Done" });
 
-		const completed = events.find((e) => e.kind === "TaskCompleted");
+		const completed = events.filter((e) => e.kind === "TaskCompleted").at(-1);
 		if (!completed) throw new Error("no TaskCompleted");
 		const chain = causes(events, completed);
 		expect(chain.map((e) => e.kind)).toEqual([
@@ -141,7 +142,26 @@ describe.skipIf(!docker)(suite, () => {
 			"RunFinished",
 			"EvaluationRecorded",
 			"TaskCompleted",
+			"ReviewRecorded",
+			"TaskCompleted",
 		]);
+		// A-rin is on Probation, so its Supervisor A-pia reviews every Task.
+		const pia = { tag: "Agent", id: "A-pia" };
+		const [submitted, review, reviewed] = chain.slice(-3);
+		expect(submitted?.payload).toMatchObject({
+			review: { tag: "Required", reviewer: pia },
+		});
+		expect(review?.actor).toEqual(pia);
+		expect(review?.payload).toMatchObject({
+			reviewer: pia,
+			quality: 3,
+			traceability: 3,
+			boundary_adherence: 3,
+			collaboration: 3,
+			timeliness: 3,
+		});
+		expect(reviewed?.actor).toEqual(pia);
+		expect(reviewed?.payload).toMatchObject({ review: { tag: "Reviewed" } });
 		const [fixtureStored] = chain;
 		expect(
 			fixtureStored?.kind === "ArtifactStored" && fixtureStored.payload.id,
@@ -160,6 +180,33 @@ describe.skipIf(!docker)(suite, () => {
 			score: 1,
 			passed: true,
 			findings: [],
+		});
+	}, 600_000);
+
+	it("revises the owner's Trust tier right after the tracer's Review earns it", async () => {
+		// Rin has 9 reviewed Tasks, so the tracer's Review of T-10 is the 10th.
+		rmSync(home, { recursive: true, force: true });
+		const s = scenario();
+		for (let i = 0; i < 9; i++) s.reviewed(AgentId.parse("A-rin"), scores(3));
+		s.ledger.close();
+		home = s.home;
+
+		const result = await run("run", [fixture]);
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toMatch(/T-10 Done/);
+		expect(result.stdout).toMatch(
+			/\n {2}revised {3}A-rin to version 2: Trust tier Probation -> Trusted: /,
+		);
+		const { events, verify } = readLedger();
+		expect(verify.ok).toBe(true);
+		const review = events.filter((e) => e.kind === "ReviewRecorded").at(-1);
+		const revision = events.at(-1);
+		expect(review?.task_id).toBe("T-10");
+		expect(revision?.kind).toBe("AgentDefinitionRevised");
+		expect(revision?.causation_id).toBe(review?.seq);
+		expect(revision?.payload).toMatchObject({
+			definition: { id: "A-rin", version: 2, trust_tier: "Trusted" },
 		});
 	}, 600_000);
 

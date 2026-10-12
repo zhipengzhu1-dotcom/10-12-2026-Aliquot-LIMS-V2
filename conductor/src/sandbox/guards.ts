@@ -1,6 +1,6 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
 import { fold } from "../reduce.js";
-import { artifactProjection, recordOf } from "./artifacts.js";
+import { artifactProjection, productionOf } from "./artifacts.js";
 import { runProjection } from "./runs.js";
 import { findScript, scriptProjection } from "./scripts.js";
 
@@ -60,12 +60,12 @@ const artifacts: AppendGuard = (ctx, event) => {
 		artifactProjection.init,
 	);
 	const known = projection.artifacts;
-	// Identity is per content, provenance is per production: the same bytes
-	// may be recorded again, once per Run that produces them.
+	// Identity is per content, and each production has its own record: the
+	// same bytes may be recorded again, once per Run that produces them.
 	if (known.has(artifact.id)) {
 		if (artifact.produced_by.tag !== "Run") {
 			refuse(`ArtifactStored: ${artifact.id} is already stored`);
-		} else if (recordOf(projection, artifact.id, artifact.produced_by)) {
+		} else if (productionOf(projection, artifact.id, artifact.produced_by)) {
 			refuse(
 				`ArtifactStored: ${artifact.produced_by.id} already stored ${artifact.id}`,
 			);

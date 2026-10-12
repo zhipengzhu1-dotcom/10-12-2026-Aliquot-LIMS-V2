@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
-import type { EventBody, PayloadOf } from "../events.js";
+import type { Event, EventBody, PayloadOf } from "../events.js";
 import { sha256Hex } from "../hash.js";
 import {
 	type AgentId,
 	type ArtifactId,
 	EvaluationId,
+	nextId,
 	RubricId,
 	ScriptId,
 	type Seq,
@@ -19,8 +20,8 @@ import { seedOrg } from "../org/seed.js";
 import { fold } from "../reduce.js";
 import {
 	openArtifacts,
+	productionOf,
 	projectArtifacts,
-	recordOf,
 } from "../sandbox/artifacts.js";
 import { guessMediaType, runScript } from "../sandbox/runner.js";
 import {
@@ -30,8 +31,11 @@ import {
 } from "../sandbox/scripts.js";
 import { LIVE_TAGS, nextTaskId, TaskProjection } from "../task/projection.js";
 import type { Actor } from "../types/actor.js";
+import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
+import { appendTierRevisions } from "../vitality/projection.js";
+import { reviewSampled, trustTierOf } from "../vitality/trust.js";
 import { evaluateSubmission, type SubmissionEvaluation } from "./evaluate.js";
 
 const OPERATOR: Actor = { tag: "Operator" };
@@ -88,6 +92,34 @@ export const ensureScript = (options: {
 	});
 };
 
+type Completion = Extract<
+	PayloadOf<"TaskCompleted">["review"],
+	{ tag: "Required" | "Skipped" }
+>;
+
+/**
+ * How the tracer completes a Task whose Evaluation passed: Review is skipped
+ * when the sample for the owner's Trust tier leaves the Task out, and is
+ * otherwise required from the owner's Supervisor (Pia, the intake
+ * Supervisor, for a Specialist), or the Operator when it has none.
+ */
+export const reviewOf = (
+	events: readonly Event[],
+	task_id: TaskId,
+	owner: AgentId,
+): Completion => {
+	const { tier } = trustTierOf(events, owner);
+	if (!reviewSampled(task_id, tier)) {
+		return { tag: "Skipped", reason: `not sampled for Review at tier ${tier}` };
+	}
+	const supervisor =
+		orgState(events).agents.get(owner)?.definition.supervisor_id;
+	return {
+		tag: "Required",
+		reviewer: supervisor ? { tag: "Agent", id: supervisor } : OPERATOR,
+	};
+};
+
 export type Stage1Result = {
 	fixture: ArtifactId;
 	task_id: TaskId;
@@ -96,6 +128,8 @@ export type Stage1Result = {
 	record?: ArtifactId;
 	eval_id: EvaluationId;
 	evaluation: SubmissionEvaluation;
+	/** Trust tier Revisions the tracer's Review brought about. */
+	revisions: readonly AgentDefinition[];
 	state: TaskState;
 };
 
@@ -116,7 +150,7 @@ const evaluateRun = (
 	const projection = projectArtifacts(ledger);
 	const record = run.outputs.find(
 		(id) =>
-			recordOf(projection, id, { tag: "Run", id: run.id })?.filename ===
+			productionOf(projection, id, { tag: "Run", id: run.id })?.filename ===
 			RECORD_FILENAME,
 	);
 	if (!record) return failed(`${run.id} wrote no ${RECORD_FILENAME}`);
@@ -137,8 +171,8 @@ const evaluateRun = (
 /**
  * Stage 1 end to end for one Submission Form: store it as a Fixture, propose
  * a Task for it, assign and start the Task, run `script` on it in the
- * Sandbox, evaluate the record, record the Evaluation, and complete or fail
- * the Task. From TaskProposed on, every Event names the Event before it as
+ * Sandbox, evaluate the record, record the Evaluation, and complete the
+ * Task (through Review when the owner's Trust tier samples it) or fail it. From TaskProposed on, every Event names the Event before it as
  * its `causation_id`; TaskProposed names the Fixture's ArtifactStored.
  */
 export const runStage1 = async (options: {
@@ -215,6 +249,7 @@ export const runStage1 = async (options: {
 	});
 	step(ownerActor, { kind: "TaskStarted", payload: { task_id } });
 
+	const revisions: AgentDefinition[] = [];
 	try {
 		const run = await runScript({
 			ledger,
@@ -235,29 +270,57 @@ export const runStage1 = async (options: {
 
 		const { record, evaluation } = evaluateRun(ledger, home, run);
 		const eval_id = EvaluationId.parse(
-			`E-${ledger.all().filter((e) => e.kind === "EvaluationRecorded").length + 1}`,
+			nextId(
+				"E",
+				ledger
+					.all()
+					.flatMap((e) =>
+						e.kind === "EvaluationRecorded" ? [e.payload.eval_id] : [],
+					),
+			),
 		);
 		step(OPERATOR, {
 			kind: "EvaluationRecorded",
 			payload: { eval_id, run_id: run.id, task_id, ...evaluation },
 		});
-		const outcome: PayloadOf<"TaskCompleted"> | PayloadOf<"TaskFailed"> =
-			evaluation.passed
-				? {
+		if (evaluation.passed) {
+			const review = reviewOf(ledger.all(), task_id, owner);
+			step(ownerActor, {
+				kind: "TaskCompleted",
+				payload: { task_id, outputs: record ? [record] : [], review },
+			});
+			if (review.tag === "Required") {
+				const { reviewer } = review;
+				// The tracer has no reviewing Agent yet, so the Review stands in
+				// for one: a passed Evaluation scores 3 on every dimension.
+				const recorded = step(reviewer, {
+					kind: "ReviewRecorded",
+					payload: {
 						task_id,
-						outputs: record ? [record] : [],
-						review: { tag: "Skipped", reason: "stage1 tracer" },
-					}
-				: {
-						task_id,
-						reason: `Evaluation ${eval_id} failed (score ${evaluation.score.toFixed(3)}): ${evaluation.findings.join("; ")}`,
-					};
-		step(
-			ownerActor,
-			"outputs" in outcome
-				? { kind: "TaskCompleted", payload: outcome }
-				: { kind: "TaskFailed", payload: outcome },
-		);
+						reviewer,
+						quality: 3,
+						traceability: 3,
+						boundary_adherence: 3,
+						collaboration: 3,
+						timeliness: 3,
+						note: `Evaluation ${eval_id} passed with score ${evaluation.score.toFixed(3)}; 3 on every dimension`,
+					},
+				});
+				step(reviewer, {
+					kind: "TaskCompleted",
+					payload: { task_id, outputs: [], review: { tag: "Reviewed" } },
+				});
+				revisions.push(...appendTierRevisions(ledger, recorded.seq));
+			}
+		} else {
+			step(ownerActor, {
+				kind: "TaskFailed",
+				payload: {
+					task_id,
+					reason: `Evaluation ${eval_id} failed (score ${evaluation.score.toFixed(3)}): ${evaluation.findings.join("; ")}`,
+				},
+			});
+		}
 		return {
 			fixture: fixture.id,
 			task_id,
@@ -265,6 +328,7 @@ export const runStage1 = async (options: {
 			...(record ? { record } : {}),
 			eval_id,
 			evaluation,
+			revisions,
 			state: state(),
 		};
 	} catch (error) {

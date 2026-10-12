@@ -25,6 +25,13 @@ export type TaskState = z.infer<typeof TaskState>;
 export const TatClass = z.enum(["Regular", "Rush1to2Days", "Rush3to4Days"]);
 export type TatClass = z.infer<typeof TatClass>;
 
+/** The Submission Form's TAT codes and the TatClass each names (GLOSSARY.md). */
+export const TAT_CODES = {
+	"1": "Regular",
+	"2": "Rush1to2Days",
+	"3": "Rush3to4Days",
+} as const satisfies Record<string, TatClass>;
+
 export const Task = z.strictObject({
 	id: TaskId,
 	title: z.string().min(1),
