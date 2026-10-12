@@ -63,7 +63,7 @@ uv run --directory sandbox synth --seed 42 --out /tmp/synth-42
 
 The output directory gets `submission_form.docx`, `receiving_log.xlsx`, `result_worksheet.xlsx`, `report_of_analysis.xlsx`, and `manifest.json`, which holds the invented record so tests can check the documents without parsing them. `uv run --directory sandbox` runs in `sandbox/`, so a relative `--out` path lands under `sandbox/`. Every name, address, code, and Lot number is invented.
 
-To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms, and until then the test skips with a notice.
+To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms with `gh secret set ALIQUOT_FORBIDDEN_TERMS`, which prompts for the value. When `CI` is set and the variable is unset, the test fails with `set the ALIQUOT_FORBIDDEN_TERMS repository secret (ADR-0009)` instead of skipping, so CI cannot go green without the check.
 
 ### Data directory
 
@@ -72,6 +72,8 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request, in two jobs that each call `tools/check.sh`. The `conductor` job runs `tools/check.sh --conductor-only`: lint, typecheck, the Sandbox image build, and test, so the Docker-backed runner tests run there too, then stage 1 on every Fixture (see Stage 1 tracer) and `ledger verify`. The `sandbox` job runs `tools/check.sh --sandbox-only`: ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), and the synthetic generator.
+
+Off CI, a test that needs a missing prerequisite skips with a notice: the Docker-backed vitest suites when `docker info` fails, and the forbidden-terms pytest when `ALIQUOT_FORBIDDEN_TERMS` is unset. When the `CI` environment variable is set, as it is on GitHub Actions, the same tests fail instead, so a green run means they ran. The vitest suites check through `conductor/src/test-support/docker.ts`.
 
 ## Ledger
 

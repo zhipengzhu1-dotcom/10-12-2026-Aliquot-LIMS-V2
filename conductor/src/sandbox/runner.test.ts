@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,14 +5,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Sha256 } from "../ids.js";
 import { AgentId } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
+import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { lineageOf, openArtifacts, projectArtifacts } from "./artifacts.js";
 import { buildImage, scriptsRoot } from "./image.js";
 import { runScript } from "./runner.js";
 import { projectRuns } from "./runs.js";
 import { registerScript } from "./scripts.js";
 
-const docker = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
-const suite = docker
+const suite = dockerAvailable
 	? "Sandbox runner (Docker)"
 	: "Sandbox runner: SKIPPED because `docker info` failed; start Docker to run these";
 
@@ -50,7 +49,7 @@ const storeInput = (text: string, filename: string) =>
 		{ actor: operator },
 	);
 
-describe.skipIf(!docker)(suite, () => {
+describe.skipIf(!requireDocker())(suite, () => {
 	beforeAll(async () => {
 		({ id: image } = await buildImage({ tag: "aliquot-sandbox:test" }));
 	}, 600_000);
