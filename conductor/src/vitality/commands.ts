@@ -10,10 +10,12 @@ import type { Event } from "../events.js";
 import { AgentId, TaskId } from "../ids.js";
 import { orgState } from "../org/projection.js";
 import type { Actor } from "../types/actor.js";
+import type { AgentDefinition } from "../types/agent-definition.js";
 import { Score } from "../types/merit.js";
 import type { Policy, Vitality } from "../types/vitality.js";
 import {
 	type AgentVitality,
+	appendTierRevisions,
 	tierRevisions,
 	vitalityProjection,
 } from "./projection.js";
@@ -88,6 +90,9 @@ const flags = (p: Policy) => {
 
 const line = (id: AgentId, name: string, a: AgentVitality) =>
 	`${id} ${name} ${vector(a.vitality)} mood=${a.mood} policy=${flags(a.policy)} merit=${a.merit === undefined ? "-" : n2(a.merit)} reviewed=${a.reviewedTasks} tier=${a.tier} (${a.sampled ? "sampled" : "computed"})`;
+
+const revisedLine = (d: AgentDefinition) =>
+	`Revised ${d.id} to version ${d.version}: ${d.revision_reason}\n`;
 
 export const vitalityCommands: CommandTable = {
 	show: {
@@ -223,17 +228,19 @@ export const vitalityCommands: CommandTable = {
 				timeliness: score(values.timeliness, "--timeliness"),
 				note: values.note,
 			};
-			withLedger(ctx.home, true, (ledger) =>
-				ledger.append({
+			const revised = withLedger(ctx.home, true, (ledger) => {
+				const recorded = ledger.append({
 					actor: reviewer,
 					task_id,
 					kind: "ReviewRecorded",
 					payload: review,
-				}),
-			);
+				});
+				return appendTierRevisions(ledger, recorded.seq);
+			});
 			ctx.stdout.write(
 				`Recorded a Review of ${task_id} by ${actorText(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
 			);
+			for (const d of revised) ctx.stdout.write(revisedLine(d));
 			return 0;
 		},
 	},
@@ -254,25 +261,22 @@ export const vitalityCommands: CommandTable = {
 					);
 					return 0;
 				}
+				if (values.apply) {
+					for (const d of appendTierRevisions(ledger)) {
+						ctx.stdout.write(revisedLine(d));
+					}
+					return 0;
+				}
 				for (const r of revisions) {
 					if (r.kind !== "AgentDefinitionRevised") continue;
 					const d = r.payload.definition;
-					if (values.apply) {
-						ledger.append(r);
-						ctx.stdout.write(
-							`Revised ${d.id} to version ${d.version}: ${d.revision_reason}\n`,
-						);
-					} else {
-						ctx.stdout.write(`${d.id} ${d.name}: ${d.revision_reason}\n`);
-					}
+					ctx.stdout.write(`${d.id} ${d.name}: ${d.revision_reason}\n`);
 				}
-				if (!values.apply) {
-					const noun = revisions.length === 1 ? "Revision" : "Revisions";
-					const it = revisions.length === 1 ? "it" : "them";
-					ctx.stdout.write(
-						`${revisions.length} ${noun} needed; run vitality tiers --apply to append ${it}\n`,
-					);
-				}
+				const noun = revisions.length === 1 ? "Revision" : "Revisions";
+				const it = revisions.length === 1 ? "it" : "them";
+				ctx.stdout.write(
+					`${revisions.length} ${noun} needed; run vitality tiers --apply to append ${it}\n`,
+				);
 				return 0;
 			});
 		},

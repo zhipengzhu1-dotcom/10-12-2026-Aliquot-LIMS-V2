@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
+import { tierRevisions } from "./projection.js";
 import { scenario, scores } from "./scenario.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
@@ -59,16 +60,12 @@ describe("aliquot vitality", () => {
 					"Late by an hour",
 				),
 			),
-		).toBe("Recorded a Review of T-10 by Operator: mean 2.80\n");
+		).toBe(
+			"Recorded a Review of T-10 by Operator: mean 2.80\n" +
+				"Revised A-rin to version 2: Trust tier Probation -> Trusted: Merit 2.98 over 10 reviewed Tasks\n",
+		);
 
 		expect(ok(vitality("tiers"))).toBe(
-			"A-rin Rin: Trust tier Probation -> Trusted: Merit 2.98 over 10 reviewed Tasks\n" +
-				"1 Revision needed; run vitality tiers --apply to append it\n",
-		);
-		expect(ok(vitality("tiers", "--apply"))).toBe(
-			"Revised A-rin to version 2: Trust tier Probation -> Trusted: Merit 2.98 over 10 reviewed Tasks\n",
-		);
-		expect(ok(vitality("tiers", "--apply"))).toBe(
 			"Every Trust tier is in line with Merit; nothing to revise\n",
 		);
 
@@ -76,6 +73,42 @@ describe("aliquot vitality", () => {
 			"A-rin Rin load=0.00 fatigue=0.00 friction=0.00 confidence=1.00 morale=0.00 mood=fresh policy=mayAcceptTasks,mayOfferHelp,schedulable merit=2.98 reviewed=10 tier=Trusted (computed)\n",
 		);
 		expect(ok(aliquot("org", "tree"))).toContain("Rin, Specialist, Trusted");
+	});
+
+	it("demotes a Trusted Agent in the same command that records a boundary score of 0", () => {
+		rmSync(home, { recursive: true, force: true });
+		const s = scenario();
+		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
+		for (const r of tierRevisions(s.events())) s.append(r);
+		const t = s.task(rin);
+		s.submit(rin, t);
+		s.ledger.close();
+		home = s.home;
+
+		expect(
+			ok(
+				vitality(
+					"review",
+					t,
+					"--quality",
+					"3",
+					"--traceability",
+					"3",
+					"--boundary",
+					"0",
+					"--collaboration",
+					"3",
+					"--timeliness",
+					"3",
+					"--note",
+					"Wrote outside the Sandbox",
+				),
+			),
+		).toBe(
+			"Recorded a Review of T-11 by Operator: mean 2.40\n" +
+				"Revised A-rin to version 3: Trust tier Trusted -> Probation: Demotion for boundary score 0 on T-11; Merit 2.95 over 11 reviewed Tasks\n",
+		);
+		expect(ok(aliquot("org", "tree"))).toContain("Rin, Specialist, Probation");
 	});
 
 	it("shows every live Agent, one line each", () => {

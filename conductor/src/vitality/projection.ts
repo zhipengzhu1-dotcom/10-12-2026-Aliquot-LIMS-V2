@@ -1,6 +1,8 @@
 import type { Event, NewEvent } from "../events.js";
-import type { AgentId } from "../ids.js";
+import type { AgentId, Seq } from "../ids.js";
+import type { Ledger } from "../ledger.js";
 import { orgState } from "../org/projection.js";
+import type { AgentDefinition } from "../types/agent-definition.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Mood, Policy, Vitality } from "../types/vitality.js";
 import { moodOf } from "./mood.js";
@@ -107,3 +109,22 @@ export const tierRevisions = (events: readonly Event[]): NewEvent[] => {
 	}
 	return revisions;
 };
+
+/**
+ * Append the Revisions `tierRevisions` finds, each caused by `causation_id`
+ * when given, and return their definitions. Run after every Review so a
+ * Trust tier never lags its Merit; `vitality tiers --apply` catches up a
+ * Ledger written without it.
+ */
+export const appendTierRevisions = (
+	ledger: Ledger,
+	causation_id?: Seq,
+): AgentDefinition[] =>
+	tierRevisions(ledger.all()).flatMap((revision) => {
+		const appended = ledger.append(
+			causation_id === undefined ? revision : { ...revision, causation_id },
+		);
+		return appended.kind === "AgentDefinitionRevised"
+			? [appended.payload.definition]
+			: [];
+	});

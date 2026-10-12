@@ -31,8 +31,10 @@ import {
 } from "../sandbox/scripts.js";
 import { LIVE_TAGS, nextTaskId, TaskProjection } from "../task/projection.js";
 import type { Actor } from "../types/actor.js";
+import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
+import { appendTierRevisions } from "../vitality/projection.js";
 import { reviewSampled, trustTierOf } from "../vitality/trust.js";
 import { evaluateSubmission, type SubmissionEvaluation } from "./evaluate.js";
 
@@ -126,6 +128,8 @@ export type Stage1Result = {
 	record?: ArtifactId;
 	eval_id: EvaluationId;
 	evaluation: SubmissionEvaluation;
+	/** Trust tier Revisions the tracer's Review brought about. */
+	revisions: readonly AgentDefinition[];
 	state: TaskState;
 };
 
@@ -245,6 +249,7 @@ export const runStage1 = async (options: {
 	});
 	step(ownerActor, { kind: "TaskStarted", payload: { task_id } });
 
+	const revisions: AgentDefinition[] = [];
 	try {
 		const run = await runScript({
 			ledger,
@@ -288,7 +293,7 @@ export const runStage1 = async (options: {
 				const { reviewer } = review;
 				// The tracer has no reviewing Agent yet, so the Review stands in
 				// for one: a passed Evaluation scores 3 on every dimension.
-				step(reviewer, {
+				const recorded = step(reviewer, {
 					kind: "ReviewRecorded",
 					payload: {
 						task_id,
@@ -305,6 +310,7 @@ export const runStage1 = async (options: {
 					kind: "TaskCompleted",
 					payload: { task_id, outputs: [], review: { tag: "Reviewed" } },
 				});
+				revisions.push(...appendTierRevisions(ledger, recorded.seq));
 			}
 		} else {
 			step(ownerActor, {
@@ -322,6 +328,7 @@ export const runStage1 = async (options: {
 			...(record ? { record } : {}),
 			eval_id,
 			evaluation,
+			revisions,
 			state: state(),
 		};
 	} catch (error) {

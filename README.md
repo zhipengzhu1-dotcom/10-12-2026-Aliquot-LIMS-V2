@@ -206,14 +206,14 @@ pnpm -C conductor cli --home /tmp/aliquot vitality show
 pnpm -C conductor cli --home /tmp/aliquot vitality show A-rin
 ```
 
-Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee.
+Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee. In the same command, after the Review, it appends any Revision that brings a `trust_tier` in line with the projected tier, caused by the Review, and prints it. So a boundary score of 0 on a `Trusted` Agent records the Review and the Demotion together.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 \
   --boundary 3 --collaboration 2 --timeliness 3 --note "IDs agree across Artifacts"
 ```
 
-List the Revisions that bring each Agent definition's `trust_tier` in line with its projected tier, then append them with `--apply`. When every tier is already in line, the command appends nothing.
+List the Revisions that bring each Agent definition's `trust_tier` in line with its projected tier, then append them with `--apply`. `vitality review` and the stage 1 tracer already do this after each Review, so `--apply` only catches up a Ledger written without them, or a tier that changed through a `PromoteToMentor` Gate. When every tier is already in line, the command appends nothing.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality tiers
@@ -246,7 +246,7 @@ The command does these steps in one process:
 5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
 6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
 7. It records `EvaluationRecorded`. When the Evaluation failed, it records `TaskFailed` with the findings.
-8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
+8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. After the Review it appends any Trust tier Revision the Review earned, caused by the Review, and prints it as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
 The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
 

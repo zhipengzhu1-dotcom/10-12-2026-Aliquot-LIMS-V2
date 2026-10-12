@@ -45,6 +45,10 @@ const summary = (form: string, r: Stage1Result): string => {
 		`  output    ${r.record ? `${r.record} submission.json` : "none"}`,
 		`  eval      ${r.eval_id} score ${r.evaluation.score.toFixed(3)}, ${r.evaluation.passed ? "passed" : "failed"}`,
 		...r.evaluation.findings.map((f) => `  finding   ${f}`),
+		...r.revisions.map(
+			(d) =>
+				`  revised   ${d.id} to version ${d.version}: ${d.revision_reason}`,
+		),
 	];
 	return `${lines.join("\n")}\n`;
 };
