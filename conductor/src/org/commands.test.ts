@@ -132,7 +132,7 @@ describe("aliquot org", () => {
 		expect(shown).toContain('"agent_id": "A-mabel"');
 		expect(early.status).toBe(1);
 		expect(early.stderr).toMatch(
-			/^AppendRefused: G-1 is a RetireAgent Gate, Open, naming A-mabel/,
+			/^AppendRefused: AgentRetired refused: G-1 is a RetireAgent Gate, Open, naming A-mabel/,
 		);
 		expect(decided.status).toBe(0);
 		expect(retired.stderr).toBe("");

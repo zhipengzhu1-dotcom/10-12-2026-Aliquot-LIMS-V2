@@ -39,12 +39,12 @@ const checkRetirement = (
 	const { agent_id, gate_id } = event.payload;
 	if (event.actor.tag !== "Operator") {
 		throw new AppendRefused(
-			`only the Operator retires an Agent; ${actorText(event.actor)} tried to retire ${agent_id}`,
+			`AgentRetired refused: only the Operator retires an Agent; ${actorText(event.actor)} tried to retire ${agent_id}`,
 		);
 	}
 	if (gate_id === undefined) {
 		throw new AppendRefused(
-			`retiring ${agent_id} needs an approved RetireAgent Gate naming it; none was given`,
+			`AgentRetired refused: retiring ${agent_id} needs an approved RetireAgent Gate naming it; none was given`,
 		);
 	}
 	const gates = projectGates(events);
@@ -57,10 +57,12 @@ const checkRetirement = (
 	}
 	const gate = gates.gates.get(gate_id);
 	if (gate === undefined) {
-		throw new AppendRefused(`no Gate ${gate_id} was requested`);
+		throw new AppendRefused(
+			`AgentRetired refused: no Gate ${gate_id} was requested`,
+		);
 	}
 	throw new AppendRefused(
-		`${gate_id} is a ${gate.kind} Gate, ${gateState(gate, new Date(event.ts))}, naming ${agentNamedBy(gate) ?? "no Agent"}; retiring ${agent_id} needs an approved RetireAgent Gate naming it`,
+		`AgentRetired refused: ${gate_id} is a ${gate.kind} Gate, ${gateState(gate, new Date(event.ts))}, naming ${agentNamedBy(gate) ?? "no Agent"}; retiring ${agent_id} needs an approved RetireAgent Gate naming it`,
 	);
 };
 
@@ -70,7 +72,7 @@ const checkAuthor = (event: Event, definition: AgentDefinition) => {
 		return;
 	}
 	throw new AppendRefused(
-		`${definition.id}'s definition names ${actorText(definition.revised_by)} as revised_by, but the actor is ${actorText(event.actor)}`,
+		`${event.kind} refused: ${definition.id}'s definition names ${actorText(definition.revised_by)} as revised_by, but the actor is ${actorText(event.actor)}`,
 	);
 };
 
@@ -116,7 +118,7 @@ const checkMentorPromotion = (
 			? "none is approved"
 			: `its ${gates} approved Gate${gates === 1 ? " was" : "s were"} used by earlier Promotions`;
 	throw new AppendRefused(
-		`${to.id} cannot become Mentor without an approved PromoteToMentor Gate naming it; ${used}`,
+		`AgentDefinitionRevised refused: ${to.id} cannot become Mentor without an approved PromoteToMentor Gate naming it; ${used}`,
 	);
 };
 

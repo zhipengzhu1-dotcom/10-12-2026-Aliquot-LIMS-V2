@@ -246,7 +246,7 @@ describe("org guards", () => {
 			});
 		};
 		const refusal =
-			/A-pia cannot become Mentor without an approved PromoteToMentor Gate naming it/;
+			/AgentDefinitionRevised refused: A-pia cannot become Mentor without an approved PromoteToMentor Gate naming it/;
 
 		expect(() => toTier("Mentor")).toThrow(refusal);
 		decidedGate("PromoteToMentor", { agent_id: "A-ines" });
@@ -281,7 +281,7 @@ describe("org guards", () => {
 			});
 
 		expect(() => recruit(odile, operator)).toThrow(
-			/A-nova's definition names A-odile as revised_by, but the actor is Operator/,
+			/AgentRecruited refused: A-nova's definition names A-odile as revised_by, but the actor is Operator/,
 		);
 		expect(() =>
 			ledger.append({
@@ -290,7 +290,7 @@ describe("org guards", () => {
 				payload: { definition: { ...next, revised_by: operator } },
 			}),
 		).toThrow(
-			/A-pia's definition names Operator as revised_by, but the actor is A-odile/,
+			/AgentDefinitionRevised refused: A-pia's definition names Operator as revised_by, but the actor is A-odile/,
 		);
 		expect(() =>
 			ledger.append({
@@ -368,7 +368,7 @@ describe("org guards", () => {
 		const before = ledger.all().length;
 
 		expect(() => retireWith(undefined)).toThrow(
-			/retiring A-bram needs an approved RetireAgent Gate naming it/,
+			/AgentRetired refused: retiring A-bram needs an approved RetireAgent Gate naming it/,
 		);
 		expect(() => retireWith(forInes)).toThrow(
 			/G-1 is a RetireAgent Gate, Approved, naming A-ines/,
@@ -380,10 +380,10 @@ describe("org guards", () => {
 			/G-3 is a PromoteToMentor Gate, Approved, naming A-bram/,
 		);
 		expect(() => retireWith(GateId.parse("G-9"))).toThrow(
-			/no Gate G-9 was requested/,
+			/AgentRetired refused: no Gate G-9 was requested/,
 		);
 		expect(() => retireWith(approved, odile)).toThrow(
-			/only the Operator retires an Agent; A-odile tried to retire A-bram/,
+			/AgentRetired refused: only the Operator retires an Agent; A-odile tried to retire A-bram/,
 		);
 		expect(ledger.all()).toHaveLength(before);
 
