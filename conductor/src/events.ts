@@ -13,7 +13,7 @@ import {
 } from "./ids.js";
 import { Actor } from "./types/actor.js";
 import { AgentDefinition } from "./types/agent-definition.js";
-import { Artifact } from "./types/artifact.js";
+import { StoredArtifact } from "./types/artifact.js";
 import { GateDecision, GateKind } from "./types/gate.js";
 import { Review } from "./types/merit.js";
 import { Run, Script, ScriptRef } from "./types/script.js";
@@ -108,7 +108,7 @@ export const EventBody = z.discriminatedUnion("kind", [
 		}),
 	),
 	body("RunFinished", Run),
-	body("ArtifactStored", Artifact),
+	body("ArtifactStored", StoredArtifact),
 	body(
 		"EvaluationRecorded",
 		z.strictObject({

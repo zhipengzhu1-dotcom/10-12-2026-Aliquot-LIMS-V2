@@ -23,6 +23,8 @@ jobs:
       - run: pnpm -C conductor install --frozen-lockfile
       - run: pnpm -C conductor lint
       - run: pnpm -C conductor typecheck
+      # The runner tests build this image too; building it first makes theirs a cache hit.
+      - run: docker build -f sandbox/Dockerfile -t aliquot-sandbox:test sandbox
       - run: pnpm -C conductor test
 
   sandbox:
@@ -39,3 +41,4 @@ jobs:
       - run: uv run --directory sandbox ruff format --check .
       - run: uv run --directory sandbox pytest
       - run: uv run --directory sandbox synth --seed 42 --out "$RUNNER_TEMP/synth-42"
+      - run: docker build -f sandbox/Dockerfile -t aliquot-sandbox:ci sandbox
