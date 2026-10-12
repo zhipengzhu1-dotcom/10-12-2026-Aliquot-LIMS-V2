@@ -26,6 +26,8 @@ jobs:
       # The runner tests build this image too; building it first makes theirs a cache hit.
       - run: docker build -f sandbox/Dockerfile -t aliquot-sandbox:test sandbox
       - run: pnpm -C conductor test
+      # Stage 1 on every Fixture: the job goes red when any Evaluation fails.
+      - run: pnpm -C conductor cli --home "$RUNNER_TEMP/aliquot" stage1 run-all "$GITHUB_WORKSPACE/fixtures"
 
   sandbox:
     runs-on: ubuntu-latest

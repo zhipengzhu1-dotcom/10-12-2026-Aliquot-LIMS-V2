@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "493 Juniper Mill Drive",
+    "city": "Orrin Bay, NY 14999",
+    "company": "Tallowby Botanicals LLC",
+    "contact": "Delphine Vantongeren",
+    "email": "delphine.vantongeren@tallowby.example",
+    "phone": "(201) 555-0136"
+  },
+  "date_submitted": "2026-01-03",
+  "receipt": {
+    "date_received": "2026-01-06",
+    "received_by": "LG",
+    "time_received": "15:17"
+  },
+  "report_to": {
+    "address": "39 Juniper Mill Drive",
+    "city": "Orrin Bay, NY 14999",
+    "company": "Tallowby Botanicals LLC",
+    "contact": "Maren Vantongeren",
+    "email": "maren.vantongeren@tallowby.example",
+    "phone": "(201) 555-0165"
+  },
+  "sample": {
+    "lot": "LT-268123",
+    "no": "1",
+    "no_of_containers": "2",
+    "product_code": "TLB-1475",
+    "product_type": "60 ct amber glass bottle",
+    "sample_description": "Tallowby Milk Thistle 250 mg Capsules",
+    "sample_type": "FP",
+    "tat_class": "Rush3to4Days",
+    "tat_code": "3"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "271 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "Tallowby Botanicals LLC",
+    "contact": "Senna Halloway",
+    "email": "senna.halloway@tallowby.example",
+    "phone": "(201) 555-0173"
+  }
+}

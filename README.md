@@ -59,7 +59,7 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. The `sandbox` job runs ruff check, ruff format check, pytest, the synthetic generator, and `docker build` of the Sandbox image.
+`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. Then it runs stage 1 on every Fixture with `stage1 run-all fixtures` (see Stage 1 tracer). The `sandbox` job runs ruff check, ruff format check, pytest, the synthetic generator, and `docker build` of the Sandbox image.
 
 ## Ledger
 
@@ -216,3 +216,46 @@ pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --begin --reason "
 pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --end --reason "fatigue 0.41" --as A-mabel
 pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --tokens 120000 --budget 1000000
 ```
+
+## Stage 1 tracer
+
+Stage 1 of the toy workflow turns a Submission Form into a structured submission record. One command runs the whole chain on a Fixture:
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot stage1 run fixtures/submission-form-seed1.docx
+pnpm -C conductor cli --home /tmp/aliquot stage1 run-all fixtures   # every *.docx; exits 1 if any Task fails
+```
+
+The command does these steps in one process:
+
+1. It builds the Sandbox image if Docker does not have `aliquot-sandbox:<short sha>`.
+2. It recruits the starting roster if the Org is empty.
+3. It registers `sandbox/scripts/parse_submission` as `S-parse_submission`. A later run reuses that version, unless the image or the Script's code changed; then it records `ScriptRevised`.
+4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
+5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
+6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
+7. It records `EvaluationRecorded`. Then it records `TaskCompleted` (Review skipped, the record as output) when the Evaluation passed, or `TaskFailed` with the findings when it did not.
+
+The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
+
+- `--owner A-rin` sets the Agent that owns the Script and works the Task. `A-rin` is the default.
+- `--timeout <ms>` sets the Run's time limit. The default is 60000.
+- `--script-dir <dir>` runs another copy of the Script. The tests use it to prove that a record without a Lot fails.
+
+After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`.
+
+| seq | kind | task | causation |
+|---|---|---|---|
+| 1–8 | AgentRecruited | | |
+| 9 | ScriptRegistered | | |
+| 10 | ArtifactStored (the Fixture, Lineage none) | | |
+| 11 | TaskProposed | T-1 | 10 |
+| 12 | TaskAssigned | T-1 | 11 |
+| 13 | TaskStarted | T-1 | 12 |
+| 14 | RunStarted | T-1 | 13 |
+| 15–17 | ArtifactStored (`submission.json`, stdout, stderr; Lineage the Fixture) | T-1 | 14 |
+| 18 | RunFinished | T-1 | 14 |
+| 19 | EvaluationRecorded (score 1, passed) | T-1 | 18 |
+| 20 | TaskCompleted (Review skipped) | T-1 | 19 |
+
+`task list` shows T-1 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage and the record with a Lineage of the Fixture. CI runs `stage1 run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
