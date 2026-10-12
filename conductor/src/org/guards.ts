@@ -6,6 +6,7 @@ import {
 	gateState,
 	projectGates,
 } from "../gate/projection.js";
+import { canonicalJson } from "../hash.js";
 import type { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
@@ -63,6 +64,16 @@ const checkRetirement = (
 	);
 };
 
+/** A definition's author is the actor that writes it (ADR-0005). */
+const checkAuthor = (event: Event, definition: AgentDefinition) => {
+	if (canonicalJson(definition.revised_by) === canonicalJson(event.actor)) {
+		return;
+	}
+	throw new AppendRefused(
+		`${definition.id}'s definition names ${actorText(definition.revised_by)} as revised_by, but the actor is ${actorText(event.actor)}`,
+	);
+};
+
 /** How many Revisions have moved `id` into Mentor from another tier. */
 const mentorPromotions = (events: readonly Event[], id: AgentId): number => {
 	let tier: string | undefined;
@@ -110,7 +121,8 @@ const checkMentorPromotion = (
 };
 
 /**
- * Org rules at append. Revisions follow ADR-0005: one version at a time, and
+ * Org rules at append. Definitions follow ADR-0005: each names the actor
+ * that wrote it as `revised_by`, Revisions go one version at a time, and
  * only the Operator revises the Auditor.
  */
 const orgGuard: AppendGuard = (ctx, event) => {
@@ -122,6 +134,7 @@ const orgGuard: AppendGuard = (ctx, event) => {
 					`${id} is already in the Org; change it with a Revision`,
 				);
 			}
+			checkAuthor(event, event.payload);
 			return;
 		}
 		case "AgentDefinitionRevised": {
@@ -137,6 +150,7 @@ const orgGuard: AppendGuard = (ctx, event) => {
 					`Revision to version ${definition.version} refused: ${current.id} is at version ${current.version}; the next must be ${current.version + 1}`,
 				);
 			}
+			checkAuthor(event, definition);
 			checkMentorPromotion(ctx.events, current, definition);
 			return;
 		}

@@ -256,6 +256,53 @@ describe("org guards", () => {
 		expect(definitionOf("A-pia").trust_tier).toBe("Mentor");
 	});
 
+	it("refuses a definition whose author is not the actor, or that gives no reason", () => {
+		const pia = definitionOf("A-pia");
+		const next = { ...pia, version: 2, revision_reason: "Sharper Charter" };
+		const recruit = (revised_by: Actor, actor: Actor) =>
+			ledger.append({
+				actor,
+				kind: "AgentRecruited",
+				payload: {
+					...pia,
+					id: AgentId.parse("A-nova"),
+					name: "Nova",
+					revised_by,
+				},
+			});
+
+		expect(() => recruit(odile, operator)).toThrow(
+			/A-nova's definition names A-odile as revised_by, but the actor is Operator/,
+		);
+		expect(() =>
+			ledger.append({
+				actor: odile,
+				kind: "AgentDefinitionRevised",
+				payload: { definition: { ...next, revised_by: operator } },
+			}),
+		).toThrow(
+			/A-pia's definition names Operator as revised_by, but the actor is A-odile/,
+		);
+		expect(() =>
+			ledger.append({
+				actor: operator,
+				kind: "AgentDefinitionRevised",
+				payload: {
+					definition: { ...next, revised_by: operator, revision_reason: "" },
+				},
+			}),
+		).toThrow(/revision_reason/);
+		expect(ledger.all()).toHaveLength(8);
+
+		recruit(odile, odile);
+		ledger.append({
+			actor: odile,
+			kind: "AgentDefinitionRevised",
+			payload: { definition: { ...next, revised_by: odile } },
+		});
+		expect(definitionOf("A-pia").revised_by).toEqual(odile);
+	});
+
 	it("refuses a second Recruitment of an existing Agent id", () => {
 		expect(() =>
 			ledger.append({

@@ -38,6 +38,6 @@ export const AgentDefinition = z.strictObject({
 	capacity: z.number().int().positive(),
 	trust_tier: TrustTier,
 	revised_by: Actor,
-	revision_reason: z.string(),
+	revision_reason: z.string().min(1),
 });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;
