@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aliquot Society Chart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one chart stage swapped between three layouts, with an SVG edge layer measured from the live card boxes. */
+:root {
+  --bg: #edf1f2;
+  --surface: #ffffff;
+  --surface-2: #f6f8f9;
+  --ink: #13222b;
+  --muted: #5a6b74;
+  --line: #c6d0d4;
+  --accent: #0b6e78;
+  --edge-report: #34474f;
+  --edge-review: #0a7d89;
+  --edge-watch: #a3407c;
+  --edge-flow: #8d9ca3;
+  --edge-gate: #3442b0;
+  --m-fresh: #2c8747;
+  --m-focused: #2a5fc0;
+  --m-strained: #a87300;
+  --m-overloaded: #c03628;
+  --m-discouraged: #7448c0;
+  --m-resting: #6f7b81;
+  --t-probation: #6f7b81;
+  --t-trusted: #0a7d89;
+  --t-senior: #3442b0;
+  --t-mentor: #9a6a00;
+  --own-pia: #0a7d89;
+  --own-anselm: #3442b0;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1518; --surface: #162126; --surface-2: #1b282e; --ink: #e2e9ec; --muted: #90a2aa; --line: #2d3c43;
+    --accent: #3fb6c1; --edge-report: #b9c6cc; --edge-review: #3fc0cc; --edge-watch: #e07ab8; --edge-flow: #5d6e76; --edge-gate: #8f9bff;
+    --m-fresh: #52c072; --m-focused: #6c9bff; --m-strained: #e2a93a; --m-overloaded: #ff6b5a; --m-discouraged: #a985ff; --m-resting: #95a2a8;
+    --t-probation: #95a2a8; --t-trusted: #3fc0cc; --t-senior: #8f9bff; --t-mentor: #e0b04a;
+    --own-pia: #3fc0cc; --own-anselm: #8f9bff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1518; --surface: #162126; --surface-2: #1b282e; --ink: #e2e9ec; --muted: #90a2aa; --line: #2d3c43;
+  --accent: #3fb6c1; --edge-report: #b9c6cc; --edge-review: #3fc0cc; --edge-watch: #e07ab8; --edge-flow: #5d6e76; --edge-gate: #8f9bff;
+  --m-fresh: #52c072; --m-focused: #6c9bff; --m-strained: #e2a93a; --m-overloaded: #ff6b5a; --m-discouraged: #a985ff; --m-resting: #95a2a8;
+  --t-probation: #95a2a8; --t-trusted: #3fc0cc; --t-senior: #8f9bff; --t-mentor: #e0b04a;
+  --own-pia: #3fc0cc; --own-anselm: #8f9bff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { padding-block: env(safe-area-inset-top, 0px) env(safe-area-inset-bottom, 0px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font-body); }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; gap: 16px; }
+header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+h1 { font: 700 26px/1.1 var(--font-display); margin: 0; letter-spacing: .01em; text-wrap: balance; }
+.sub { color: var(--muted); margin: 4px 0 0; max-width: 70ch; }
+.sample-flag { font: 500 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--m-strained); border: 1px dashed currentColor; padding: 5px 8px; border-radius: 4px; white-space: nowrap; }
+
+.switcher { display: flex; flex-wrap: wrap; gap: 8px; }
+.switcher button { font: 500 13px/1.2 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+.switcher button kbd { font: 500 11px/1 var(--font-mono); border: 1px solid var(--line); border-radius: 3px; padding: 2px 5px; color: var(--muted); }
+.switcher button[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.switcher button .rec { font: 500 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
+.switcher button:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.variant-note { color: var(--muted); margin: 0; max-width: 90ch; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.legend .item { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 13px; }
+.legend svg { flex: none; }
+.legend label { display: flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+.legend .hint { color: var(--muted); font-size: 12px; flex-basis: 100%; }
+.legend .group-title { font: 500 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.legend .sep { width: 1px; align-self: stretch; background: var(--line); }
+
+.scroller { overflow: auto; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; }
+.stage { position: relative; margin: 0 auto; }
+.stage > svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
+.abs > .node, .abs > .pool { position: absolute; transform: translate(-50%, -50%); }
+.node, .pool { z-index: 1; }
+
+.node { width: 210px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; cursor: pointer; transition: opacity .15s, border-color .15s; }
+.node:hover { border-color: var(--ink); }
+.node .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.node .name { font: 600 17px/1.1 var(--font-display); }
+.node .role { font: 500 11px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); text-align: right; }
+.node .line { margin: 0; font-size: 12.5px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.7em; }
+.node .meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.mood { font: 500 11px/1 var(--font-mono); padding: 4px 6px 4px 16px; border-radius: 10px; position: relative; color: var(--mc); background: color-mix(in srgb, var(--mc) 13%, var(--surface)); }
+.mood::before { content: ""; position: absolute; left: 6px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--mc); }
+.mood.resting::before { background: transparent; border: 1.5px solid var(--mc); width: 4px; height: 4px; margin-top: -3.5px; }
+.mood.fresh { --mc: var(--m-fresh); } .mood.focused { --mc: var(--m-focused); } .mood.strained { --mc: var(--m-strained); }
+.mood.overloaded { --mc: var(--m-overloaded); } .mood.discouraged { --mc: var(--m-discouraged); } .mood.resting { --mc: var(--m-resting); }
+.tier { font: 500 11px/1 var(--font-mono); padding: 3px 6px; border-radius: 3px; border: 1px solid var(--tc); color: var(--tc); }
+.tier.Probation { --tc: var(--t-probation); border-style: dashed; }
+.tier.Trusted { --tc: var(--t-trusted); }
+.tier.Senior { --tc: var(--t-senior); background: color-mix(in srgb, var(--tc) 12%, var(--surface)); }
+.tier.Mentor { --tc: var(--t-mentor); background: color-mix(in srgb, var(--tc) 16%, var(--surface)); font-weight: 600; }
+.load { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font: 400 11px/1 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.load .bar { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 10%, var(--surface)); overflow: hidden; }
+.load .bar i { display: block; height: 100%; background: var(--mc); }
+
+.node.human { border: 2px solid var(--edge-gate); width: 230px; }
+.node.human .name { font-size: 20px; }
+.node.system { width: 150px; padding: 8px 10px; gap: 2px; background: var(--surface-2); border-style: solid; border-radius: 4px; }
+.node.system .name { font: 600 14px/1.1 var(--font-mono); }
+.node.system .line { font-size: 11.5px; -webkit-line-clamp: 3; min-height: 0; }
+.node.system.gates { border-color: var(--edge-gate); }
+.node.ghost { width: 160px; background: transparent; border: 1.5px dashed var(--line); opacity: .75; }
+.node.ghost .name { color: var(--muted); }
+.slice-tag { font: 500 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; border: 1px dashed var(--muted); color: var(--muted); padding: 3px 5px; border-radius: 3px; justify-self: start; }
+
+.pool { border: 1.5px dashed var(--edge-report); border-radius: 12px; padding: 26px 12px 12px; background: color-mix(in srgb, var(--surface-2) 70%, transparent); position: relative; }
+.pool .pool-label { position: absolute; top: 7px; left: 12px; right: 12px; font: 500 11px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.pool .members { display: flex; gap: 14px; flex-wrap: nowrap; }
+
+/* Lanes (variant B) */
+.lanes { display: grid; }
+.lane { display: grid; grid-template-columns: 150px 1fr; border-bottom: 1px solid var(--line); }
+.lane:last-child { border-bottom: 0; }
+.lane .lane-label { padding: 14px; border-right: 1px solid var(--line); display: grid; align-content: start; gap: 4px; position: relative; z-index: 1; }
+.lane .lane-label b { font: 600 15px/1.1 var(--font-display); text-transform: uppercase; letter-spacing: .06em; }
+.lane .lane-label span { font-size: 12px; color: var(--muted); }
+.lane .lane-body { display: flex; flex-wrap: wrap; gap: 28px 56px; justify-content: center; align-items: center; padding: 36px 20px; min-width: 0; }
+.lane:nth-child(even) { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.lanes .pool .members { flex-wrap: wrap; justify-content: center; }
+
+/* Hub rings (variant C) */
+.rings { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+.rings ellipse { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 6; }
+.ring-label { position: absolute; font: 500 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); transform: translateX(-50%); z-index: 0; background: var(--surface-2); padding: 2px 6px; }
+.hub .node.system.ledger { width: 190px; padding: 14px; border: 2px solid var(--ink); }
+.hub .node.system.ledger .name { font-size: 18px; }
+
+/* Edges */
+.edge { fill: none; stroke-width: 1.6; transition: opacity .15s; }
+.edge.reports { stroke: var(--edge-report); }
+.edge.reviews { stroke: var(--edge-review); stroke-dasharray: 7 5; }
+.edge.watches { stroke: var(--edge-watch); stroke-dasharray: 1.5 5; stroke-linecap: round; stroke-width: 2.2; }
+.edge.flows { stroke: var(--edge-flow); stroke-width: 1; }
+.edge.gate { stroke: var(--edge-gate); stroke-width: 3; }
+.edge.ghost { opacity: .45; stroke-dasharray: 3 4; }
+.edge.opt { display: none; }
+.show-watch .edge.opt-watch, .show-audit .edge.opt-audit, .show-flow .edge.opt-flow { display: inline; }
+.focus .edge.opt.hl { display: inline; }
+.focus .edge:not(.hl) { opacity: .07; }
+.focus .edge.hl { stroke-width: 2.6; }
+.focus .node:not(.hl), .focus .pool:not(.hl) > .pool-label { opacity: .3; }
+.focus .pool:not(.hl) { border-color: var(--line); }
+.mk-reports { fill: var(--edge-report); } .mk-reviews { fill: var(--edge-review); } .mk-watches { fill: var(--edge-watch); }
+.mk-flows { fill: var(--edge-flow); } .mk-gate { fill: var(--edge-gate); }
+
+/* Workflow strip */
+.flow { display: grid; gap: 8px; }
+.flow h2 { font: 600 15px/1.1 var(--font-display); text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+.stages { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.owner-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.owner { grid-column: span 3; font: 500 12px/1 var(--font-mono); padding: 6px 8px; border-top: 3px solid var(--oc); color: var(--oc); }
+.owner.pia { --oc: var(--own-pia); } .owner.anselm { --oc: var(--own-anselm); }
+.stage-cell { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--oc); border-radius: 4px; padding: 8px 10px; display: grid; gap: 2px; min-width: 0; transition: opacity .15s, box-shadow .15s; }
+.stage-cell.pia { --oc: var(--own-pia); } .stage-cell.anselm { --oc: var(--own-anselm); }
+.stage-cell b { font: 600 14px/1.2 var(--font-display); }
+.stage-cell code { font: 400 11px/1.3 var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
+.stage-cell .n { font: 500 11px/1 var(--font-mono); color: var(--oc); }
+.flow.focus .stage-cell:not(.hl) { opacity: .35; }
+.flow.focus .stage-cell.hl { box-shadow: 0 0 0 2px var(--oc); }
+
+/* Side panel */
+.panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100vw); background: var(--surface); border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(0,0,0,.12); padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px)); overflow-y: auto; z-index: 10; display: grid; align-content: start; gap: 14px; }
+.panel .close { justify-self: end; font: 500 12px/1 var(--font-mono); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; color: var(--ink); cursor: pointer; }
+.panel h3 { margin: 0; font: 700 26px/1 var(--font-display); }
+.panel .prole { font: 500 12px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.panel dl { margin: 0; display: grid; gap: 12px; }
+.panel dt { font: 500 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; }
+.panel dd { margin: 0; }
+.panel .src { font-size: 12px; color: var(--muted); }
+
+@media (max-width: 720px) {
+  h1 { font-size: 22px; }
+  .lane { grid-template-columns: 1fr; }
+  .lane .lane-label { border-right: 0; border-bottom: 1px dashed var(--line); padding: 10px 12px; grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; }
+  .lane .lane-body { gap: 22px 12px; padding: 26px 8px; }
+  .lanes .node, .lanes .node.ghost, .lanes .node.system { width: calc(50% - 6px); padding: 8px; }
+  .lanes .node.human { width: 100%; }
+  .lanes .node .head { flex-direction: column; gap: 2px; }
+  .lanes .node .role { text-align: left; }
+  .lanes .pool { width: 100%; padding-inline: 8px; }
+  .lanes .pool .members { gap: 12px; }
+  .lanes .pool .node { width: calc(50% - 6px); }
+  .stages, .owner-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .owner { grid-column: span 3; }
+  .owner-row { display: none; }
+  .legend .sep { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Aliquot Society Chart</h1>
+      <p class="sub">Who the eight Agents report to, who reviews whom, and who watches the society. Throwaway layout prototype for the Operator's Org view.</p>
+    </div>
+    <span class="sample-flag">Sample data. Moods and load are invented.</span>
+  </header>
+
+  <div class="switcher" role="group" aria-label="Layout variant">
+    <button type="button" data-v="A"><kbd>1</kbd> A. Top-down tree</button>
+    <button type="button" data-v="B"><kbd>2</kbd> B. Ranked lanes <span class="rec">recommended</span></button>
+    <button type="button" data-v="C"><kbd>3</kbd> C. Ledger hub</button>
+  </div>
+  <p class="variant-note" id="variant-note"></p>
+
+  <div class="legend" id="legend">
+    <span class="group-title">Lines</span>
+    <span class="item"><svg width="40" height="10"><line x1="2" y1="5" x2="38" y2="5" class="edge reports"/></svg>reports to</span>
+    <span class="item"><svg width="40" height="10"><line x1="2" y1="5" x2="38" y2="5" class="edge reviews"/></svg>reviews</span>
+    <span class="item"><svg width="40" height="10"><line x1="2" y1="5" x2="38" y2="5" class="edge watches"/></svg>watches</span>
+    <span class="item"><svg width="40" height="10"><line x1="2" y1="5" x2="38" y2="5" class="edge flows"/></svg>Events into the Ledger</span>
+    <span class="item"><svg width="40" height="10"><line x1="2" y1="5" x2="38" y2="5" class="edge gate"/></svg>decides Gates</span>
+    <span class="sep"></span>
+    <span class="group-title">Show</span>
+    <label><input type="checkbox" id="t-watch"> Steward watches every Agent</label>
+    <label><input type="checkbox" id="t-audit"> Auditor may review any Task</label>
+    <label><input type="checkbox" id="t-flow"> Event flow into the Ledger</label>
+    <span class="sep"></span>
+    <span class="group-title">Trust tier chips</span>
+    <span class="tier Probation">Probation</span><span class="tier Trusted">Trusted</span><span class="tier Senior">Senior</span><span class="tier Mentor">Mentor</span>
+    <span class="hint">The three optional line sets are off by default because they cross the whole chart. Hover any card to see all of its lines, including the hidden ones. Click a card for its Charter. Every Agent is on Probation at launch.</span>
+  </div>
+
+  <div class="scroller" id="scroller"><div class="stage" id="stage"></div></div>
+
+  <section class="flow" id="flow" aria-label="Toy workflow">
+    <h2>Toy workflow and who owns each stage</h2>
+    <div class="owner-row"><span class="owner pia">Pia, Supervisor, intake and Work Orders</span><span class="owner anselm">Anselm, Supervisor, results and Verification</span></div>
+    <div class="stages" id="stages"></div>
+  </section>
+</div>
+
+<aside class="panel" id="panel" hidden aria-live="polite"></aside>
+
+<script>
+const AGENTS = {
+  odile:  { name: "Odile",  role: "Director",   title: "Director", rank: "oversight", mood: "focused",     load: 0.55,
+    line: "Turns the lab's goals into Tasks for Supervisors",
+    purpose: "Turns the lab's goals into Tasks for Supervisors, accepts or declines team-level proposals, and reports to the Operator weekly.",
+    forbidden: "Run Scripts, touch Artifacts directly, decide Gates.",
+    persona: "A calm planner who asks \"what is the lab waiting on?\"",
+    reportsTo: "Operator", reviewedBy: "The Operator. The Auditor may add a Review to any Task." },
+  mabel:  { name: "Mabel",  role: "Steward",    title: "Steward", rank: "oversight", mood: "fresh",        load: 0.30,
+    line: "Watches Vitality, holds the Energy budget, orders Rest",
+    purpose: "Watches Vitality, aggregates Merit, holds the Energy budget, orders Rest, proposes Recruitment and Retirement, and writes Revisions as the society's trainer.",
+    forbidden: "Assign lab work, accept its own proposals.",
+    persona: "Warm, and notices who has gone quiet.",
+    reportsTo: "Operator", reviewedBy: "The Operator. The Auditor may add a Review to any Task." },
+  thorne: { name: "Thorne", role: "Auditor",    title: "Auditor", rank: "oversight", mood: "focused",      load: 0.45,
+    line: "Verifies the hash chain and checks every Gate was used",
+    purpose: "Verifies the hash chain, checks that every required Gate was used, samples Reviews, and flags boundary violations and ALCOA+ gaps.",
+    forbidden: "Do lab work. Only the Operator may revise its definition.",
+    persona: "Dry, precise, and unimpressed by speed.",
+    reportsTo: "Operator, independent of the Director", reviewedBy: "The Operator." },
+  pia:    { name: "Pia",    role: "Supervisor", title: "Supervisor, intake and Work Orders", rank: "supervision", mood: "strained", load: 0.78,
+    line: "Owns Submission, Receipt and Work Order",
+    purpose: "Owns the stages from Submission Form to Receiving Log to Work Order, and reviews the Specialists on them.",
+    forbidden: "Touch results or Reports of Analysis.",
+    persona: "Brisk, and likes checklists.",
+    reportsTo: "Director (Odile)", reviewedBy: "The Director. The Auditor may add a Review to any Task.", stages: [1, 2, 3] },
+  anselm: { name: "Anselm", role: "Supervisor", title: "Supervisor, results and Verification", rank: "supervision", mood: "overloaded", load: 1.05,
+    line: "Owns Results, Verification and Report",
+    purpose: "Owns the stages from Result Worksheet to Verification to Report of Analysis, and makes sure a different Agent verifies each Result Worksheet.",
+    forbidden: "Verify a calculation from its own team's Run.",
+    persona: "Patient, and recomputes everything.",
+    reportsTo: "Director (Odile)", reviewedBy: "The Director. The Auditor may add a Review to any Task.", stages: [4, 5, 6] },
+  rin:    { name: "Rin",    role: "Specialist", title: "Specialist, office documents", rank: "specialist", mood: "focused", load: 0.60,
+    line: "Reads and writes xlsx and docx in the template layouts",
+    purpose: "Reads and writes xlsx and docx, knows the template layouts, and later reads VBA.",
+    forbidden: "Run code outside the Sandbox.",
+    persona: "Tidy, and mildly obsessive about merged cells.",
+    reportsTo: "Supervisors (Pia and Anselm)", reviewedBy: "Its Supervisor. The Auditor may add a Review to any Task." },
+  ines:   { name: "Ines",   role: "Specialist", title: "Specialist, PDF", rank: "specialist", mood: "resting", load: 0.00,
+    line: "Extracts text from PDFs and renders PDFs",
+    purpose: "Extracts text from PDFs and renders PDFs, including supplier certificates, Submission Forms, and Reports of Analysis.",
+    forbidden: "Run code outside the Sandbox.",
+    persona: "Curious, and flags unreadable scans.",
+    reportsTo: "Supervisors (Pia and Anselm)", reviewedBy: "Its Supervisor. The Auditor may add a Review to any Task." },
+  bram:   { name: "Bram",   role: "Specialist", title: "Specialist, SQL", rank: "specialist", mood: "discouraged", load: 0.40,
+    line: "Reads and writes the toy LIMS database and Lineage queries",
+    purpose: "Reads and writes the toy LIMS database, writes migrations, and writes Lineage queries.",
+    forbidden: "Write to a System of record without a Gate.",
+    persona: "Blunt, and hates nulls.",
+    reportsTo: "Supervisors (Pia and Anselm)", reviewedBy: "Its Supervisor. The Auditor may add a Review to any Task." },
+};
+const GHOSTS = {
+  dev:    { name: "Developer", role: "Developer", line: "Builds web applications for Lab staff" },
+  tester: { name: "Tester",    role: "Tester",    line: "Uses the Developer's application as Lab staff would" },
+};
+const SYSTEM = {
+  operator: { name: "Operator", role: "Human", line: "Decides every Gate. Reviews the Director, Steward and Auditor." },
+  gates:    { name: "Gates",  line: "Decided only by the Operator. The decision is the e-signature." },
+  ledger:   { name: "Ledger", line: "Every Event, append-only and hash-chained." },
+};
+const POOL_MEMBERS = ["rin", "ines", "bram"];
+const STAGES = [
+  { n: 1, name: "Submission",   script: "parse_submission",  owner: "pia" },
+  { n: 2, name: "Receipt",      script: "log_receipt",       owner: "pia" },
+  { n: 3, name: "Work Order",   script: "create_work_order", owner: "pia" },
+  { n: 4, name: "Results",      script: "compute_results",   owner: "anselm" },
+  { n: 5, name: "Verification", script: "verify_results",    owner: "anselm" },
+  { n: 6, name: "Report",       script: "render_roa",        owner: "anselm" },
+];
+
+const ALL_AGENTS = Object.keys(AGENTS);
+const EDGES = [
+  { k: "gate", from: "operator", to: "gates" },
+  ...["odile", "mabel", "thorne"].map(a => ({ k: "reports", from: a, to: "operator" })),
+  { k: "reports", from: "pia", to: "odile" },
+  { k: "reports", from: "anselm", to: "odile" },
+  { k: "reports", from: "dev", to: "odile", ghost: true },
+  { k: "reports", from: "tester", to: "odile", ghost: true },
+  { k: "reports", from: "pool", to: "pia" },
+  { k: "reports", from: "pool", to: "anselm" },
+  ...["odile", "mabel", "thorne"].map(a => ({ k: "reviews", from: "operator", to: a })),
+  { k: "reviews", from: "odile", to: "pia" },
+  { k: "reviews", from: "odile", to: "anselm" },
+  { k: "reviews", from: "pia", to: "pool" },
+  { k: "reviews", from: "anselm", to: "pool" },
+  ...ALL_AGENTS.filter(a => a !== "thorne").map(a => ({ k: "reviews", from: "thorne", to: a, opt: "audit" })),
+  ...ALL_AGENTS.filter(a => a !== "mabel").map(a => ({ k: "watches", from: "mabel", to: a, opt: "watch" })),
+  { k: "watches", from: "thorne", to: "ledger" },
+  ...["operator", "gates", "odile", "mabel", "pia", "anselm", "pool"].map(a => ({ k: "flows", from: a, to: "ledger", opt: "flow" })),
+];
+
+const VARIANTS = {
+  A: { note: "A classic org tree. Children sit under their parent and solid lines run as orthogonal elbows. Review lines are drawn as curves beside the reporting lines so the two never overlap.",
+       kind: "abs", w: 1240, h: 840, flowDefault: false,
+       pos: { operator: [620, 78], gates: [370, 78], ledger: [870, 78],
+              mabel: [130, 300], odile: [620, 300], thorne: [1110, 300],
+              dev: [210, 520], pia: [470, 520], anselm: [770, 520], tester: [1030, 520],
+              pool: [620, 740] } },
+  B: { note: "Horizontal bands by rank. Everyone in a band is a peer, so the Steward, Director and Auditor visibly sit side by side under the Operator. Lanes wrap at phone width instead of scrolling.",
+       kind: "lanes", flowDefault: false,
+       lanes: [
+         { label: "Operator", sub: "The one human", ids: ["gates", "operator", "ledger"] },
+         { label: "Oversight", sub: "Peers. Each reports to the Operator alone.", ids: ["mabel", "odile", "thorne"] },
+         { label: "Supervision", sub: "Under the Director", ids: ["dev", "pia", "anselm", "tester"] },
+         { label: "Specialists", sub: "One pool serving both Supervisors", ids: ["pool"] } ] },
+  C: { note: "The Ledger at the centre, with Agents on rings by rank. It makes the audit story obvious (every Event lands in one place) at the cost of the reporting lines, which now bend around the hub.",
+       kind: "abs hub", w: 1240, h: 1190, flowDefault: true,
+       rings: [ { cx: 620, cy: 480, rx: 400, ry: 260, label: "Oversight ring", lx: 300, ly: 314 }, { cx: 620, cy: 480, rx: 560, ry: 420, label: "Supervision ring", lx: 620, ly: 52 } ],
+       pos: { ledger: [620, 480], operator: [620, 220], gates: [880, 150],
+              mabel: [230, 480], thorne: [1010, 480], odile: [620, 730],
+              dev: [130, 720], pia: [380, 880], anselm: [860, 880], tester: [1110, 720],
+              pool: [620, 1080] } },
+};
+
+const $ = s => document.querySelector(s);
+const stage = $("#stage"), scroller = $("#scroller"), panel = $("#panel"), flowEl = $("#flow");
+const toggles = { watch: $("#t-watch"), audit: $("#t-audit"), flow: $("#t-flow") };
+let current = null;
+
+function cardHTML(id) {
+  if (AGENTS[id]) {
+    const a = AGENTS[id], pct = Math.min(a.load, 1) * 100;
+    return `<div class="node agent" data-id="${id}" tabindex="0" role="button" aria-label="${a.name}, ${a.title}">
+      <div class="head"><span class="name">${a.name}</span><span class="role">${a.role}</span></div>
+      <p class="line">${a.line}</p>
+      <div class="meta"><span class="mood ${a.mood}">${a.mood}</span><span class="tier Probation">Probation</span></div>
+      <div class="load"><span class="bar" style="--mc: var(--m-${a.mood})"><i style="width:${pct}%"></i></span><span>load ${a.load.toFixed(2)}</span></div>
+    </div>`;
+  }
+  if (GHOSTS[id]) {
+    const g = GHOSTS[id];
+    return `<div class="node ghost" data-id="${id}" tabindex="0" role="button" aria-label="${g.name}, slice 2 placeholder">
+      <div class="head"><span class="name">${g.name}</span><span class="role">${g.role}</span></div>
+      <p class="line">${g.line}</p><span class="slice-tag">slice 2</span></div>`;
+  }
+  if (id === "pool") {
+    return `<div class="pool" data-id="pool"><span class="pool-label">Specialist pool. Serves both Supervisors.</span>
+      <div class="members">${POOL_MEMBERS.map(cardHTML).join("")}</div></div>`;
+  }
+  const s = SYSTEM[id];
+  const cls = id === "operator" ? "human" : `system ${id}`;
+  return `<div class="node ${cls}" data-id="${id}" tabindex="0" role="button" aria-label="${s.name}">
+    <div class="head"><span class="name">${s.name}</span>${s.role ? `<span class="role">${s.role}</span>` : ""}</div>
+    <p class="line">${s.line}</p></div>`;
+}
+
+function render(v) {
+  current = v;
+  const V = VARIANTS[v];
+  document.querySelectorAll(".switcher button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v));
+  $("#variant-note").textContent = `Variant ${v}. ${V.note}`;
+  toggles.flow.checked = V.flowDefault;
+  stage.className = "stage " + V.kind;
+  applyToggles();
+  stage.style.width = V.w ? V.w + "px" : "";
+  stage.style.height = V.h ? V.h + "px" : "";
+  stage.style.minWidth = V.w ? "" : "0";
+  let html = `<svg class="edges" aria-hidden="true"></svg>`;
+  if (V.kind === "lanes") {
+    html += `<div class="lanes">${V.lanes.map(l => `<div class="lane"><div class="lane-label"><b>${l.label}</b><span>${l.sub}</span></div>
+      <div class="lane-body">${l.ids.map(cardHTML).join("")}</div></div>`).join("")}</div>`;
+  } else {
+    if (V.rings) {
+      html += `<svg class="rings" aria-hidden="true">${V.rings.map(r => `<ellipse cx="${r.cx}" cy="${r.cy}" rx="${r.rx}" ry="${r.ry}"/>`).join("")}</svg>`;
+      V.rings.forEach(r => { html += `<span class="ring-label" style="left:${r.lx}px;top:${r.ly}px">${r.label}</span>`; });
+    }
+    for (const [id, [x, y]] of Object.entries(V.pos)) {
+      html += cardHTML(id).replace(/^(\s*<div class="[^"]*")/, `$1 style="left:${x}px;top:${y}px"`);
+    }
+  }
+  stage.innerHTML = html;
+  try { history.replaceState(null, "", "#" + v.toLowerCase()); } catch (e) {}
+  drawEdges();
+}
+
+function box(id) {
+  const el = stage.querySelector(`[data-id="${id}"]`);
+  const s = stage.getBoundingClientRect(), r = el.getBoundingClientRect();
+  return { x: r.left - s.left, y: r.top - s.top, w: r.width, h: r.height, cx: r.left - s.left + r.width / 2, cy: r.top - s.top + r.height / 2 };
+}
+function clip(b, tx, ty, ox = 0, oy = 0) {
+  const cx = b.cx + ox, cy = b.cy + oy, dx = tx - cx, dy = ty - cy;
+  const t = Math.min(dx ? (b.w / 2) / Math.abs(dx) : Infinity, dy ? (b.h / 2) / Math.abs(dy) : Infinity, 1);
+  return [cx + dx * t, cy + dy * t];
+}
+
+function pathFor(e, a, b) {
+  const V = VARIANTS[current];
+  if (current === "A" && e.k === "reports") {
+    const x1 = a.cx, y1 = a.y, x2 = b.cx, y2 = b.y + b.h, mid = y2 + Math.min(36, (y1 - y2) / 2);
+    return `M${x1},${y1} V${mid} H${x2} V${y2}`;
+  }
+  const len = Math.hypot(b.cx - a.cx, b.cy - a.cy) || 1;
+  const off = e.k === "reviews" && !e.opt ? 16 : 0;
+  const ox = -(b.cy - a.cy) / len * off, oy = (b.cx - a.cx) / len * off;
+  const [x1, y1] = clip(a, b.cx + ox, b.cy + oy, ox, oy);
+  const [x2, y2] = clip(b, a.cx + ox, a.cy + oy, ox, oy);
+  if (e.k === "gate") return `M${x1},${y1} L${x2},${y2}`;
+  if (current === "C") {
+    const hub = V.pos.ledger, mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    let vx = mx - hub[0], vy = my - hub[1], d = Math.hypot(vx, vy);
+    if (e.to === "ledger" || e.from === "ledger") return `M${x1},${y1} L${x2},${y2}`;
+    if (d < 60) { vx = (e.k === "reviews" ? -1 : 1); vy = 0; d = 1; }
+    const bend = d < 200 ? 300 - d : 50;
+    return `M${x1},${y1} Q${mx + vx / d * bend},${my + vy / d * bend} ${x2},${y2}`;
+  }
+  const dy = y2 - y1, dx = x2 - x1;
+  if (Math.abs(dy) > 40) return `M${x1},${y1} C${x1},${y1 + dy / 2} ${x2},${y2 - dy / 2} ${x2},${y2}`;
+  return `M${x1},${y1} C${x1 + dx / 2},${y1 - 50} ${x2 - dx / 2},${y2 - 50} ${x2},${y2}`;
+}
+
+function drawEdges() {
+  const svg = stage.querySelector("svg.edges");
+  if (!svg) return;
+  const kinds = ["reports", "reviews", "watches", "flows", "gate"];
+  let out = `<defs>${kinds.map(k => `<marker id="mk-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" class="mk-${k}"/></marker>`).join("")}</defs>`;
+  EDGES.forEach((e, i) => {
+    const a = box(e.from), b = box(e.to);
+    const cls = ["edge", e.k, e.ghost ? "ghost" : "", e.opt ? `opt opt-${e.opt}` : ""].join(" ");
+    out += `<path data-i="${i}" class="${cls}" d="${pathFor(e, a, b)}" marker-end="url(#mk-${e.k})"/>`;
+  });
+  svg.innerHTML = out;
+  if (hoveredId) focusOn(hoveredId);
+}
+
+function involves(e, id) {
+  if (e.from === id || e.to === id) return true;
+  return POOL_MEMBERS.includes(id) && (e.from === "pool" || e.to === "pool");
+}
+let hoveredId = null;
+function focusOn(id) {
+  hoveredId = id;
+  stage.classList.add("focus");
+  const lit = new Set([id]);
+  stage.querySelectorAll("path.edge").forEach(p => {
+    const e = EDGES[p.dataset.i], on = involves(e, id);
+    p.classList.toggle("hl", on);
+    if (on) { lit.add(e.from); lit.add(e.to); }
+  });
+  if (lit.has("pool") || POOL_MEMBERS.includes(id)) { lit.add("pool"); if (id === "pool") POOL_MEMBERS.forEach(m => lit.add(m)); }
+  stage.querySelectorAll("[data-id]").forEach(n => n.classList.toggle("hl", lit.has(n.dataset.id)));
+  const stages = AGENTS[id] && AGENTS[id].stages;
+  flowEl.classList.toggle("focus", !!stages);
+  document.querySelectorAll(".stage-cell").forEach(c => c.classList.toggle("hl", !!stages && stages.includes(+c.dataset.n)));
+}
+function unfocus() {
+  hoveredId = null;
+  stage.classList.remove("focus");
+  flowEl.classList.remove("focus");
+  stage.querySelectorAll(".hl").forEach(n => n.classList.remove("hl"));
+}
+stage.addEventListener("mouseover", ev => {
+  const n = ev.target.closest(".node, .pool");
+  if (n) focusOn(n.dataset.id);
+});
+stage.addEventListener("mouseleave", unfocus);
+stage.addEventListener("mouseout", ev => { if (!ev.relatedTarget || !stage.contains(ev.relatedTarget) || !ev.relatedTarget.closest(".node, .pool")) unfocus(); });
+
+function openPanel(id) {
+  const a = AGENTS[id], g = GHOSTS[id], s = SYSTEM[id];
+  let body;
+  if (a) {
+    body = `<h3>${a.name}</h3><div class="prole">${a.title}</div>
+      <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap"><span class="mood ${a.mood}">${a.mood}</span><span class="tier Probation">Probation</span><span class="tier" style="--tc:var(--muted)">load ${a.load.toFixed(2)}</span></div>
+      <dl><div><dt>Purpose</dt><dd>${a.purpose}</dd></div>
+      <div><dt>Forbidden actions</dt><dd>${a.forbidden}</dd></div>
+      <div><dt>Persona</dt><dd>${a.persona}</dd></div>
+      <div><dt>Reports to</dt><dd>${a.reportsTo}</dd></div>
+      <div><dt>Reviewed by</dt><dd>${a.reviewedBy}</dd></div></dl>
+      <p class="src">Charter text from docs/design/overview.md, starting roster. Mood and load are sample data.</p>`;
+  } else if (g) {
+    body = `<h3>${g.name}</h3><div class="prole">${g.role}. Joins in slice 2</div>
+      <dl><div><dt>Purpose</dt><dd>${g.line}.</dd></div><div><dt>Charter</dt><dd>Not written yet. The roster names Developer and Tester for slice 2 but gives no reporting line, forbidden actions or Persona.</dd></div></dl>`;
+  } else {
+    body = `<h3>${s.name}</h3><div class="prole">${id === "operator" ? "The one human" : "System"}</div><dl><div><dt>Role</dt><dd>${s.line}</dd></div></dl>`;
+  }
+  panel.innerHTML = `<button type="button" class="close" id="panel-close">Close (Esc)</button>${body}`;
+  panel.hidden = false;
+  $("#panel-close").onclick = () => { panel.hidden = true; };
+}
+stage.addEventListener("click", ev => {
+  const n = ev.target.closest(".node");
+  if (n) openPanel(n.dataset.id);
+});
+stage.addEventListener("keydown", ev => {
+  const n = ev.target.closest(".node");
+  if (n && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); openPanel(n.dataset.id); }
+});
+
+function applyToggles() {
+  stage.classList.toggle("show-watch", toggles.watch.checked);
+  stage.classList.toggle("show-audit", toggles.audit.checked);
+  stage.classList.toggle("show-flow", toggles.flow.checked);
+}
+Object.values(toggles).forEach(t => t.addEventListener("change", applyToggles));
+
+$("#stages").innerHTML = STAGES.map(s => `<div class="stage-cell ${s.owner}" data-n="${s.n}">
+  <span class="n">${s.n}. ${s.owner === "pia" ? "Pia" : "Anselm"}</span><b>${s.name}</b><code>${s.script}</code></div>`).join("");
+
+document.querySelectorAll(".switcher button").forEach(b => b.addEventListener("click", () => render(b.dataset.v)));
+document.addEventListener("keydown", ev => {
+  if (ev.target instanceof Element && ev.target.matches("input, textarea")) return;
+  if (ev.repeat) return;
+  const v = { 1: "A", 2: "B", 3: "C" }[ev.key];
+  if (v && v !== current) render(v);
+  if (ev.key === "Escape") panel.hidden = true;
+});
+
+let rafId = 0;
+window.addEventListener("resize", () => { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(drawEdges); });
+if (document.fonts) document.fonts.ready.then(drawEdges);
+const fromHash = (location.hash || "").slice(1).toUpperCase();
+render(VARIANTS[fromHash] ? fromHash : "B");
+</script>
+</body>
+</html>
