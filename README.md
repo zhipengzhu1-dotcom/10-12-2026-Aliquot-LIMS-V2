@@ -41,10 +41,22 @@ Install Node 24, pnpm 12, and uv first. Run every command from the repository ro
 | Fix formatting | `uv run --directory sandbox ruff format .` |
 | Test (pytest) | `uv run --directory sandbox pytest` |
 
+### Synthetic generator
+
+`sandbox/synth/` invents one Client submission and writes it in the shapes of the lab's documents (ADR-0009). The same seed always writes byte-identical files.
+
+```sh
+uv run --directory sandbox synth --seed 42 --out /tmp/synth-42
+```
+
+The output directory gets `submission_form.docx`, `receiving_log.xlsx`, `result_worksheet.xlsx`, `report_of_analysis.xlsx`, and `manifest.json`, which holds the invented record so tests can check the documents without parsing them. `uv run --directory sandbox` runs in `sandbox/`, so a relative `--out` path lands under `sandbox/`. Every name, address, code, and Lot number is invented.
+
+To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Keep the list out of the repository. Without the variable, that test is skipped.
+
 ### Data directory
 
 The Conductor will keep its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `./.aliquot/`. Git ignores that directory.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test. The `sandbox` job runs ruff check, ruff format check, and pytest.
+`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test. The `sandbox` job runs ruff check, ruff format check, pytest, and the synthetic generator.
