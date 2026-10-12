@@ -1,31 +1,14 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
-import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
-import type { AgentId, TaskId } from "../ids.js";
 import { orgState } from "../org/projection.js";
 import { fold } from "../reduce.js";
 import { TaskProjection } from "../task/projection.js";
 import { actorText } from "../types/actor.js";
 import { restInEffect } from "./vitality.js";
+import { lastAssignee } from "./work.js";
 
 const refuse = (kind: string, reason: string): never => {
 	throw new AppendRefused(`${kind} refused: ${reason}`);
-};
-
-/** The Agent the Task was last assigned or handed off to. */
-const lastAssignee = (
-	events: readonly Event[],
-	task: TaskId,
-): AgentId | undefined => {
-	let assignee: AgentId | undefined;
-	for (const e of events) {
-		if (e.kind === "TaskAssigned" && e.payload.task_id === task) {
-			assignee = e.payload.assignee;
-		} else if (e.kind === "TaskHandedOff" && e.payload.task_id === task) {
-			assignee = e.payload.to;
-		}
-	}
-	return assignee;
 };
 
 /**
