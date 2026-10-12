@@ -21,6 +21,13 @@ export const AgentId = z
 	.brand<"AgentId">();
 export type AgentId = z.infer<typeof AgentId>;
 
+/** `RM-<slug>`, for example `RM-lab`. `R-` is taken by RunId. */
+export const RoomId = z
+	.string()
+	.regex(/^RM-[a-z0-9][a-z0-9-]*$/)
+	.brand<"RoomId">();
+export type RoomId = z.infer<typeof RoomId>;
+
 /** `T-<n>`. */
 export const TaskId = z
 	.string()

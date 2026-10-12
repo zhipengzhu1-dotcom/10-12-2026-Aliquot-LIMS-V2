@@ -5,6 +5,7 @@ import {
 	EvaluationId,
 	GateId,
 	IsoTime,
+	RoomId,
 	RubricId,
 	RunId,
 	Seq,
@@ -16,6 +17,7 @@ import { AgentDefinition } from "./types/agent-definition.js";
 import { StoredArtifact } from "./types/artifact.js";
 import { GateDecision, GateKind } from "./types/gate.js";
 import { Review } from "./types/merit.js";
+import { Room } from "./types/room.js";
 import { Run, Script, ScriptRef } from "./types/script.js";
 import { MemoryNote, Skill } from "./types/skill.js";
 import { TatClass } from "./types/task.js";
@@ -88,7 +90,11 @@ export const EventBody = z.discriminatedUnion("kind", [
 		"TaskEscalated",
 		z.strictObject({ task_id: TaskId, to: Actor, reason: z.string() }),
 	),
-	body("MessageSent", z.strictObject({ to: z.array(Actor), body: z.string() })),
+	body("RoomOpened", z.strictObject({ room: Room })),
+	body(
+		"MessageSent",
+		z.strictObject({ room_id: RoomId, body: z.string().min(1) }),
+	),
 	body(
 		"HelpRequested",
 		z.strictObject({
