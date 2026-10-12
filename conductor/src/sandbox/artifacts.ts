@@ -18,26 +18,67 @@ import type {
 	StoredArtifact,
 } from "../types/artifact.js";
 
-/** Every Artifact the Ledger has recorded, by id. */
+/**
+ * Identity is per content, provenance is per production. `artifacts` holds
+ * each id's first record (canonical); `provenance` holds every record for the
+ * id in Ledger order: the first store, then each Run that produced the same
+ * bytes again.
+ */
 export type ArtifactProjection = {
 	readonly artifacts: ReadonlyMap<ArtifactId, StoredArtifact>;
+	readonly provenance: ReadonlyMap<ArtifactId, readonly StoredArtifact[]>;
 };
 
 export const artifactProjection: Projection<ArtifactProjection> = {
-	init: { artifacts: new Map() },
-	reduce: (state, event) =>
-		event.kind !== "ArtifactStored" || state.artifacts.has(event.payload.id)
-			? state
-			: {
-					artifacts: new Map(state.artifacts).set(
-						event.payload.id,
-						event.payload,
-					),
-				},
+	init: { artifacts: new Map(), provenance: new Map() },
+	reduce: (state, event) => {
+		if (event.kind !== "ArtifactStored") return state;
+		const { id } = event.payload;
+		return {
+			artifacts: state.artifacts.has(id)
+				? state.artifacts
+				: new Map(state.artifacts).set(id, event.payload),
+			provenance: new Map(state.provenance).set(id, [
+				...(state.provenance.get(id) ?? []),
+				event.payload,
+			]),
+		};
+	},
 };
+
+const sameProducer = (a: Producer, b: Producer) =>
+	a.tag === "Run" ? b.tag === "Run" && a.id === b.id : b.tag === "Operator";
+
+/** The record a given producer wrote for `id`, if it wrote one. */
+export const recordOf = (
+	projection: ArtifactProjection,
+	id: ArtifactId,
+	producedBy: Producer,
+): StoredArtifact | undefined =>
+	projection.provenance
+		.get(id)
+		?.find((record) => sameProducer(record.produced_by, producedBy));
+
+/**
+ * The Lineage of one production of `id`: the record `producedBy` wrote, or
+ * the canonical record when `producedBy` is omitted. Undefined when there is
+ * no such record.
+ */
+export const lineageOf = (
+	projection: ArtifactProjection,
+	id: ArtifactId,
+	producedBy?: Producer,
+): readonly ArtifactId[] | undefined =>
+	(producedBy
+		? recordOf(projection, id, producedBy)
+		: projection.artifacts.get(id)
+	)?.lineage;
 
 export const projectArtifacts = (ledger: Ledger): ArtifactProjection =>
 	fold(ledger.events(), artifactProjection.reduce, artifactProjection.init);
+
+/** Who produced an Artifact: a Run or the Operator. */
+export type Producer = Artifact["produced_by"];
 
 /** What the caller says about the bytes; the store derives id and sha256. */
 export type ArtifactMeta = Pick<
@@ -55,8 +96,9 @@ export type EventContext = {
 export type Artifacts = {
 	/**
 	 * Write the bytes to `blobs/<sha256>` and record ArtifactStored. Bytes the
-	 * Ledger already holds keep their first record: no new Event, and the
-	 * existing Artifact comes back unchanged.
+	 * Ledger already holds get a new record only when a Run produces them that
+	 * has not recorded them yet; otherwise nothing is appended and the existing
+	 * record comes back (the producer's own, else the canonical one).
 	 */
 	store(
 		bytes: Uint8Array,
@@ -108,8 +150,13 @@ export const openArtifacts = ({
 			const digest = sha256Hex(bytes);
 			const id = ArtifactId.parse(digest);
 			writeBlob(id, bytes);
-			const existing = projectArtifacts(ledger).artifacts.get(id);
-			if (existing) return existing;
+			const projection = projectArtifacts(ledger);
+			const canonical = projection.artifacts.get(id);
+			if (canonical) {
+				const own = recordOf(projection, id, meta.produced_by);
+				if (own) return own;
+				if (meta.produced_by.tag === "Operator") return canonical;
+			}
 			const event = ledger.append({
 				...by,
 				kind: "ArtifactStored",

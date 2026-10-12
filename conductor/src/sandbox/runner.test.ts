@@ -6,7 +6,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Sha256 } from "../ids.js";
 import { AgentId } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
-import { openArtifacts, projectArtifacts } from "./artifacts.js";
+import { lineageOf, openArtifacts, projectArtifacts } from "./artifacts.js";
 import { buildImage, scriptsRoot } from "./image.js";
 import { runScript } from "./runner.js";
 import { projectRuns } from "./runs.js";
@@ -87,7 +87,24 @@ describe.skipIf(!docker)(suite, () => {
 			"lot LT-0042, 3 containers\n",
 		);
 
-		const byId = projectArtifacts(ledger).artifacts;
+		// Identity is per content, provenance is per production: the input keeps
+		// its Operator record as canonical, and the Run adds its own record.
+		const projection = projectArtifacts(ledger);
+		expect(projection.artifacts.get(input.id)).toEqual(input);
+		const records = projection.provenance.get(input.id);
+		expect(records).toHaveLength(2);
+		expect(records?.[0]).toEqual(input);
+		expect(records?.[1]).toMatchObject({
+			produced_by: { tag: "Run", id: run.id },
+			lineage: [input.id],
+			filename: "receiving.txt",
+		});
+		expect(lineageOf(projection, input.id)).toEqual([]);
+		expect(lineageOf(projection, input.id, { tag: "Run", id: run.id })).toEqual(
+			[input.id],
+		);
+
+		const byId = projection.artifacts;
 		const stdout = byId.get(run.stdout_ref);
 		expect(stdout).toMatchObject({
 			artifact_type: "Other",
@@ -109,7 +126,7 @@ describe.skipIf(!docker)(suite, () => {
 		expect(ledger.verify()).toEqual({ ok: true, count: kinds.length });
 	}, 120_000);
 
-	it("copies several inputs and gives the stdout Artifact Lineage to every input", async () => {
+	it("copies several inputs and gives each output and stdout Lineage to every input", async () => {
 		const script = register("copy");
 		const a = storeInput("alpha\n", "a.txt");
 		const b = storeInput("beta\n", "b.txt");
@@ -125,9 +142,13 @@ describe.skipIf(!docker)(suite, () => {
 
 		expect(run.exit_code).toBe(0);
 		expect(new Set(run.outputs)).toEqual(new Set([a.id, b.id]));
-		expect(
-			projectArtifacts(ledger).artifacts.get(run.stdout_ref),
-		).toMatchObject({ lineage: [a.id, b.id] });
+		const projection = projectArtifacts(ledger);
+		const producedBy = { tag: "Run", id: run.id } as const;
+		expect(lineageOf(projection, a.id, producedBy)).toEqual([a.id, b.id]);
+		expect(lineageOf(projection, b.id, producedBy)).toEqual([a.id, b.id]);
+		expect(projection.artifacts.get(run.stdout_ref)).toMatchObject({
+			lineage: [a.id, b.id],
+		});
 	}, 120_000);
 
 	it("records a non-zero exit when a Script tries to open a network connection", async () => {

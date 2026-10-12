@@ -54,8 +54,7 @@ describe("aliquot sandbox store and artifacts", () => {
 			[
 				"397ec95583578116203359d83765a9858213da59fa537356d290521a91c239ad",
 				"  type SubmissionForm, application/vnd.openxmlformats-officedocument.wordprocessingml.document, submission_form.docx",
-				"  produced by Operator",
-				"  lineage: none",
+				"  produced by Operator; lineage: none",
 				"",
 			].join("\n"),
 		);

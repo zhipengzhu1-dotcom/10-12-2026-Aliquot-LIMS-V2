@@ -234,19 +234,28 @@ export const sandboxCommands: CommandTable = {
 		},
 	},
 	artifacts: {
-		describe: "List Artifacts with their type, producer and Lineage",
+		describe:
+			"List Artifacts with their type and every production (producer and Lineage)",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const { artifacts } = await withLedger(ctx.home, false, projectArtifacts);
+			const { artifacts, provenance } = await withLedger(
+				ctx.home,
+				false,
+				projectArtifacts,
+			);
 			for (const a of artifacts.values()) {
-				const producer =
-					a.produced_by.tag === "Run" ? `Run ${a.produced_by.id}` : "Operator";
+				const records = (provenance.get(a.id) ?? [a]).map((record) => {
+					const producer =
+						record.produced_by.tag === "Run"
+							? `Run ${record.produced_by.id}`
+							: "Operator";
+					return `  produced by ${producer}; lineage: ${record.lineage.join(", ") || "none"}`;
+				});
 				ctx.stdout.write(
 					[
 						a.id,
 						`  type ${a.artifact_type}, ${a.media_type}${a.filename ? `, ${a.filename}` : ""}`,
-						`  produced by ${producer}`,
-						`  lineage: ${a.lineage.join(", ") || "none"}`,
+						...records,
 						"",
 					].join("\n"),
 				);

@@ -173,7 +173,8 @@ const listFiles = (dir: string, skipped: string[]): string[] =>
 /**
  * Run one Script version on input Artifacts in the Sandbox. Appends
  * RunStarted, then ArtifactStored for stdout, stderr and every file the
- * Script left in `/outputs` (Lineage = the inputs, produced by this Run),
+ * Script left in `/outputs` (Lineage = the inputs, produced by this Run; bytes
+ * the Ledger already holds get this Run's record as a further production),
  * then RunFinished. A Script killed at the time limit finishes with exit code
  * 137 and a closing line in its stderr Artifact saying so.
  */

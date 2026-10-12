@@ -105,6 +105,22 @@ describe("sandbox guards", () => {
 		refused(artifact(form) as never, /already stored/);
 	});
 
+	it("allow a stored id again only as a new production by a started, unfinished Run", () => {
+		const byRun = artifact(form, [form], { tag: "Run", id: "R-1" });
+		append({ kind: "ScriptRegistered", payload: script("copy", 1) } as never);
+		append(artifact(form) as never);
+		append(artifact(stdout) as never);
+		append(started("R-1") as never);
+
+		append(byRun as never);
+		refused(byRun as never, /R-1 already stored/);
+		append(finished("R-1") as never);
+		refused(
+			artifact(stdout, [], { tag: "Run", id: "R-1" }) as never,
+			/R-1 has already finished/,
+		);
+	});
+
 	it("refuse a second ScriptRegistered for a name, and a ScriptRevised that skips a version", () => {
 		append({ kind: "ScriptRegistered", payload: script("copy", 1) } as never);
 		refused(
