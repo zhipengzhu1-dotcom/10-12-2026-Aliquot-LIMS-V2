@@ -40,7 +40,7 @@ tools/check.sh
 | Typecheck (`tsc --noEmit`) | `pnpm -C conductor typecheck` |
 | Test (vitest) | `pnpm -C conductor test` |
 | Build to `conductor/dist/` | `pnpm -C conductor build` |
-| Run the `aliquot` command line | `pnpm -C conductor cli <args>` |
+| Run the `aliquot` command line | `pnpm -C conductor cli <args>`, or `tools/aliquot <args>` from any directory |
 
 A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either.
 
@@ -88,7 +88,7 @@ echo '{"actor":{"tag":"Operator"},"kind":"AgentPaused","payload":{"agent_id":"A-
   | pnpm -C conductor cli --home /tmp/aliquot ledger append
 ```
 
-`pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`.
+`pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
 Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`.
 

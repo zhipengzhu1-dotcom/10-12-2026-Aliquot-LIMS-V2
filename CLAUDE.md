@@ -19,3 +19,8 @@ Branches `ticket-<N>` off the slice branch, landed by `tools/land-ticket.sh`. Se
 ### Coding standards
 
 `CODING_STANDARDS.md` holds the judgement calls the reviewer checks.
+
+### Commands
+
+- `tools/check.sh` is the check: it runs everything CI runs, for both languages, and exits non-zero on any failure. Run it before every commit.
+- `tools/aliquot <args>` runs the `aliquot` command line from any directory, as in `tools/aliquot --home /tmp/aliquot org tree`; give `--home` an absolute path. The Bash tool here runs zsh: quote command strings, and never use an unquoted `$VAR` as a command.
