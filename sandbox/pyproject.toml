@@ -2,7 +2,21 @@
 name = "sandbox"
 version = "0.1.0"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "openpyxl==3.1.5",
+    "python-docx==1.2.0",
+]
+
+[project.scripts]
+synth = "synth.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "synth"
+module-root = ""
 
 [dependency-groups]
 dev = [
