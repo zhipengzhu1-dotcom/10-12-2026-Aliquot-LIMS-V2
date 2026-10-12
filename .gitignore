@@ -37,3 +37,6 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Aliquot data directory (Ledger and blobs). See ALIQUOT_HOME.
+.aliquot/
