@@ -1,0 +1,23 @@
+import type { AppendGuard } from "./append-guard.js";
+import { gateGuards } from "./gate/guards.js";
+import { orgGuards } from "./org/guards.js";
+import { sandboxGuards } from "./sandbox/guards.js";
+import { stage1Guards } from "./stage1/guards.js";
+import { taskGuards } from "./task/guards.js";
+import { vitalityGuards } from "./vitality/guards.js";
+
+export {
+	type AppendGuard,
+	AppendRefused,
+	type GuardContext,
+} from "./append-guard.js";
+
+/** Every guard the Ledger runs, in order. Each domain owns its own list. */
+export const appendGuards: readonly AppendGuard[] = [
+	...orgGuards,
+	...taskGuards,
+	...gateGuards,
+	...sandboxGuards,
+	...vitalityGuards,
+	...stage1Guards,
+];

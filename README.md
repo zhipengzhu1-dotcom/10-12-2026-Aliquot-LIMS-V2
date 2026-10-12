@@ -55,8 +55,27 @@ To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORB
 
 ### Data directory
 
-The Conductor will keep its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `./.aliquot/`. Git ignores that directory.
+The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `./.aliquot/` in the current directory. Every `aliquot` command accepts `--home <dir>` to override it. Git ignores that directory.
 
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test. The `sandbox` job runs ruff check, ruff format check, pytest, and the synthetic generator.
+
+## Ledger
+
+The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing.
+
+Append one Event. The body is JSON with `actor`, `kind`, and `payload`, plus optional `task_id` and `causation_id`; give a file path, or pipe the body to stdin. The command prints the stored Event, or refuses an unknown `kind` or a malformed payload and writes nothing.
+
+```sh
+echo '{"actor":{"tag":"Operator"},"kind":"AgentPaused","payload":{"agent_id":"A-odile","reason":"maintenance"}}' \
+  | pnpm -C conductor cli --home /tmp/aliquot ledger append
+```
+
+`pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path.
+
+Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot ledger verify
+```
