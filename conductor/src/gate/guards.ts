@@ -9,10 +9,27 @@ import {
 	gateState,
 } from "./projection.js";
 
+type Requested = Extract<Event, { kind: "GateRequested" }>;
 type Decided = Extract<Event, { kind: "GateDecided" }>;
 
 const refuse = (message: string): never => {
 	throw new AppendRefused(message);
+};
+
+/** A request names a fresh gate id and the true hash of its payload. */
+const checkRequest = (existing: Gate | undefined, event: Requested) => {
+	const r = event.payload;
+	if (existing !== undefined) {
+		refuse(
+			`Gate ${r.gate_id} already exists, requested at ${existing.requested_at}`,
+		);
+	}
+	const actual = sha256Hex(canonicalJson(r.payload));
+	if (r.payload_hash !== actual) {
+		refuse(
+			`payload_hash ${r.payload_hash} is not the hash of the payload, ${actual}`,
+		);
+	}
 };
 
 /**
@@ -57,13 +74,15 @@ const checkDecision = (gate: Gate | undefined, event: Decided) => {
 };
 
 const gateRules: AppendGuard = (ctx, event) => {
-	if (event.kind !== "GateDecided") return;
+	if (event.kind !== "GateRequested" && event.kind !== "GateDecided") return;
 	const { gates } = fold(
 		ctx.events,
 		GateProjection.reduce,
 		GateProjection.init,
 	);
-	checkDecision(gates.get(event.payload.gate_id), event);
+	const gate = gates.get(event.payload.gate_id);
+	if (event.kind === "GateRequested") checkRequest(gate, event);
+	else checkDecision(gate, event);
 };
 
 export const gateGuards: readonly AppendGuard[] = [gateRules];

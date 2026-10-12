@@ -179,3 +179,29 @@ describe("GateDecided", () => {
 		});
 	});
 });
+
+describe("GateRequested", () => {
+	it("is refused when payload_hash is not the hash of its payload", () => {
+		const event = request();
+		expectRefused(
+			untyped({
+				...event,
+				payload: { ...event.payload, payload_hash: hashOf({ other: 1 }) },
+			}),
+			/payload_hash .* is not the hash of the payload/,
+		);
+	});
+
+	it("is refused for a kind outside the five Gate kinds", () => {
+		const event = request();
+		expectRefused(
+			untyped({ ...event, payload: { ...event.payload, kind: "DropTable" } }),
+			/kind/,
+		);
+	});
+
+	it("is refused when the gate id is already taken", () => {
+		ledger.append(request());
+		expectRefused(request(g1, { other: "payload" }), /G-1 already exists/);
+	});
+});
