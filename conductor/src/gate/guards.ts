@@ -1,6 +1,7 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
+import { actorText } from "../types/actor.js";
 import { expiresAt, type Gate, gateState, projectGates } from "./projection.js";
 
 type Requested = Extract<Event, { kind: "GateRequested" }>;
@@ -36,7 +37,7 @@ const checkDecision = (gate: Gate | undefined, event: Decided) => {
 	const d = event.payload;
 	if (event.actor.tag !== "Operator") {
 		refuse(
-			`only the Operator may decide Gate ${d.gate_id}; the actor is ${event.actor.tag} ${event.actor.id}`,
+			`only the Operator may decide Gate ${d.gate_id}; the actor is ${actorText(event.actor)}`,
 		);
 	}
 	if (gate === undefined) return refuse(`no Gate ${d.gate_id} was requested`);

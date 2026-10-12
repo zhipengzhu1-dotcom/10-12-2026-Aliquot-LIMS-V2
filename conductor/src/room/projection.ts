@@ -62,8 +62,9 @@ export const roomState = (events: Iterable<Event>): RoomState =>
 
 /**
  * The one membership rule, for saying and for reading alike. The Operator
- * belongs to every Room. An Agent belongs while it is recruited and not
- * retired, to an `Everyone` Room, or to a `Listed` Room that names it.
+ * belongs to every Room and the Conductor to none. An Agent belongs while it
+ * is recruited and not retired, to an `Everyone` Room, or to a `Listed` Room
+ * that names it.
  */
 export const isMember = (
 	state: RoomState,
@@ -74,6 +75,7 @@ export const isMember = (
 	const room = state.rooms.get(room_id);
 	if (room === undefined) return false;
 	if (actor.tag === "Operator") return true;
+	if (actor.tag === "Conductor") return false;
 	const agent = org.agents.get(actor.id);
 	if (agent === undefined || agent.retired) return false;
 	return (

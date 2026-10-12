@@ -228,8 +228,8 @@ describe("org guards", () => {
 		expect(ledger.all()).toHaveLength(8);
 	});
 
-	it("revises an Agent to Mentor only through an approved PromoteToMentor Gate, one Gate per Promotion", () => {
-		const toTier = (trust_tier: "Senior" | "Mentor") => {
+	it("records only the projected Trust tier in a Revision or a Recruitment", () => {
+		const toTier = (trust_tier: "Senior" | "Mentor" | "Probation") => {
 			const current = definitionOf("A-pia");
 			return ledger.append({
 				actor: operator,
@@ -245,24 +245,36 @@ describe("org guards", () => {
 				},
 			});
 		};
-		const refusal =
-			/AgentDefinitionRevised refused: A-pia cannot become Mentor without an approved PromoteToMentor Gate naming it/;
 
-		expect(() => toTier("Mentor")).toThrow(refusal);
+		expect(() => toTier("Senior")).toThrow(
+			"AgentDefinitionRevised refused: A-pia's projected Trust tier is Probation, not Senior",
+		);
 		decidedGate("PromoteToMentor", { agent_id: "A-ines" });
 		decidedGate("PromoteToMentor", { agent_id: "A-pia" }, "reject");
 		decidedGate("RetireAgent", { agent_id: "A-pia" });
-		expect(() => toTier("Mentor")).toThrow(refusal);
+		expect(() => toTier("Mentor")).toThrow(
+			"AgentDefinitionRevised refused: A-pia cannot be Mentor: no approved, unused PromoteToMentor Gate names it; its projected Trust tier is Probation",
+		);
+		expect(() =>
+			ledger.append({
+				actor: operator,
+				kind: "AgentRecruited",
+				payload: {
+					...definitionOf("A-pia"),
+					id: AgentId.parse("A-nova"),
+					name: "Nova",
+					trust_tier: "Trusted",
+				},
+			}),
+		).toThrow(
+			"AgentRecruited refused: A-nova's projected Trust tier is Probation, not Trusted",
+		);
 
-		decidedGate("PromoteToMentor", { agent_id: "A-pia" });
-		toTier("Mentor");
-		expect(definitionOf("A-pia").trust_tier).toBe("Mentor");
-
-		toTier("Senior");
-		expect(() => toTier("Mentor")).toThrow(refusal);
-		decidedGate("PromoteToMentor", { agent_id: "A-pia" });
-		toTier("Mentor");
-		expect(definitionOf("A-pia").trust_tier).toBe("Mentor");
+		toTier("Probation");
+		expect(definitionOf("A-pia")).toMatchObject({
+			version: 2,
+			trust_tier: "Probation",
+		});
 	});
 
 	it("refuses a definition whose author is not the actor, or that gives no reason", () => {
