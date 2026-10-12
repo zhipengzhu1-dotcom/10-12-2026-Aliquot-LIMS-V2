@@ -87,11 +87,11 @@ describe.skipIf(!docker)(suite, () => {
 			"lot LT-0042, 3 containers\n",
 		);
 
-		// Identity is per content, provenance is per production: the input keeps
-		// its Operator record as canonical, and the Run adds its own record.
+		// Identity is per content, and each production has its own record: the
+		// input keeps its Operator record as canonical, and the Run adds its own.
 		const projection = projectArtifacts(ledger);
 		expect(projection.artifacts.get(input.id)).toEqual(input);
-		const records = projection.provenance.get(input.id);
+		const records = projection.productions.get(input.id);
 		expect(records).toHaveLength(2);
 		expect(records?.[0]).toEqual(input);
 		expect(records?.[1]).toMatchObject({

@@ -74,7 +74,7 @@ export const sandboxCommands: CommandTable = {
 					`Docker has no image ${image}; run \`aliquot sandbox build\` or pass --image`,
 				);
 			}
-			const script = await withLedger(ctx.home, true, (ledger) =>
+			const script = withLedger(ctx.home, true, (ledger) =>
 				registerScript({
 					ledger,
 					home: ctx.home,
@@ -120,7 +120,7 @@ export const sandboxCommands: CommandTable = {
 				values.type ? [values.type] : [],
 			);
 			const bytes = readFileSync(path);
-			const artifact = await withLedger(ctx.home, true, (ledger) =>
+			const artifact = withLedger(ctx.home, true, (ledger) =>
 				openArtifacts({ ledger, home: ctx.home }).store(
 					bytes,
 					{
@@ -191,7 +191,7 @@ export const sandboxCommands: CommandTable = {
 		describe: "List Runs with their Script version, exit code and outputs",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const runs = await withLedger(
+			const runs = withLedger(
 				ctx.home,
 				false,
 				(ledger) => projectRuns(ledger).runs,
@@ -213,13 +213,13 @@ export const sandboxCommands: CommandTable = {
 			"List Artifacts with their type and every production (producer and Lineage)",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const { artifacts, provenance } = await withLedger(
+			const { artifacts, productions } = withLedger(
 				ctx.home,
 				false,
 				projectArtifacts,
 			);
 			for (const a of artifacts.values()) {
-				const records = (provenance.get(a.id) ?? [a]).map((record) => {
+				const records = (productions.get(a.id) ?? [a]).map((record) => {
 					const producer =
 						record.produced_by.tag === "Run"
 							? `Run ${record.produced_by.id}`
@@ -251,7 +251,7 @@ export const sandboxCommands: CommandTable = {
 				positionals[0],
 				"sandbox cat takes an Artifact id (64 hex)",
 			);
-			const bytes = await withLedger(ctx.home, false, (ledger) => {
+			const bytes = withLedger(ctx.home, false, (ledger) => {
 				if (!projectArtifacts(ledger).artifacts.has(id)) {
 					throw new Error(`Artifact ${id} is not stored`);
 				}

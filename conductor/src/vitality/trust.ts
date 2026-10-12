@@ -49,7 +49,7 @@ export const tierOf = (input: TierInput): TrustTier =>
 		: meritTier(input);
 
 /**
- * One step of the Trust tier after a Review or a Gate approval:
+ * One step of the Trust tier after a Review or an approved PromoteToMentor Gate:
  * - a boundary score of 0 demotes one tier at once;
  * - otherwise the Agent is promoted to the tier it qualifies for, if higher;
  * - and falls to the tier its Merit and tenure still reach, if lower.
@@ -105,7 +105,7 @@ const mentorApprovals = (events: Iterable<Event>, agent: AgentId): number[] => {
 
 /**
  * The Agent's Trust tier, folded from Probation at Recruitment over its
- * counted Reviews and Mentor Gate approvals in Ledger order. A Demotion from
+ * counted Reviews and approved PromoteToMentor Gates in Ledger order. A Demotion from
  * Mentor uses up the Gate: returning to Mentor needs a new one.
  */
 export const trustTierOf = (

@@ -19,18 +19,18 @@ import type {
 } from "../types/artifact.js";
 
 /**
- * Identity is per content, provenance is per production. `artifacts` holds
- * each id's first record (canonical); `provenance` holds every record for the
- * id in Ledger order: the first store, then each Run that produced the same
- * bytes again.
+ * Identity is per content, and each production has its own record.
+ * `artifacts` holds each id's first record (canonical); `productions` holds
+ * every record for the id in Ledger order: the first store, then each Run
+ * that produced the same bytes again.
  */
 export type ArtifactProjection = {
 	readonly artifacts: ReadonlyMap<ArtifactId, StoredArtifact>;
-	readonly provenance: ReadonlyMap<ArtifactId, readonly StoredArtifact[]>;
+	readonly productions: ReadonlyMap<ArtifactId, readonly StoredArtifact[]>;
 };
 
 export const artifactProjection: Projection<ArtifactProjection> = {
-	init: { artifacts: new Map(), provenance: new Map() },
+	init: { artifacts: new Map(), productions: new Map() },
 	reduce: (state, event) => {
 		if (event.kind !== "ArtifactStored") return state;
 		const { id } = event.payload;
@@ -38,8 +38,8 @@ export const artifactProjection: Projection<ArtifactProjection> = {
 			artifacts: state.artifacts.has(id)
 				? state.artifacts
 				: new Map(state.artifacts).set(id, event.payload),
-			provenance: new Map(state.provenance).set(id, [
-				...(state.provenance.get(id) ?? []),
+			productions: new Map(state.productions).set(id, [
+				...(state.productions.get(id) ?? []),
 				event.payload,
 			]),
 		};
@@ -50,12 +50,12 @@ const sameProducer = (a: Producer, b: Producer) =>
 	a.tag === "Run" ? b.tag === "Run" && a.id === b.id : b.tag === "Operator";
 
 /** The record a given producer wrote for `id`, if it wrote one. */
-export const recordOf = (
+export const productionOf = (
 	projection: ArtifactProjection,
 	id: ArtifactId,
 	producedBy: Producer,
 ): StoredArtifact | undefined =>
-	projection.provenance
+	projection.productions
 		.get(id)
 		?.find((record) => sameProducer(record.produced_by, producedBy));
 
@@ -70,7 +70,7 @@ export const lineageOf = (
 	producedBy?: Producer,
 ): readonly ArtifactId[] | undefined =>
 	(producedBy
-		? recordOf(projection, id, producedBy)
+		? productionOf(projection, id, producedBy)
 		: projection.artifacts.get(id)
 	)?.lineage;
 
@@ -153,7 +153,7 @@ export const openArtifacts = ({
 			const projection = projectArtifacts(ledger);
 			const canonical = projection.artifacts.get(id);
 			if (canonical) {
-				const own = recordOf(projection, id, meta.produced_by);
+				const own = productionOf(projection, id, meta.produced_by);
 				if (own) return own;
 				if (meta.produced_by.tag === "Operator") return canonical;
 			}

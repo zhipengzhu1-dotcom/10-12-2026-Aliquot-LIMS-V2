@@ -20,8 +20,8 @@ import { seedOrg } from "../org/seed.js";
 import { fold } from "../reduce.js";
 import {
 	openArtifacts,
+	productionOf,
 	projectArtifacts,
-	recordOf,
 } from "../sandbox/artifacts.js";
 import { guessMediaType, runScript } from "../sandbox/runner.js";
 import {
@@ -117,7 +117,7 @@ const evaluateRun = (
 	const projection = projectArtifacts(ledger);
 	const record = run.outputs.find(
 		(id) =>
-			recordOf(projection, id, { tag: "Run", id: run.id })?.filename ===
+			productionOf(projection, id, { tag: "Run", id: run.id })?.filename ===
 			RECORD_FILENAME,
 	);
 	if (!record) return failed(`${run.id} wrote no ${RECORD_FILENAME}`);
