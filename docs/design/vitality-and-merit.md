@@ -80,7 +80,7 @@ The Conductor chooses which Tasks get a Review from a hash of the Task ID, not f
 
 Any boundary score of 0 causes a Demotion of one tier at once. The Agent cannot regain that tier until the 0 leaves its 20-Task window.
 
-One approved `PromoteToMentor` Gate covers one Promotion to `Mentor`. A Promotion uses the oldest approved Gate that no Promotion has used. A `Mentor` that is Demoted needs a new Gate to return, and an unused approval waits, without lapsing, until Merit qualifies. While an Agent holds an unused approval, the Ledger refuses a new `PromoteToMentor` Gate request for it.
+One approved `PromoteToMentor` Gate covers one Promotion to `Mentor`. A Promotion uses the oldest approved Gate that no Promotion has used. A `Mentor` that is Demoted needs a new Gate to return, and an unused approval waits, without lapsing, until Merit qualifies. While an Agent holds an unused approval, the Ledger refuses a new `PromoteToMentor` Gate request for it, and the approval of one already Open.
 
 ## Allocation favors trusted, unloaded Agents
 

@@ -92,7 +92,6 @@ const checkTier = (
 	}
 };
 
-/** The fields a Conductor tier Revision may change. */
 const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 	"version",
 	"trust_tier",

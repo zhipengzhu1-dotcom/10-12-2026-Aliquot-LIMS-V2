@@ -212,7 +212,7 @@ pnpm -C conductor cli --home /tmp/aliquot gate show G-1
 pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
 ```
 
-The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate. An approved `PromoteToMentor` Gate covers one Promotion to `Mentor`, so the Ledger refuses a new `PromoteToMentor` request for an Agent that holds an approved Gate no Promotion has used, naming the Agent and that Gate.
+The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate. An approved `PromoteToMentor` Gate covers one Promotion to `Mentor`, so the Ledger refuses a new `PromoteToMentor` request, and the approval of one already Open, for an Agent that holds an approved Gate no Promotion has used, naming the Agent and that Gate. The Operator may still reject it.
 
 ## Sandbox
 

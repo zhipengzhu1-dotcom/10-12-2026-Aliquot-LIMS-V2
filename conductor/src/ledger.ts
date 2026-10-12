@@ -9,10 +9,15 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { Event, NewEvent } from "./events.js";
-import { type AppendGuard, AppendRefused, appendGuards } from "./guards.js";
+import {
+	type AppendGuard,
+	AppendRefused,
+	appendFollowOns,
+	appendGuards,
+	type FollowOn,
+} from "./guards.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
 import { IsoTime, Seq, Sha256 } from "./ids.js";
-import { tierRevisions } from "./vitality/projection.js";
 
 export type LedgerOptions = {
 	/** The data directory. The Ledger lives at `<home>/ledger.sqlite`. */
@@ -23,16 +28,9 @@ export type LedgerOptions = {
 	clock?: () => Date;
 	/** Guards run before every append. Defaults to `appendGuards`. */
 	guards?: readonly AppendGuard[];
-	/** Follow-ons run after every append. Defaults to `[tierRevisions]`. */
+	/** Follow-ons run after every append. Defaults to `appendFollowOns`. */
 	followOns?: readonly FollowOn[];
 };
-
-/**
- * The Events an append requires after its cause, given the Ledger with the
- * cause at its end. The Ledger writes them in the same transaction, through
- * the same guards, and writes none of them, nor the cause, if any is refused.
- */
-export type FollowOn = (events: readonly Event[], cause: Event) => NewEvent[];
 
 export type Ledger = {
 	readonly path: string;
@@ -278,7 +276,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 	const lockPath = `${path}.lock`;
 	const clock = options.clock ?? (() => new Date());
 	const guards = options.guards ?? appendGuards;
-	const followOns = options.followOns ?? [tierRevisions];
+	const followOns = options.followOns ?? appendFollowOns;
 
 	if (options.writer) {
 		mkdirSync(options.home, { recursive: true });

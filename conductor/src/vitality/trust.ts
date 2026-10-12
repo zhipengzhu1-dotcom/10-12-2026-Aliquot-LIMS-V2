@@ -1,7 +1,7 @@
 import type { Event } from "../events.js";
 import { approvedGatesFor, projectGates } from "../gate/projection.js";
 import { sha256Hex } from "../hash.js";
-import type { AgentId, GateId, TaskId } from "../ids.js";
+import type { AgentId, GateId, Seq, TaskId } from "../ids.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { type Standing, standingOf } from "./merit.js";
 import { workOf } from "./work.js";
@@ -79,8 +79,8 @@ export type TrustStanding = {
 };
 
 type Step =
-	| { readonly seq: number; readonly tag: "Review"; readonly review: Review }
-	| { readonly seq: number; readonly tag: "Approval"; readonly gate: GateId };
+	| { readonly seq: Seq; readonly tag: "Review"; readonly review: Review }
+	| { readonly seq: Seq; readonly tag: "Approval"; readonly gate: GateId };
 
 /**
  * The decisions approving PromoteToMentor Gates that name the Agent, so they
@@ -159,6 +159,21 @@ export const tierRefusal = (
 		return `${agent} cannot be Mentor: no approved, unused PromoteToMentor Gate names it; its projected Trust tier is ${projected.tier}`;
 	}
 	return `${agent}'s projected Trust tier is ${projected.tier}, not ${tier}`;
+};
+
+/**
+ * Why the Agent may not get another PromoteToMentor Gate approved, or
+ * undefined when it may: one Gate covers one Promotion, so an Agent holding
+ * an approved Gate that no Promotion has used gets no new one (ADR-0006).
+ */
+export const mentorGateRefusal = (
+	events: readonly Event[],
+	agent: AgentId,
+): string | undefined => {
+	const [unused] = trustTierOf(events, agent).unusedMentorGates;
+	return unused === undefined
+		? undefined
+		: `${agent} holds ${unused}, an approved PromoteToMentor Gate that no Promotion has used`;
 };
 
 /** How many Tasks per Review each tier gets: 1 in n. */

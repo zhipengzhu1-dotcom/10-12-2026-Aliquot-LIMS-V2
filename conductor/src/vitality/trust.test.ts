@@ -235,17 +235,14 @@ describe("trustTierOf", () => {
 		});
 	});
 
-	it("lets two Gates approved while both were Open cover exactly two Promotions", () => {
+	it("lets two Gates cover exactly two Promotions, each used once", () => {
 		const first = s.requested("PromoteToMentor", { agent_id: rin });
 		const second = s.requested("PromoteToMentor", { agent_id: rin });
 		s.decided(first);
-		s.decided(second);
-		expect(trustTierOf(s.events(), rin).unusedMentorGates).toEqual([
-			first,
-			second,
-		]);
+		expect(trustTierOf(s.events(), rin).unusedMentorGates).toEqual([first]);
 
 		repeat(20, () => s.reviewed(rin, scores(3)));
+		s.decided(second);
 		expect(trustTierOf(s.events(), rin)).toMatchObject({
 			tier: "Mentor",
 			mentorGate: first,

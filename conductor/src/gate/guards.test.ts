@@ -258,23 +258,30 @@ describe("GateRequested", () => {
 		expectRefused(request(g1, { other: "payload" }), /G-1 already exists/);
 	});
 
-	it("is refused for PromoteToMentor while the Agent holds an approved Gate no Promotion has used", () => {
+	it("is refused for PromoteToMentor, and so is an approval, while the Agent holds an approved Gate no Promotion has used", () => {
 		const s = scenario();
 		try {
 			const rin = AgentId.parse("A-rin");
 			const promote = () => s.requested("PromoteToMentor", { agent_id: rin });
 			const open = promote();
-			promote();
+			const pending = promote();
+			const unwanted = promote();
 			s.decided(open);
 
 			expect(promote).toThrow(
 				`GateRequested refused: A-rin holds ${open}, an approved PromoteToMentor Gate that no Promotion has used`,
 			);
+			expect(() => s.decided(pending)).toThrow(
+				`GateDecided refused: A-rin holds ${open}, an approved PromoteToMentor Gate that no Promotion has used`,
+			);
+			s.decided(unwanted, "reject");
 			s.requested("PromoteToMentor", { agent_id: "A-ines" });
 
 			for (let i = 0; i < 20; i++) s.reviewed(rin, scores(3));
 			expect(trustTierOf(s.events(), rin).tier).toBe("Mentor");
-			promote();
+			s.decided(pending);
+			expect(trustTierOf(s.events(), rin).unusedMentorGates).toEqual([pending]);
+			expect(promote).toThrow(/GateRequested refused: A-rin holds G-/);
 		} finally {
 			s.close();
 		}

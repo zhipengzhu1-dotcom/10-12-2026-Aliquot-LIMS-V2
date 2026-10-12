@@ -1,5 +1,5 @@
 import type { Event } from "../events.js";
-import type { AgentId, TaskId } from "../ids.js";
+import type { AgentId, Seq, TaskId } from "../ids.js";
 import { fold } from "../reduce.js";
 import { TaskProjection } from "../task/projection.js";
 import type { Review } from "../types/merit.js";
@@ -54,7 +54,7 @@ export const lastAssignee = (
 /** A Review of a Task, with when it was recorded. */
 export type DatedReview = {
 	readonly review: Review;
-	readonly seq: number;
+	readonly seq: Seq;
 	readonly ts: string;
 };
 

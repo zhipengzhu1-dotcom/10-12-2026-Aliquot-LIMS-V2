@@ -3,7 +3,7 @@ import type { Event } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
 import { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
-import { trustTierOf } from "../vitality/trust.js";
+import { mentorGateRefusal } from "../vitality/trust.js";
 import {
 	agentNamedBy,
 	expiresAt,
@@ -78,19 +78,22 @@ const checkDecision = (gate: Gate | undefined, event: Decided) => {
 
 /**
  * One approved PromoteToMentor Gate covers one Promotion (ADR-0006), so an
- * Agent holding an unused approval gets no new request. Open requests do
- * not count: the Trust tier Projection queues every approval.
+ * Agent holding an unused approval gets neither a new request nor a second
+ * approval of one already Open. The Operator may still reject it.
  */
-const checkPromotionRequest = (events: readonly Event[], event: Requested) => {
-	const r = event.payload;
-	if (r.kind !== "PromoteToMentor") return;
-	const agent = AgentId.safeParse(agentNamedBy(r));
+const checkMentorGate = (
+	events: readonly Event[],
+	event: Requested | Decided,
+	gate: Pick<Gate, "kind" | "payload"> | undefined,
+) => {
+	if (gate?.kind !== "PromoteToMentor") return;
+	if (event.kind === "GateDecided" && event.payload.meaning !== "approve") {
+		return;
+	}
+	const agent = AgentId.safeParse(agentNamedBy(gate));
 	if (!agent.success) return;
-	const [unused] = trustTierOf(events, agent.data).unusedMentorGates;
-	if (unused === undefined) return;
-	refuse(
-		`GateRequested refused: ${agent.data} holds ${unused}, an approved PromoteToMentor Gate that no Promotion has used`,
-	);
+	const reason = mentorGateRefusal(events, agent.data);
+	if (reason !== undefined) refuse(`${event.kind} refused: ${reason}`);
 };
 
 const gateRules: AppendGuard = (ctx, event) => {
@@ -99,8 +102,11 @@ const gateRules: AppendGuard = (ctx, event) => {
 	const gate = gates.get(event.payload.gate_id);
 	if (event.kind === "GateRequested") {
 		checkRequest(gate, event);
-		checkPromotionRequest(ctx.events, event);
-	} else checkDecision(gate, event);
+		checkMentorGate(ctx.events, event, event.payload);
+	} else {
+		checkDecision(gate, event);
+		checkMentorGate(ctx.events, event, gate);
+	}
 };
 
 export const gateGuards: readonly AppendGuard[] = [gateRules];
