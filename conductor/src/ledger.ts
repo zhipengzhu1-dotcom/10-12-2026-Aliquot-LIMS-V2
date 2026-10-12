@@ -25,8 +25,14 @@ export type Ledger = {
 	/** Every Event in seq order. */
 	events(): IterableIterator<Event>;
 	all(): Event[];
+	/** Walk the chain from seq 1 and report the first broken link. */
+	verify(): VerifyResult;
 	close(): void;
 };
+
+export type VerifyResult =
+	| { ok: true; count: number }
+	| { ok: false; seq: number; reason: string };
 
 const GENESIS_HASH = Sha256.parse("0".repeat(64));
 
@@ -43,17 +49,18 @@ CREATE TABLE IF NOT EXISTS events (
 	hash TEXT NOT NULL
 )`;
 
-type Row = {
-	seq: number;
-	ts: string;
-	actor: string;
-	task_id: string | null;
-	causation_id: number | null;
-	kind: string;
-	payload: string;
-	prev_hash: string;
-	hash: string;
-};
+const Row = z.object({
+	seq: z.number().int(),
+	ts: z.string(),
+	actor: z.string(),
+	task_id: z.string().nullable(),
+	causation_id: z.number().int().nullable(),
+	kind: z.string(),
+	payload: z.string(),
+	prev_hash: z.string(),
+	hash: z.string(),
+});
+type Row = z.infer<typeof Row>;
 
 /** The fields the hash covers, with absent optional fields omitted. */
 const hashedFields = (row: Row) => ({
@@ -75,6 +82,51 @@ const eventOf = (row: Row): Event => {
 const stripUndefined = <T extends object>(o: T): T =>
 	Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 
+const verifyRows = (rows: Iterable<unknown>): VerifyResult => {
+	let expected = 1;
+	let prevHash: string = GENESIS_HASH;
+	for (const raw of rows) {
+		const parsed = Row.safeParse(raw);
+		if (!parsed.success) {
+			return { ok: false, seq: expected, reason: "row has the wrong columns" };
+		}
+		const row = parsed.data;
+		if (row.seq !== expected) {
+			return {
+				ok: false,
+				seq: expected,
+				reason: `seq ${expected} is missing; the next row is seq ${row.seq}`,
+			};
+		}
+		if (row.prev_hash !== prevHash) {
+			return {
+				ok: false,
+				seq: row.seq,
+				reason:
+					row.seq === 1
+						? "prev_hash of seq 1 is not the genesis hash"
+						: `prev_hash does not match the hash of seq ${row.seq - 1}`,
+			};
+		}
+		let fields: ReturnType<typeof hashedFields>;
+		try {
+			fields = hashedFields(row);
+		} catch {
+			return { ok: false, seq: row.seq, reason: "stored JSON does not parse" };
+		}
+		if (sha256Hex(canonicalJson(fields)) !== row.hash) {
+			return {
+				ok: false,
+				seq: row.seq,
+				reason: "hash does not match the Event's contents",
+			};
+		}
+		prevHash = row.hash;
+		expected++;
+	}
+	return { ok: true, count: expected - 1 };
+};
+
 export const openLedger = (options: LedgerOptions): Ledger => {
 	const path = join(options.home, "ledger.sqlite");
 	const clock = options.clock ?? (() => new Date());
@@ -91,7 +143,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 	);
 
 	function* events(): IterableIterator<Event> {
-		for (const row of selectAll.iterate()) yield eventOf(row as Row);
+		for (const row of selectAll.iterate()) yield eventOf(Row.parse(row));
 	}
 
 	const append = (newEvent: NewEvent): Event => {
@@ -146,6 +198,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 		append,
 		events,
 		all: () => [...events()],
+		verify: () => verifyRows(selectAll.iterate()),
 		close: () => db.close(),
 	};
 };

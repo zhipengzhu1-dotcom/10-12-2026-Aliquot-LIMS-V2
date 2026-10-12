@@ -1,10 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { NewEvent } from "./events.js";
 import { AppendRefused } from "./guards.js";
-import { AgentId } from "./ids.js";
+import { canonicalJson, sha256Hex } from "./hash.js";
+import { AgentId, Seq, TaskId } from "./ids.js";
 import { type Ledger, openLedger } from "./ledger.js";
 
 const odile = AgentId.parse("A-odile");
@@ -14,6 +16,41 @@ const paused = (reason: string): NewEvent => ({
 	kind: "AgentPaused",
 	payload: { agent_id: odile, reason },
 });
+
+/** A mix of kinds, with and without the optional envelope fields. */
+const sampleEvent = (i: number): NewEvent => {
+	const task_id = TaskId.parse(`T-${i}`);
+	switch (i % 3) {
+		case 0:
+			return paused(`pause ${i}`);
+		case 1:
+			return {
+				actor: { tag: "Agent", id: odile },
+				task_id,
+				kind: "TaskStarted",
+				payload: { task_id },
+			};
+		default:
+			return {
+				actor: { tag: "Operator" },
+				task_id,
+				causation_id: Seq.parse(i - 1),
+				kind: "MessageSent",
+				payload: { to: [{ tag: "Agent", id: odile }], body: `note ${i}` },
+			};
+	}
+};
+
+const appendSamples = (l: Ledger, n: number) => {
+	for (let i = 1; i <= n; i++) l.append(sampleEvent(i));
+};
+
+/** Change the SQLite file behind the Ledger's back, as a tamperer would. */
+const tamper = (sql: string) => {
+	const db = new DatabaseSync(join(home, "ledger.sqlite"));
+	db.exec(sql);
+	db.close();
+};
 
 // The refusal tests hand the Ledger values the type system would reject, the
 // way JSON from the command line arrives.
@@ -108,5 +145,87 @@ describe("Ledger append", () => {
 		);
 		expect(ledger.all().map((e) => e.seq)).toEqual([1]);
 		expect(seen).toEqual([0, 1]);
+	});
+});
+
+describe("Ledger verify", () => {
+	it("passes on a freshly written Ledger of 120 Events", () => {
+		const l = openWriter();
+		appendSamples(l, 120);
+
+		expect(l.verify()).toEqual({ ok: true, count: 120 });
+	});
+
+	it("passes on an empty Ledger", () => {
+		expect(openWriter().verify()).toEqual({ ok: true, count: 0 });
+	});
+
+	it("names the edited seq when one payload is changed in SQLite", () => {
+		const l = openWriter();
+		appendSamples(l, 120);
+		tamper(
+			`UPDATE events SET payload = json_set(payload, '$.reason', 'forged') WHERE seq = 57`,
+		);
+
+		expect(l.verify()).toEqual({
+			ok: false,
+			seq: 57,
+			reason: "hash does not match the Event's contents",
+		});
+	});
+
+	it("names the next seq when an edited row's hash is also recomputed", () => {
+		const l = openWriter();
+		appendSamples(l, 120);
+		const db = new DatabaseSync(join(home, "ledger.sqlite"));
+		const row = db.prepare("SELECT * FROM events WHERE seq = 57").get() as {
+			ts: string;
+			actor: string;
+			kind: string;
+			payload: string;
+			prev_hash: string;
+		};
+		const payload = { ...JSON.parse(row.payload), reason: "forged" };
+		const hash = sha256Hex(
+			canonicalJson({
+				seq: 57,
+				ts: row.ts,
+				actor: JSON.parse(row.actor),
+				kind: row.kind,
+				payload,
+				prev_hash: row.prev_hash,
+			}),
+		);
+		db.prepare("UPDATE events SET payload = ?, hash = ? WHERE seq = 57").run(
+			canonicalJson(payload),
+			hash,
+		);
+		db.close();
+
+		expect(l.verify()).toEqual({
+			ok: false,
+			seq: 58,
+			reason: "prev_hash does not match the hash of seq 57",
+		});
+	});
+
+	it("names the missing seq when one row is deleted in SQLite", () => {
+		const l = openWriter();
+		appendSamples(l, 120);
+		tamper("DELETE FROM events WHERE seq = 57");
+
+		expect(l.verify()).toEqual({
+			ok: false,
+			seq: 57,
+			reason: "seq 57 is missing; the next row is seq 58",
+		});
+	});
+
+	it("names the seq whose stored JSON no longer parses", () => {
+		const l = openWriter();
+		appendSamples(l, 10);
+		tamper("UPDATE events SET actor = '{not json' WHERE seq = 4");
+
+		expect(l.verify()).toMatchObject({ ok: false, seq: 4 });
 	});
 });
