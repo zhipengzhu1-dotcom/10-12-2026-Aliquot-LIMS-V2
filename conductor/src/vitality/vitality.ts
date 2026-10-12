@@ -61,7 +61,7 @@ export const sampleVitality = (
 };
 
 const RECENT_TASKS = 10;
-const WEEK_MS = 7 * 86_400_000;
+const DAY_MS = 86_400_000;
 
 /** `friction` and `confidence` over the Agent's last 10 Tasks. */
 const fromRecentWork = (events: readonly Event[], agent: AgentId) => {
@@ -98,20 +98,29 @@ const fromRecentWork = (events: readonly Event[], agent: AgentId) => {
 };
 
 /**
- * Least-squares slope of Review means against time over the 7 days up to
- * `now`, in Merit points per week; 0 with fewer than two distinct times.
+ * Least-squares slope of daily Review means over the 7 days up to `now`, in
+ * Merit points per week; 0 with fewer than two days that have Reviews.
+ * Reviews are averaged per day (counted back from `now`) first: Reviews
+ * minutes apart would otherwise give slopes of thousands of points a week.
  */
 const morale = (reviews: readonly DatedReview[], now: Date): number => {
-	const points = reviews
-		.map((r) => ({
-			x: (Date.parse(r.ts) - now.getTime()) / WEEK_MS,
-			y: mean(scoresOf(r.review)),
-		}))
-		.filter((p) => p.x > -1 && p.x <= 0); // the last week
+	const byDay = new Map<number, number[]>();
+	for (const r of reviews) {
+		const daysAgo = Math.floor((now.getTime() - Date.parse(r.ts)) / DAY_MS);
+		if (daysAgo < 0 || daysAgo >= 7) continue;
+		byDay.set(daysAgo, [
+			...(byDay.get(daysAgo) ?? []),
+			mean(scoresOf(r.review)),
+		]);
+	}
+	const points = [...byDay].map(([daysAgo, means]) => ({
+		x: -daysAgo,
+		y: mean(means),
+	}));
 	if (points.length < 2) return 0;
 	const mx = mean(points.map((p) => p.x));
 	const my = mean(points.map((p) => p.y));
 	const sxx = points.reduce((sum, p) => sum + (p.x - mx) ** 2, 0);
 	const sxy = points.reduce((sum, p) => sum + (p.x - mx) * (p.y - my), 0);
-	return sxx === 0 ? 0 : sxy / sxx;
+	return (sxy / sxx) * 7;
 };

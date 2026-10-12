@@ -7,6 +7,7 @@ const rin = AgentId.parse("A-rin"); // Specialist, capacity 3
 const ines = AgentId.parse("A-ines");
 const bram = AgentId.parse("A-bram");
 const mabel = AgentId.parse("A-mabel");
+const FIVE_MINUTES = 5 / 1440; // in days
 
 const rest = (agent: AgentId, action: "begin" | "end") =>
 	s.append({
@@ -106,6 +107,25 @@ describe("sampleVitality over the Agent's last 10 Tasks", () => {
 		s.advanceDays(3);
 		// +1 Merit point over 3 days is 7/3 points per week.
 		expect(sample().morale).toBeCloseTo(7 / 3);
+	});
+
+	it("averages Review means per day, so Reviews minutes apart do not swing morale", () => {
+		s.reviewed(rin, scores(3));
+		s.advanceDays(FIVE_MINUTES);
+		s.reviewed(rin, scores(2)); // the same day: one point, mean 2.5
+		s.advanceDays(2);
+		s.reviewed(rin, scores(3));
+		s.advanceDays(FIVE_MINUTES);
+		s.reviewed(rin, scores(3)); // two days later: mean 3.0
+		// +0.5 Merit points over 2 days is 1.75 points per week.
+		expect(sample().morale).toBeCloseTo(1.75);
+	});
+
+	it("gives morale 0 when every Review in the window falls on one day", () => {
+		s.reviewed(rin, scores(3));
+		s.advanceDays(FIVE_MINUTES);
+		s.reviewed(rin, scores(1));
+		expect(sample().morale).toBe(0);
 	});
 
 	it("gives morale 0 with fewer than two Reviews in the window", () => {
