@@ -40,3 +40,6 @@ venv/
 
 # Aliquot data directory (Ledger and blobs). See ALIQUOT_HOME.
 .aliquot/
+
+# Delegate worktrees
+.claude/worktrees/

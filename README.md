@@ -72,7 +72,7 @@ echo '{"actor":{"tag":"Operator"},"kind":"AgentPaused","payload":{"agent_id":"A-
   | pnpm -C conductor cli --home /tmp/aliquot ledger append
 ```
 
-`pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path.
+`pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`.
 
 Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`.
 
