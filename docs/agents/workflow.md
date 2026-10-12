@@ -5,7 +5,7 @@ How a GitHub issue becomes code on the integration branch. There are no pull req
 ## Branches
 
 - `slice-0`, `slice-1`, and so on are the integration branches, one per slice of the roadmap in `docs/design/overview.md`. The current slice's branch is the base for every ticket and the one that `main` follows.
-- `main` is fast-forwarded to the current slice branch at each slice boundary and after a landing when the slice is complete, so any tool that starts from `main` (a worktree, a checkout, a CI default) sees the real code.
+- `main` is fast-forwarded to the current slice branch by each landing, so any tool that starts from `main` (a worktree, a checkout, a CI default) sees the real code.
 - `ticket-<N>` is the branch for issue `#N`, cut from the current slice branch. A long-running ticket merges the slice branch into itself (`Merge slice-0 into ticket-N`) rather than rebasing, so `seq`-sensitive tests keep their history.
 - `prototype/<name>` keeps a throwaway sketch out of the slice branch.
 
@@ -13,8 +13,27 @@ How a GitHub issue becomes code on the integration branch. There are no pull req
 
 A ticket has three sections: **What to build**, **Acceptance criteria** as a checklist, and **Blocked by** naming issue numbers. It names behaviours and the data shape, in `GLOSSARY.md` vocabulary. It does not name functions; an implementer who finds a named function has no caller drops it. Label it `ready-for-agent` and `slice-<n>`.
 
+## Check the work
+
+Run `tools/check.sh` before every commit. It runs every check CI runs, for both languages, and exits non-zero at the first failure; CI and `tools/land-ticket.sh` call the same script. Under CI, a test whose prerequisite is missing fails instead of skipping: the Docker-backed vitest suites when Docker is down, and the forbidden-terms pytest when the `ALIQUOT_FORBIDDEN_TERMS` secret is unset. Biome refuses a domain's `commands.ts` that imports `openLedger` or calls `safeParse`; it uses `withLedger`, `parseOrUsage` and `parseOrThrow` from `conductor/src/cli-support.ts`.
+
 ## Land the ticket
 
-Run `tools/land-ticket.sh <N>` from a clean checkout of the slice branch. It merges `ticket-<N>` with `--no-ff` as `Merge ticket-<N>: <issue title> (#<N>)`, runs lint, typecheck and the test suites, pushes the slice branch, and closes the issue with a comment naming the merge commit. A failed check resets the merge and leaves the slice branch as it was.
+Two rules come first:
+
+- **Land only from a worktree you created.** Another agent's worktree, or the main checkout, may hold work in progress that a landing would merge into or reset.
+- **The main checkout stays on the slice branch.** Cut tickets in worktrees; never switch the main checkout to a ticket branch.
+
+Run `tools/land-ticket.sh <N>` from a clean checkout of the slice branch. In order, it:
+
+1. Takes the landing lock, `land.lock` in the git common directory, so only one landing runs across every worktree. It refuses, naming the lock and its pid, when another landing holds it. A lock left by a process that no longer runs is taken over.
+2. Fetches `origin`, and refuses unless the local slice branch is at the same commit as `origin/<slice>`.
+3. Refuses unless the latest CI run on that commit concluded `success`, naming the conclusion it found.
+4. Prints `git worktree list`, so you see who else is working.
+5. Merges `ticket-<N>` with `--no-ff` as `Merge ticket-<N>: <issue title> (#<N>)` and runs `tools/check.sh` (every check CI runs, for both languages) on the merged result. A failed check resets the merge and leaves the slice branch as it was.
+6. Pushes the slice branch and closes the issue with a comment naming the merge commit.
+7. Fast-forwards `main` on `origin` to the slice branch when `main` is an ancestor of it; otherwise it says so and leaves `main` alone.
+
+`tools/land-ticket.sh --branch <name>` lands any branch the same way, as `Merge <name> into <slice>`, and closes no issue. Each refusal prints `land-ticket refused: <reason>` and exits 1.
 
 Done means: the merge commit is on `origin/<slice>`, CI is green on it, and the issue is closed.

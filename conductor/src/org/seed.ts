@@ -190,7 +190,7 @@ const definitionOf = (entry: RosterEntry): AgentDefinition => ({
 	},
 	tools: [],
 	skills: [],
-	memory_ref: `mem/A-${entry.slug}`,
+	memory_notes_ref: `mem/A-${entry.slug}`,
 	model: "claude-sonnet-5-5",
 	capacity: entry.role === "Specialist" ? 3 : 5,
 	trust_tier: "Probation",

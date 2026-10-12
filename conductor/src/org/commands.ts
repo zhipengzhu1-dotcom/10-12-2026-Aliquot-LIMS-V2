@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { z } from "zod";
-import { parseActor, parseOrUsage, withLedger } from "../cli-support.js";
+import {
+	parseActor,
+	parseOrThrow,
+	parseOrUsage,
+	withLedger,
+} from "../cli-support.js";
 import {
 	type CommandContext,
 	type CommandTable,
@@ -171,13 +175,11 @@ export const orgCommands: CommandTable = {
 		run: async (args, ctx) => {
 			const { id, rest, actor } = parse("revise", args, ["id", "file.json"]);
 			const [file = ""] = rest;
-			const parsed = AgentDefinition.safeParse(readJson(file));
-			if (!parsed.success) {
-				throw new Error(
-					`${file} is not an Agent definition: ${z.prettifyError(parsed.error)}`,
-				);
-			}
-			const definition = parsed.data;
+			const definition = parseOrThrow(
+				AgentDefinition,
+				readJson(file),
+				`${file} is not an Agent definition`,
+			);
 			if (definition.id !== id) {
 				throw new UsageError(
 					`org revise ${id}: ${file} defines ${definition.id}, not ${id}`,

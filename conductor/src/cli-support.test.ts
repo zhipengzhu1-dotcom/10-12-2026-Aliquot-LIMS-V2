@@ -7,13 +7,15 @@ import {
 	actorText,
 	nextId,
 	parseActor,
+	parseOrThrow,
 	parseOrUsage,
 	parseTimeout,
 	readAll,
 	withLedger,
 } from "./cli-support.js";
 import { UsageError } from "./command.js";
-import { TaskId } from "./ids.js";
+import { RubricId, TaskId } from "./ids.js";
+import { Room } from "./types/room.js";
 
 describe("parseActor", () => {
 	it("defaults to the Operator and accepts Operator or an Agent id", () => {
@@ -46,6 +48,15 @@ describe("parseOrUsage", () => {
 		expect(() =>
 			parseOrUsage(TaskId, "3", "the Task id must look like T-1"),
 		).toThrow(new UsageError('the Task id must look like T-1, not "3"'));
+	});
+});
+
+describe("parseOrThrow", () => {
+	it("returns the parsed value or throws an Error naming what it is not and every problem", () => {
+		expect(parseOrThrow(TaskId, "T-3", "not a Task id")).toBe("T-3");
+		expect(() =>
+			parseOrThrow(Room, { id: "RM-x", name: "X" }, "not a Room"),
+		).toThrow(/^not a Room: ✖ .*\n {2}→ at purpose/s);
 	});
 });
 
@@ -95,5 +106,29 @@ describe("withLedger", () => {
 			}),
 		).toThrow("boom");
 		expect(existsSync(lock)).toBe(false);
+	});
+
+	it("stamps each Event with the clock it is given", () => {
+		const at = new Date("2026-10-12T09:30:00.000Z");
+		const event = withLedger(
+			home,
+			true,
+			(ledger) =>
+				ledger.append({
+					actor: { tag: "Operator" },
+					kind: "TaskProposed",
+					payload: {
+						task_id: TaskId.parse("T-1"),
+						title: "Clock check",
+						goal: "Record the time",
+						inputs: [],
+						rubric_id: RubricId.parse("rubric-1"),
+						priority: 1,
+						tat_class: "Regular",
+					},
+				}),
+			() => at,
+		);
+		expect(event.ts).toBe("2026-10-12T09:30:00.000Z");
 	});
 });

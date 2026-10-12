@@ -16,7 +16,19 @@ Aliquot LIMS is a society of AI Agents that does the paperwork and computation o
 
 ## Development
 
-Install Node 24, pnpm 12, and uv first. Run every command from the repository root.
+Install Node 24, pnpm 12, and uv first, and start Docker. Run every command from the repository root.
+
+### Check everything
+
+`tools/check.sh` runs every check CI runs, for both languages, and exits non-zero at the first failure. It prints one `check: <step>` line per step: conductor install, lint, typecheck, the Sandbox image build, vitest; Sandbox sync, ruff check, ruff format check, pytest, the synthetic generator; then `stage1 run-all` on `fixtures/` against a fresh temporary home and `ledger verify` on that home. It works from any directory. `--conductor-only` runs the conductor steps and stage 1; `--sandbox-only` runs the Sandbox steps. Run it before every commit.
+
+```sh
+tools/check.sh
+```
+
+### Landing a ticket
+
+`tools/land-ticket.sh <N>` merges `ticket-<N>` into the slice branch, runs `tools/check.sh` on the result, pushes, closes issue `#N`, and fast-forwards `main`. It holds a lock in the git common directory while it runs, and refuses when another landing holds that lock, when the local slice branch is not at `origin/<slice>`, or when the latest CI run on that commit did not succeed. `--branch <name>` in place of `<N>` lands any branch and closes no issue. [docs/agents/workflow.md](docs/agents/workflow.md) has the steps and the rules for landing.
 
 ### Conductor (TypeScript)
 
@@ -28,7 +40,9 @@ Install Node 24, pnpm 12, and uv first. Run every command from the repository ro
 | Typecheck (`tsc --noEmit`) | `pnpm -C conductor typecheck` |
 | Test (vitest) | `pnpm -C conductor test` |
 | Build to `conductor/dist/` | `pnpm -C conductor build` |
-| Run the `aliquot` command line | `pnpm -C conductor cli <args>` |
+| Run the `aliquot` command line | `pnpm -C conductor cli <args>`, or `tools/aliquot <args>` from any directory |
+
+A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either.
 
 ### Sandbox (Python)
 
@@ -51,7 +65,7 @@ uv run --directory sandbox synth --seed 42 --out /tmp/synth-42
 
 The output directory gets `submission_form.docx`, `receiving_log.xlsx`, `result_worksheet.xlsx`, `report_of_analysis.xlsx`, and `manifest.json`, which holds the invented record so tests can check the documents without parsing them. `uv run --directory sandbox` runs in `sandbox/`, so a relative `--out` path lands under `sandbox/`. Every name, address, code, and Lot number is invented.
 
-To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms, and until then the test skips with a notice.
+To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms with `gh secret set ALIQUOT_FORBIDDEN_TERMS`, which prompts for the value. When `CI` is set and the variable is unset, the test fails with `set the ALIQUOT_FORBIDDEN_TERMS repository secret (ADR-0009)` instead of skipping, so CI cannot go green without the check.
 
 ### Data directory
 
@@ -59,7 +73,9 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. Then it runs stage 1 on every Fixture with `stage1 run-all fixtures` (see Stage 1 tracer). The `sandbox` job runs ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), the synthetic generator, and `docker build` of the Sandbox image.
+`.github/workflows/ci.yml` runs on every push and pull request, in two jobs that each call `tools/check.sh`. The `conductor` job runs `tools/check.sh --conductor-only`: lint, typecheck, the Sandbox image build, and test, so the Docker-backed runner tests run there too, then stage 1 on every Fixture (see Stage 1 tracer) and `ledger verify`. The `sandbox` job runs `tools/check.sh --sandbox-only`: ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), and the synthetic generator.
+
+Off CI, a test that needs a missing prerequisite skips with a notice: the Docker-backed vitest suites when `docker info` fails, and the forbidden-terms pytest when `ALIQUOT_FORBIDDEN_TERMS` is unset. When the `CI` environment variable is set, as it is on GitHub Actions, the same tests fail instead, so a green run means they ran. The vitest suites check through `conductor/src/test-support/docker.ts`.
 
 ## Ledger
 
@@ -72,7 +88,7 @@ echo '{"actor":{"tag":"Operator"},"kind":"AgentPaused","payload":{"agent_id":"A-
   | pnpm -C conductor cli --home /tmp/aliquot ledger append
 ```
 
-`pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`.
+`pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
 Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`.
 

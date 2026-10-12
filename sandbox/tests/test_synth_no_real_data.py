@@ -2,7 +2,8 @@
 
 The forbidden terms (the lab's and Clients' names, the real Lot prefixes) stay
 out of the repository too: the test reads them from ALIQUOT_FORBIDDEN_TERMS, a
-comma-separated list, and skips when it is unset.
+comma-separated list, and skips when it is unset, unless CI is set: in CI an
+unset secret fails the test, so the check cannot go quietly missing.
 """
 
 import html
@@ -20,6 +21,8 @@ def forbidden_terms() -> list[str]:
     raw = os.environ.get("ALIQUOT_FORBIDDEN_TERMS", "")
     terms = [t.strip().lower() for t in raw.split(",") if t.strip()]
     if not terms:
+        if os.environ.get("CI"):
+            pytest.fail("set the ALIQUOT_FORBIDDEN_TERMS repository secret (ADR-0009)")
         pytest.skip(
             "ALIQUOT_FORBIDDEN_TERMS is unset: set it to a comma-separated list of "
             "real lab terms to check the generator output and source for them"

@@ -1,6 +1,7 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
 import { orgState } from "../org/projection.js";
-import { refusal, roomState, who } from "./projection.js";
+import { actorText } from "../types/actor.js";
+import { refusal, roomState } from "./projection.js";
 
 /** ADR-0010: a Room opens once, and only with live Agents in its list. */
 const roomOpened: AppendGuard = (ctx, event) => {
@@ -12,9 +13,9 @@ const roomOpened: AppendGuard = (ctx, event) => {
 	if (roomState(ctx.events).rooms.has(room.id)) {
 		refuse(`${room.id} is already open`);
 	}
-	if (who(room.opened_by) !== who(event.actor)) {
+	if (actorText(room.opened_by) !== actorText(event.actor)) {
 		refuse(
-			`${who(event.actor)} cannot open ${room.id} on behalf of ${who(room.opened_by)}`,
+			`${actorText(event.actor)} cannot open ${room.id} on behalf of ${actorText(room.opened_by)}`,
 		);
 	}
 	if (room.membership.tag === "Everyone") return;

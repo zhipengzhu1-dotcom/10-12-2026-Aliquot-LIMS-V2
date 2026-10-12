@@ -2,7 +2,7 @@ import type { Event } from "../events.js";
 import type { IsoTime, RoomId, Seq } from "../ids.js";
 import type { OrgState } from "../org/projection.js";
 import { fold, type Projection } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
+import { type Actor, actorText } from "../types/actor.js";
 import type { Room } from "../types/room.js";
 
 /** One `MessageSent` Event, as a Room's reader sees it. */
@@ -60,9 +60,6 @@ export const RoomProjection: Projection<RoomState> = {
 export const roomState = (events: Iterable<Event>): RoomState =>
 	fold(events, RoomProjection.reduce, RoomProjection.init);
 
-export const who = (actor: Actor) =>
-	actor.tag === "Operator" ? "Operator" : actor.id;
-
 /**
  * The one membership rule, for saying and for reading alike. The Operator
  * belongs to every Room. An Agent belongs while it is recruited and not
@@ -94,7 +91,7 @@ export const refusal = (
 ): string | undefined => {
 	if (!state.rooms.has(room_id)) return `${room_id} is not an open Room`;
 	if (!isMember(state, org, room_id, actor)) {
-		return `${who(actor)} is not a member of ${room_id}`;
+		return `${actorText(actor)} is not a member of ${room_id}`;
 	}
 	return undefined;
 };

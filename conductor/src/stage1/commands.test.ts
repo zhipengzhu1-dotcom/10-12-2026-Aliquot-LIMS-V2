@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import {
 	copyFileSync,
 	mkdirSync,
@@ -22,11 +21,11 @@ import { lineageOf, projectArtifacts } from "../sandbox/artifacts.js";
 import { scriptsRoot } from "../sandbox/image.js";
 import { projectRuns } from "../sandbox/runs.js";
 import { TaskProjection } from "../task/projection.js";
+import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { scenario, scores } from "../vitality/scenario.js";
 import { stage1Commands } from "./commands.js";
 
-const docker = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
-const suite = docker
+const suite = dockerAvailable
 	? "aliquot stage1 (Docker)"
 	: "aliquot stage1: SKIPPED because `docker info` failed; start Docker to run these";
 
@@ -120,7 +119,7 @@ const brokenScript = () => {
 	return dir;
 };
 
-describe.skipIf(!docker)(suite, () => {
+describe.skipIf(!requireDocker())(suite, () => {
 	it("runs the Fixture through parse_submission and completes the Task, linked by causation_id from TaskProposed to TaskCompleted", async () => {
 		const result = await run("run", [fixture]);
 

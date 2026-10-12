@@ -1,0 +1,5 @@
+language js
+
+`$schema.safeParse($value)` as $call where {
+	register_diagnostic(span=$call, message="A domain's commands.ts parses with parseOrUsage or parseOrThrow from cli-support.ts, not safeParse, so every command reports a bad value the same way.", severity="error")
+}

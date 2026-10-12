@@ -16,7 +16,6 @@ import {
 import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import { GateId, TaskId } from "../ids.js";
-import { openLedger } from "../ledger.js";
 import { GateKind } from "../types/gate.js";
 import {
 	expiresAt,
@@ -192,30 +191,30 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 		);
 	}
 
-	// The signature time and the Event's ts are one instant, so this opens
-	// the Ledger with its own clock rather than through withLedger.
+	const { hash, reason } = values;
+	// The signature time and the Event's ts are one instant, so the Ledger
+	// stamps the decision with this clock.
 	const now = new Date();
-	const ledger = openLedger({ home: ctx.home, writer: true, clock: () => now });
-	try {
-		const gate = gateOf(gatesOf(ledger), id);
-		// The signature binds the payload the Operator looked at: refuse here,
-		// before anything is written, when it is not the one stored.
-		if (values.hash !== gate.payload_hash) {
-			throw new UsageError(
-				`--hash ${values.hash} is not ${gate.id}'s payload hash, ${gate.payload_hash}; run gate show ${gate.id} and check the payload again`,
+	const decided = withLedger(
+		ctx.home,
+		true,
+		(ledger) => {
+			const gate = gateOf(gatesOf(ledger), id);
+			// The signature binds the payload the Operator looked at: refuse here,
+			// before anything is written, when it is not the one stored.
+			if (hash !== gate.payload_hash) {
+				throw new UsageError(
+					`--hash ${hash} is not ${gate.id}'s payload hash, ${gate.payload_hash}; run gate show ${gate.id} and check the payload again`,
+				);
+			}
+			return ledger.append(
+				gateDecision(gate, now, values.approve ? "approve" : "reject", reason),
 			);
-		}
-		const decision = gateDecision(
-			gate,
-			now,
-			values.approve ? "approve" : "reject",
-			values.reason,
-		);
-		ctx.stdout.write(`${canonicalJson(ledger.append(decision))}\n`);
-		return 0;
-	} finally {
-		ledger.close();
-	}
+		},
+		() => now,
+	);
+	ctx.stdout.write(`${canonicalJson(decided)}\n`);
+	return 0;
 };
 
 const showGate = (gate: Gate, now: Date) => {

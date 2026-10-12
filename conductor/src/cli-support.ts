@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { z } from "zod";
 import { UsageError } from "./command.js";
 import { AgentId } from "./ids.js";
 import { type Ledger, openLedger } from "./ledger.js";
@@ -31,6 +32,22 @@ export const parseOrUsage = <T>(
 	return parsed.data;
 };
 
+/**
+ * Parse a document, such as JSON read from a file or stdin, with a zod
+ * schema, or throw an Error: `<what>: <every problem zod found>`.
+ */
+export const parseOrThrow = <T>(
+	schema: z.ZodType<T>,
+	value: unknown,
+	what: string,
+): T => {
+	const parsed = schema.safeParse(value);
+	if (!parsed.success) {
+		throw new Error(`${what}: ${z.prettifyError(parsed.error)}`);
+	}
+	return parsed.data;
+};
+
 /** `Operator` or `A-<id>`; the Operator when the flag is absent. */
 export const parseActor = (
 	flagValue: string | undefined,
@@ -49,14 +66,20 @@ export const parseActor = (
 
 /**
  * Open the Ledger, hand it to `use`, and close it when `use` returns, throws,
- * or (for a Promise) settles.
+ * or (for a Promise) settles. `clock` stamps each Event's `ts`; the wall
+ * clock when absent.
  */
 export const withLedger = <T>(
 	home: string,
 	writer: boolean,
 	use: (ledger: Ledger) => T,
+	clock?: () => Date,
 ): T => {
-	const ledger = openLedger({ home, writer });
+	const ledger = openLedger({
+		home,
+		writer,
+		...(clock === undefined ? {} : { clock }),
+	});
 	let result: T;
 	try {
 		result = use(ledger);
