@@ -86,13 +86,11 @@ const hashedFields = (row: Row) => ({
 	prev_hash: row.prev_hash,
 });
 
-const eventOf = (row: Row): Event => {
-	const { prev_hash, ...rest } = hashedFields(row);
-	return Event.parse({ ...stripUndefined(rest), prev_hash, hash: row.hash });
-};
+const stripUndefined = (o: object): Record<string, unknown> =>
+	Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
-const stripUndefined = <T extends object>(o: T): T =>
-	Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+const eventOf = (row: Row): Event =>
+	Event.parse(stripUndefined({ ...hashedFields(row), hash: row.hash }));
 
 const verifyRows = (rows: Iterable<unknown>): VerifyResult => {
 	let expected = 1;

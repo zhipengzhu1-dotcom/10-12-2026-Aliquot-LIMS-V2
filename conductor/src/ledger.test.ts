@@ -123,6 +123,16 @@ describe("Ledger append", () => {
 		expect(second.hash).not.toBe(first.hash);
 	});
 
+	it("stamps each Event with the injected clock", () => {
+		ledger = openLedger({
+			home,
+			writer: true,
+			clock: () => new Date("2026-10-12T09:30:00Z"),
+		});
+
+		expect(ledger.append(paused("timed")).ts).toBe("2026-10-12T09:30:00.000Z");
+	});
+
 	it("runs every guard before writing, and a refusal writes nothing", () => {
 		const seen: number[] = [];
 		ledger = openLedger({
