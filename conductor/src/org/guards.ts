@@ -1,4 +1,11 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
+import type { Event } from "../events.js";
+import {
+	agentNamedBy,
+	approvedGatesFor,
+	gateState,
+	projectGates,
+} from "../gate/projection.js";
 import type { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
 import { type AgentState, type OrgState, orgState } from "./projection.js";
@@ -17,6 +24,42 @@ const live = (state: OrgState, id: AgentId): AgentState => {
 		);
 	}
 	return agent;
+};
+
+/**
+ * Retirement is a Gate action (ADR-0006): the Operator retires an Agent
+ * through an approved RetireAgent Gate whose payload names it.
+ */
+const checkRetirement = (
+	events: readonly Event[],
+	event: Extract<Event, { kind: "AgentRetired" }>,
+) => {
+	const { agent_id, gate_id } = event.payload;
+	if (event.actor.tag !== "Operator") {
+		throw new AppendRefused(
+			`only the Operator retires an Agent; ${actorText(event.actor)} tried to retire ${agent_id}`,
+		);
+	}
+	if (gate_id === undefined) {
+		throw new AppendRefused(
+			`retiring ${agent_id} needs an approved RetireAgent Gate naming it; none was given`,
+		);
+	}
+	const gates = projectGates(events);
+	if (
+		approvedGatesFor(gates, "RetireAgent", agent_id).some(
+			(g) => g.id === gate_id,
+		)
+	) {
+		return;
+	}
+	const gate = gates.gates.get(gate_id);
+	if (gate === undefined) {
+		throw new AppendRefused(`no Gate ${gate_id} was requested`);
+	}
+	throw new AppendRefused(
+		`${gate_id} is a ${gate.kind} Gate, ${gateState(gate, new Date(event.ts))}, naming ${agentNamedBy(gate) ?? "no Agent"}; retiring ${agent_id} needs an approved RetireAgent Gate naming it`,
+	);
 };
 
 /**
@@ -50,8 +93,11 @@ const orgGuard: AppendGuard = (ctx, event) => {
 			return;
 		}
 		case "AgentPaused":
+			live(orgState(ctx.events), event.payload.agent_id);
+			return;
 		case "AgentRetired":
 			live(orgState(ctx.events), event.payload.agent_id);
+			checkRetirement(ctx.events, event);
 			return;
 		case "AgentResumed": {
 			const { agent_id } = event.payload;

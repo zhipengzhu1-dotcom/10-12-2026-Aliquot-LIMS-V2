@@ -63,11 +63,7 @@ describe("vitalityProjection", () => {
 				morale: 0,
 			},
 		});
-		s.append({
-			actor: { tag: "Operator" },
-			kind: "AgentRetired",
-			payload: { agent_id: AgentId.parse("A-anselm"), reason: "Replaced" },
-		});
+		s.retire(AgentId.parse("A-anselm"), "Replaced");
 
 		const agents = view();
 		expect(agents.get(rin)?.mood).toBe("focused");

@@ -1,13 +1,7 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
-import { fold } from "../reduce.js";
-import {
-	expiresAt,
-	type Gate,
-	GateProjection,
-	gateState,
-} from "./projection.js";
+import { expiresAt, type Gate, gateState, projectGates } from "./projection.js";
 
 type Requested = Extract<Event, { kind: "GateRequested" }>;
 type Decided = Extract<Event, { kind: "GateDecided" }>;
@@ -75,11 +69,7 @@ const checkDecision = (gate: Gate | undefined, event: Decided) => {
 
 const gateRules: AppendGuard = (ctx, event) => {
 	if (event.kind !== "GateRequested" && event.kind !== "GateDecided") return;
-	const { gates } = fold(
-		ctx.events,
-		GateProjection.reduce,
-		GateProjection.init,
-	);
+	const { gates } = projectGates(ctx.events);
 	const gate = gates.get(event.payload.gate_id);
 	if (event.kind === "GateRequested") checkRequest(gate, event);
 	else checkDecision(gate, event);

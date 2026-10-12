@@ -3,7 +3,6 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
 	actorText,
-	nextId,
 	parseActor,
 	parseOrUsage,
 	readAll,
@@ -14,25 +13,24 @@ import {
 	type CommandTable,
 	UsageError,
 } from "../command.js";
-import type { Event, NewEvent } from "../events.js";
-import { canonicalJson, sha256Hex } from "../hash.js";
-import { GateId, IsoTime, TaskId } from "../ids.js";
+import type { Event } from "../events.js";
+import { canonicalJson } from "../hash.js";
+import { GateId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
-import { fold } from "../reduce.js";
 import { GateKind } from "../types/gate.js";
 import {
 	expiresAt,
 	type Gate,
-	GateProjection,
 	type Gates,
 	gateState,
+	projectGates,
 } from "./projection.js";
+import { DEFAULT_LIFETIME_S, gateDecision, requestGate } from "./request.js";
 
-const DEFAULT_LIFETIME_S = 86400;
 const SUMMARY_WIDTH = 60;
 
 const gatesOf = (ledger: { events(): Iterable<Event> }): Gates =>
-	fold(ledger.events(), GateProjection.reduce, GateProjection.init);
+	projectGates(ledger.events());
 
 const readGates = (home: string): Gates => withLedger(home, false, gatesOf);
 
@@ -103,7 +101,7 @@ const gateListing = (gates: Gates, now: Date, all: boolean): string => {
 	return `${table([header, ...rows])}\n`;
 };
 
-const requestGate = async (args: string[], ctx: CommandContext) => {
+const requestCommand = async (args: string[], ctx: CommandContext) => {
 	const { values } = parseArgs({
 		args,
 		options: {
@@ -151,19 +149,12 @@ const requestGate = async (args: string[], ctx: CommandContext) => {
 	}
 
 	return withLedger(ctx.home, true, (ledger) => {
-		const gate_id = GateId.parse(nextId("G", gatesOf(ledger).gates.keys()));
-		const payload_hash = sha256Hex(canonicalJson(payload));
-		ledger.append({
+		const { gate_id, payload_hash } = requestGate(ledger, {
 			actor,
+			kind,
+			payload,
+			lifetime_s,
 			...(task_id === undefined ? {} : { task_id }),
-			kind: "GateRequested",
-			payload: {
-				gate_id,
-				kind,
-				payload,
-				payload_hash,
-				lifetime_s,
-			},
 		});
 		ctx.stdout.write(`${gate_id} ${payload_hash}\n`);
 		return 0;
@@ -199,19 +190,12 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 	const ledger = openLedger({ home: ctx.home, writer: true, clock: () => now });
 	try {
 		const gate = gateOf(gatesOf(ledger), id);
-		const decision: NewEvent = {
-			actor: { tag: "Operator" },
-			...(gate.task_id === undefined ? {} : { task_id: gate.task_id }),
-			kind: "GateDecided",
-			payload: {
-				gate_id: gate.id,
-				decided_by: { tag: "Operator" },
-				decided_at: IsoTime.parse(now.toISOString()),
-				payload_hash: sha256Hex(canonicalJson(gate.payload)),
-				meaning: values.approve ? "approve" : "reject",
-				reason: values.reason,
-			},
-		};
+		const decision = gateDecision(
+			gate,
+			now,
+			values.approve ? "approve" : "reject",
+			values.reason,
+		);
 		ctx.stdout.write(`${canonicalJson(ledger.append(decision))}\n`);
 		return 0;
 	} finally {
@@ -243,7 +227,7 @@ export const gateCommands: CommandTable = {
 	request: {
 		args: "--kind <kind> --payload <file|-> [--task T-n] [--lifetime s] [--as A-id]",
 		describe: `Request a Gate (${GateKind.options.join(", ")}); prints its id and payload hash`,
-		run: requestGate,
+		run: requestCommand,
 	},
 	list: {
 		args: "[--all]",

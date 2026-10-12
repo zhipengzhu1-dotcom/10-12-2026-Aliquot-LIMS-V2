@@ -8,7 +8,9 @@ import {
 	UsageError,
 } from "../command.js";
 import type { NewEvent } from "../events.js";
-import { AgentId } from "../ids.js";
+import { payloadText, projectGates } from "../gate/projection.js";
+import { requestGate } from "../gate/request.js";
+import { AgentId, GateId } from "../ids.js";
 import { AgentDefinition } from "../types/agent-definition.js";
 import { orgState, renderTree, tree } from "./projection.js";
 import { rosterDefinitions, seedOrg } from "./seed.js";
@@ -16,6 +18,7 @@ import { rosterDefinitions, seedOrg } from "./seed.js";
 const options = {
 	reason: { type: "string" },
 	as: { type: "string" },
+	gate: { type: "string" },
 } as const;
 
 /** Parse `<id> [more positionals] [--reason R] [--as A-<id>]`. */
@@ -34,6 +37,8 @@ const parse = (command: string, args: string[], positionals: string[]) => {
 		),
 		rest: parsed.positionals.slice(1),
 		reason: parsed.values.reason,
+		as: parsed.values.as,
+		gate: parsed.values.gate,
 		actor: parseActor(parsed.values.as),
 	};
 };
@@ -116,19 +121,47 @@ export const orgCommands: CommandTable = {
 		},
 	},
 	retire: {
-		args: "<id> --reason <text> [--as <agent>]",
-		describe: "Retire an Agent; its Events stay in the Ledger",
+		args: "<id> --reason <text> [--as <agent>] | <id> --gate G-n [--reason <text>]",
+		describe:
+			"Request a RetireAgent Gate for an Agent, or retire it through the approved Gate; its Events stay in the Ledger",
 		run: async (args, ctx) => {
-			const { id, reason, actor } = parse("retire", args, ["id"]);
-			return appendOne(
-				ctx,
-				{
-					actor,
+			const { id, reason, as, gate, actor } = parse("retire", args, ["id"]);
+			if (gate === undefined) {
+				const why = needReason("retire", reason);
+				const { gate_id, payload_hash } = withLedger(ctx.home, true, (ledger) =>
+					requestGate(ledger, {
+						actor,
+						kind: "RetireAgent",
+						payload: { agent_id: id, reason: why },
+					}),
+				);
+				ctx.stdout.write(
+					`Requested ${gate_id} to retire ${id}; payload hash ${payload_hash}\n` +
+						`Decide it with \`aliquot gate decide ${gate_id} --approve --reason <text>\`, then run \`aliquot org retire ${id} --gate ${gate_id}\`\n`,
+				);
+				return 0;
+			}
+			if (as !== undefined) {
+				throw new UsageError(
+					"org retire --gate writes as the Operator; --as only names who requests the Gate",
+				);
+			}
+			const gate_id = parseOrUsage(GateId, gate, "--gate must look like G-1");
+			withLedger(ctx.home, true, (ledger) => {
+				const requested = projectGates(ledger.events()).gates.get(gate_id);
+				const gateReason = requested && payloadText(requested, "reason");
+				ledger.append({
+					actor: { tag: "Operator" },
 					kind: "AgentRetired",
-					payload: { agent_id: id, reason: needReason("retire", reason) },
-				},
-				`Retired ${id}`,
-			);
+					payload: {
+						agent_id: id,
+						reason: reason ?? gateReason ?? `Retired through ${gate_id}`,
+						gate_id,
+					},
+				});
+			});
+			ctx.stdout.write(`Retired ${id} through ${gate_id}\n`);
+			return 0;
 		},
 	},
 	revise: {

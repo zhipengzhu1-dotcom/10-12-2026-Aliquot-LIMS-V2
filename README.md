@@ -96,16 +96,25 @@ Print the tree: the Operator at the root, the Director, Steward and Auditor unde
 pnpm -C conductor cli --home /tmp/aliquot org tree
 ```
 
-Pause, resume, retire, or revise an Agent. `revise` takes a JSON file with the full next definition; its `version` must be the current version plus 1.
+Pause, resume, or revise an Agent. `revise` takes a JSON file with the full next definition; its `version` must be the current version plus 1.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot org pause A-rin --reason "Energy budget review"
 pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
-pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced"
 pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
 ```
 
 These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused.
+
+Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced" --as A-mabel   # prints G-1 and its hash
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --reason "Rin is replaced"
+pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --gate G-1
+```
+
+The Ledger refuses an `AgentRetired` that is not written by the Operator, or whose `gate_id` does not name an approved `RetireAgent` Gate with that Agent as `agent_id` in its payload.
 
 ## Tasks
 

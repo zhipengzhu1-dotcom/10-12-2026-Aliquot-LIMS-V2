@@ -10,12 +10,16 @@ const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 
 let home: string;
 
-const org = (...args: string[]) =>
+const aliquot = (...args: string[]) =>
 	spawnSync(
 		process.execPath,
-		["--import", "tsx", cli, "--home", home, "org", ...args],
-		{ encoding: "utf8", env: { ...process.env, ALIQUOT_HOME: "" } },
+		["--import", "tsx", cli, "--home", home, ...args],
+		{
+			encoding: "utf8",
+			env: { ...process.env, ALIQUOT_HOME: "" },
+		},
 	);
+const org = (...args: string[]) => aliquot("org", ...args);
 
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-org-cli-"));
@@ -85,16 +89,54 @@ describe("aliquot org", () => {
 		const paused = org("pause", "A-mabel", "--reason", "Energy budget review");
 		const whilePaused = org("tree").stdout;
 		const resumed = org("resume", "A-mabel");
-		const retired = org("retire", "A-mabel", "--reason", "Replaced");
-		const afterRetire = org("tree").stdout;
 		const noReason = org("pause", "A-pia");
 
 		expect(paused.stdout).toBe("Paused A-mabel\n");
 		expect(whilePaused).toContain("+-- Mabel, Steward, Probation (paused)\n");
 		expect(resumed.stdout).toBe("Resumed A-mabel\n");
-		expect(retired.stdout).toBe("Retired A-mabel\n");
-		expect(afterRetire).not.toContain("Mabel");
 		expect(noReason.status).toBe(2);
 		expect(noReason.stderr).toMatch(/^UsageError: org pause needs --reason/);
+	});
+
+	it("retires an Agent through a RetireAgent Gate the Operator approves", () => {
+		org("seed");
+
+		const opened = org(
+			"retire",
+			"A-mabel",
+			"--reason",
+			"Replaced",
+			"--as",
+			"A-odile",
+		);
+		const [, hash] = /payload hash ([0-9a-f]{64})/.exec(opened.stdout) ?? [];
+		const early = org("retire", "A-mabel", "--gate", "G-1");
+		const decided = aliquot(
+			"gate",
+			"decide",
+			"G-1",
+			"--approve",
+			"--reason",
+			"Mabel is replaced",
+		);
+		const retired = org("retire", "A-mabel", "--gate", "G-1");
+		const afterRetire = org("tree").stdout;
+		const shown = aliquot("gate", "show", "G-1").stdout;
+
+		expect(opened.stderr).toBe("");
+		expect(opened.stdout).toBe(
+			`Requested G-1 to retire A-mabel; payload hash ${hash}\n` +
+				"Decide it with `aliquot gate decide G-1 --approve --reason <text>`, then run `aliquot org retire A-mabel --gate G-1`\n",
+		);
+		expect(shown).toContain("requester: A-odile\n");
+		expect(shown).toContain('"agent_id": "A-mabel"');
+		expect(early.status).toBe(1);
+		expect(early.stderr).toMatch(
+			/^AppendRefused: G-1 is a RetireAgent Gate, Open, naming A-mabel/,
+		);
+		expect(decided.status).toBe(0);
+		expect(retired.stderr).toBe("");
+		expect(retired.stdout).toBe("Retired A-mabel through G-1\n");
+		expect(afterRetire).not.toContain("Mabel");
 	});
 });
