@@ -8,7 +8,7 @@ import type { NewEvent } from "./events.js";
 import { AppendRefused } from "./guards.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
 import { AgentId, Seq, TaskId } from "./ids.js";
-import { type Ledger, openLedger } from "./ledger.js";
+import { type Ledger, LedgerLocked, openLedger } from "./ledger.js";
 
 const odile = AgentId.parse("A-odile");
 
@@ -237,9 +237,10 @@ describe("Ledger single writer", () => {
 	it("refuses a second writer while the first is open, naming the holder", () => {
 		openWriter();
 
-		expect(() => openLedger({ home, writer: true })).toThrow(
-			`LedgerLocked: ${lockPath()} held by pid ${process.pid}`,
-		);
+		const second = () => openLedger({ home, writer: true });
+
+		expect(second).toThrow(LedgerLocked);
+		expect(second).toThrow(`${lockPath()} held by pid ${process.pid}`);
 	});
 
 	it("lets a second writer open after the first closes", () => {

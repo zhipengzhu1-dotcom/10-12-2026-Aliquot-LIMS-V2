@@ -139,11 +139,29 @@ const verifyRows = (rows: Iterable<unknown>): VerifyResult => {
 	return { ok: true, count: expected - 1 };
 };
 
+/**
+ * Parse an Event body that arrived from outside, such as JSON from the
+ * command line. Throws `AppendRefused` naming every problem.
+ */
+export const parseNewEvent = (input: unknown): NewEvent => {
+	const parsed = NewEvent.safeParse(input);
+	if (!parsed.success) {
+		const kind =
+			typeof input === "object" && input !== null && "kind" in input
+				? ` of kind ${JSON.stringify(input.kind)}`
+				: "";
+		throw new AppendRefused(
+			`invalid Event${kind}: ${z.prettifyError(parsed.error)}`,
+		);
+	}
+	return parsed.data;
+};
+
 /** Another process holds the Ledger for writing. */
 export class LedgerLocked extends Error {
 	override readonly name = "LedgerLocked";
 	constructor(lockPath: string, pid: number | "unknown") {
-		super(`LedgerLocked: ${lockPath} held by pid ${pid}`);
+		super(`${lockPath} held by pid ${pid}`);
 	}
 }
 
@@ -234,13 +252,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 		}
 		db.exec("BEGIN IMMEDIATE");
 		try {
-			const parsed = NewEvent.safeParse(newEvent);
-			if (!parsed.success) {
-				throw new AppendRefused(
-					`invalid Event: ${z.prettifyError(parsed.error)}`,
-				);
-			}
-			const body = parsed.data;
+			const body = parseNewEvent(newEvent);
 			history ??= [...events()];
 			const last = history.at(-1);
 			const unhashed = {
