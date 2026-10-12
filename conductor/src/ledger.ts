@@ -15,6 +15,7 @@ import {
 	appendFollowOns,
 	appendGuards,
 	type FollowOn,
+	ledgerCatchUps,
 } from "./guards.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
 import { IsoTime, Seq, Sha256 } from "./ids.js";
@@ -301,64 +302,88 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 	// read once stay current and each append only adds to them.
 	let appended: Event[] | undefined;
 
-	const append = (newEvent: NewEvent): Event => {
+	/**
+	 * Run `body` in one transaction, handing it a copy of the Events and a
+	 * `write` that numbers, hashes, guards and inserts one Event after them.
+	 * A refusal anywhere rolls back every write and leaves `appended` as the
+	 * Ledger was before.
+	 */
+	const transaction = <T>(
+		body: (write: (newEvent: NewEvent) => Event, written: Event[]) => T,
+	): T => {
 		if (!insert) {
 			throw new Error(
 				`Ledger at ${path} is open read-only; open it with writer: true to append`,
 			);
 		}
-		/** Number, hash, guard and insert one Event after `written`, and add it there. */
-		const write = (written: Event[], newEvent: NewEvent): Event => {
-			const body = parseNewEvent(newEvent);
-			const last = written.at(-1);
-			const unhashed = {
-				seq: Seq.parse((last?.seq ?? 0) + 1),
-				ts: IsoTime.parse(clock().toISOString()),
-				actor: body.actor,
-				task_id: body.task_id,
-				causation_id: body.causation_id,
-				kind: body.kind,
-				payload: body.payload,
-				prev_hash: last?.hash ?? GENESIS_HASH,
-			};
-			const hash = sha256Hex(canonicalJson(unhashed));
-			const event = Event.parse(stripUndefined({ ...unhashed, hash }));
-
-			for (const guard of guards) guard({ events: written }, event);
-
-			insert.run({
-				seq: event.seq,
-				ts: event.ts,
-				actor: canonicalJson(event.actor),
-				task_id: event.task_id ?? null,
-				causation_id: event.causation_id ?? null,
-				kind: event.kind,
-				payload: canonicalJson(event.payload),
-				prev_hash: event.prev_hash,
-				hash: event.hash,
-			});
-			written.push(event);
-			return event;
-		};
-
 		db.exec("BEGIN IMMEDIATE");
 		try {
 			appended ??= [...events()];
-			// A copy, so a refusal anywhere in the transaction leaves `appended`
-			// as the Ledger was before the call.
 			const written = [...appended];
-			const cause = write(written, newEvent);
-			for (const followOn of followOns) {
-				for (const next of followOn(written, cause)) write(written, next);
-			}
+			const write = (newEvent: NewEvent): Event => {
+				const parsed = parseNewEvent(newEvent);
+				const last = written.at(-1);
+				const unhashed = {
+					seq: Seq.parse((last?.seq ?? 0) + 1),
+					ts: IsoTime.parse(clock().toISOString()),
+					actor: parsed.actor,
+					task_id: parsed.task_id,
+					causation_id: parsed.causation_id,
+					kind: parsed.kind,
+					payload: parsed.payload,
+					prev_hash: last?.hash ?? GENESIS_HASH,
+				};
+				const hash = sha256Hex(canonicalJson(unhashed));
+				const event = Event.parse(stripUndefined({ ...unhashed, hash }));
+
+				for (const guard of guards) guard({ events: written }, event);
+
+				insert.run({
+					seq: event.seq,
+					ts: event.ts,
+					actor: canonicalJson(event.actor),
+					task_id: event.task_id ?? null,
+					causation_id: event.causation_id ?? null,
+					kind: event.kind,
+					payload: canonicalJson(event.payload),
+					prev_hash: event.prev_hash,
+					hash: event.hash,
+				});
+				written.push(event);
+				return event;
+			};
+			const result = body(write, written);
 			db.exec("COMMIT");
 			appended = written;
-			return cause;
+			return result;
 		} catch (error) {
 			db.exec("ROLLBACK");
 			throw error;
 		}
 	};
+
+	const append = (newEvent: NewEvent): Event =>
+		transaction((write, written) => {
+			const cause = write(newEvent);
+			for (const followOn of followOns) {
+				for (const next of followOn(written, cause)) write(next);
+			}
+			return cause;
+		});
+
+	if (options.writer) {
+		try {
+			transaction((write, written) => {
+				for (const catchUp of ledgerCatchUps) {
+					for (const next of catchUp(written)) write(next);
+				}
+			});
+		} catch (error) {
+			db.close();
+			releaseLock(lockPath);
+			throw error;
+		}
+	}
 
 	return {
 		path,

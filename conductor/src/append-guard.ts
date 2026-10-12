@@ -22,6 +22,13 @@ export type AppendGuard = (ctx: GuardContext, event: Event) => void;
  */
 export type FollowOn = (events: readonly Event[], cause: Event) => NewEvent[];
 
+/**
+ * The Events a Ledger is missing, given every Event it holds. The Ledger
+ * writes them when it opens for writing, before any caller appends, in their
+ * own transaction and through the same guards.
+ */
+export type CatchUp = (events: readonly Event[]) => NewEvent[];
+
 /** The Ledger refused an append. Nothing was written. */
 export class AppendRefused extends Error {
 	override readonly name = "AppendRefused";

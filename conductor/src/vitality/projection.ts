@@ -87,6 +87,26 @@ const reasonFor = (from: TrustTier, t: TrustStanding): string => {
 	return `Trust tier ${from} -> ${t.tier}: ${why}`;
 };
 
+const tierRevision = (
+	definition: AgentDefinition,
+	tier: TrustTier,
+	cause: Seq,
+	reason: string,
+): NewEvent => ({
+	actor: CONDUCTOR,
+	causation_id: cause,
+	kind: "AgentDefinitionRevised",
+	payload: {
+		definition: {
+			...definition,
+			version: definition.version + 1,
+			trust_tier: tier,
+			revised_by: CONDUCTOR,
+			revision_reason: reason,
+		},
+	},
+});
+
 /**
  * The Ledger's follow-on for every append (ADR-0011): one Revision by the
  * Conductor, caused by `cause`, for each live Agent whose `trust_tier`
@@ -102,20 +122,45 @@ export const tierRevisions = (
 		if (retired) continue;
 		const projected = trustTierOf(events, definition.id);
 		if (projected.tier === definition.trust_tier) continue;
-		revisions.push({
-			actor: CONDUCTOR,
-			causation_id: cause.seq,
-			kind: "AgentDefinitionRevised",
-			payload: {
-				definition: {
-					...definition,
-					version: definition.version + 1,
-					trust_tier: projected.tier,
-					revised_by: CONDUCTOR,
-					revision_reason: reasonFor(definition.trust_tier, projected),
-				},
-			},
+		revisions.push(
+			tierRevision(
+				definition,
+				projected.tier,
+				cause.seq,
+				reasonFor(definition.trust_tier, projected),
+			),
+		);
+	}
+	return revisions;
+};
+
+/**
+ * The Ledger's catch-up when it opens for writing (ADR-0011): one Revision
+ * by the Conductor for each Agent, Retired ones too, whose `trust_tier`
+ * differs from its projected Trust tier. A Ledger written before ADR-0011
+ * left these out, so each names the Event where the projected tier last
+ * changed, gives the Merit then, and says that it is recorded late.
+ */
+export const tierCatchUp = (events: readonly Event[]): NewEvent[] => {
+	const revisions: NewEvent[] = [];
+	for (const { definition } of orgState(events).agents.values()) {
+		const projected = trustTierOf(events, definition.id);
+		const { since } = projected;
+		if (projected.tier === definition.trust_tier || since === undefined) {
+			continue;
+		}
+		const reason = reasonFor(definition.trust_tier, {
+			...projected,
+			standing: since.standing,
 		});
+		revisions.push(
+			tierRevision(
+				definition,
+				projected.tier,
+				since.seq,
+				`${reason}; recorded late: the Ledger before ADR-0011 did not record this Revision`,
+			),
+		);
 	}
 	return revisions;
 };

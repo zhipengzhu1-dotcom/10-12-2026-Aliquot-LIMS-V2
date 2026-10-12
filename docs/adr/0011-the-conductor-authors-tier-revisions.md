@@ -15,4 +15,4 @@ An Agent definition records its Trust tier (ADR-0005), and the Trust tier is pro
 ## Consequences
 
 - A Revision of `trust_tier` that differs from the projected tier is refused, whoever authors it.
-- A Ledger written before this decision catches up on its first append.
+- A Ledger written before this decision catches up when it is first opened for writing, in its own transaction. Each catch-up Revision names, through `causation_id`, the Review or Gate decision that changed the tier, and its reason says that it is recorded late. Earlier Events are never changed.

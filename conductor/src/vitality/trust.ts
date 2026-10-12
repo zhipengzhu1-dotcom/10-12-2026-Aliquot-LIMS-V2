@@ -76,6 +76,12 @@ export type TrustStanding = {
 	readonly unusedMentorGates: readonly GateId[];
 	/** The Gate the current Mentor tenure used; absent below Mentor. */
 	readonly mentorGate?: GateId;
+	/**
+	 * Where the tier last changed to `tier`, with the standing then: a Review,
+	 * an approved PromoteToMentor Gate's decision, or the Recruitment while the
+	 * Agent has held Probation since. Absent for an Agent not yet recruited.
+	 */
+	readonly since?: { readonly seq: Seq; readonly standing: Standing };
 };
 
 type Step =
@@ -117,6 +123,13 @@ export const trustTierOf = (
 		...mentorApprovals(events, agent),
 	].sort((a, b) => a.seq - b.seq);
 
+	const recruited = events.find(
+		(e) => e.kind === "AgentRecruited" && e.payload.id === agent,
+	);
+	let since: TrustStanding["since"] =
+		recruited === undefined
+			? undefined
+			: { seq: recruited.seq, standing: standingOf([]) };
 	let tier: TrustTier = "Probation";
 	let mentorGate: GateId | undefined;
 	const unused: GateId[] = [];
@@ -124,16 +137,18 @@ export const trustTierOf = (
 	for (const s of steps) {
 		if (s.tag === "Approval") unused.push(s.gate);
 		else counted.push(s.review);
+		const standing = standingOf(counted);
 		const next = step(
 			tier,
 			{
-				...standingOf(counted),
+				...standing,
 				mentorGateApproved: tier === "Mentor" || unused.length > 0,
 			},
 			s.tag === "Review" ? s.review : undefined,
 		);
 		if (next !== "Mentor") mentorGate = undefined;
 		else if (tier !== "Mentor") mentorGate = unused.shift();
+		if (next !== tier) since = { seq: s.seq, standing };
 		tier = next;
 	}
 	return {
@@ -141,6 +156,7 @@ export const trustTierOf = (
 		standing: standingOf(counted),
 		unusedMentorGates: unused,
 		...(mentorGate === undefined ? {} : { mentorGate }),
+		...(since === undefined ? {} : { since }),
 	};
 };
 
