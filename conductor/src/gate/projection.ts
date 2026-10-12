@@ -1,14 +1,14 @@
 import type { Event, PayloadOf } from "../events.js";
 import type { AgentId, GateId, IsoTime, Sha256, TaskId } from "../ids.js";
 import { fold, type Projection } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import type { GateDecision, GateKind, GateState } from "../types/gate.js";
 
 /** A requested Gate, and its decision once the Operator has signed one. */
 export type Gate = {
 	readonly id: GateId;
 	readonly kind: GateKind;
-	readonly requester: Actor;
+	readonly requester: EventActor;
 	readonly requested_at: IsoTime;
 	readonly task_id?: TaskId;
 	readonly payload: PayloadOf<"GateRequested">["payload"];

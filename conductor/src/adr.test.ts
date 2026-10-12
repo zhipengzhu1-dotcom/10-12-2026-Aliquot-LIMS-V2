@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, Seq } from "./ids.js";
 import { orgState } from "./org/projection.js";
-import type { Actor } from "./types/actor.js";
+import type { Actor, EventActor } from "./types/actor.js";
 import type { AgentDefinition } from "./types/agent-definition.js";
 import { type Scenario, scenario } from "./vitality/scenario.js";
 
@@ -78,7 +78,7 @@ describe("ADR rules the slice-0 review found missing", () => {
 	});
 
 	describe("the Conductor authors only the tier Revisions Merit and Gates require (ADR-0011)", () => {
-		const conductor: Actor = { tag: "Conductor" };
+		const conductor: EventActor = { tag: "Conductor" };
 		const tierRevision = (
 			changes: Partial<AgentDefinition>,
 			causation_id: number | null = 1,
@@ -113,6 +113,25 @@ describe("ADR rules the slice-0 review found missing", () => {
 			).toThrow(
 				"AgentPaused refused: the Conductor authors only tier Revisions",
 			);
+		});
+
+		it("refuses a payload that names the Conductor as anything but an author", () => {
+			const task_id = s.task(rin);
+			expect(() =>
+				s.append({
+					actor: { tag: "Agent", id: rin },
+					task_id,
+					kind: "TaskCompleted",
+					payload: {
+						task_id,
+						outputs: [],
+						review: {
+							tag: "Required",
+							reviewer: conductor as unknown as Actor,
+						},
+					},
+				}),
+			).toThrow('invalid Event of kind "TaskCompleted"');
 		});
 
 		it("refuses a Conductor Revision without a causation_id, or whose causation_id names no Event", () => {

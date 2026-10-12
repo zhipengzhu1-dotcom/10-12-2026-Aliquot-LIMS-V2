@@ -4,7 +4,7 @@ import type { Event } from "../events.js";
 import { AgentId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { orgState, renderTree, tree } from "../org/projection.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import { revisionsCausedBy, vitalityProjection } from "./projection.js";
 import { type Scenario, scenario, scores } from "./scenario.js";
 import { reviewSampleOf } from "./trust.js";
@@ -12,7 +12,7 @@ import { reviewSampleOf } from "./trust.js";
 const rin = AgentId.parse("A-rin");
 const ines = AgentId.parse("A-ines");
 const bram = AgentId.parse("A-bram");
-const conductor: Actor = { tag: "Conductor" };
+const conductor: EventActor = { tag: "Conductor" };
 
 let s: Scenario;
 beforeEach(() => {

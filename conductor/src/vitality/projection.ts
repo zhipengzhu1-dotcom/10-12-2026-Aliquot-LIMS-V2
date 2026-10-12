@@ -1,7 +1,7 @@
 import type { Event, NewEvent } from "../events.js";
 import type { AgentId, Seq } from "../ids.js";
 import { orgState } from "../org/projection.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Mood, Policy, Vitality } from "../types/vitality.js";
@@ -71,7 +71,7 @@ export const vitalityProjection = (
 	return view;
 };
 
-const CONDUCTOR: Actor = { tag: "Conductor" };
+const CONDUCTOR: EventActor = { tag: "Conductor" };
 
 /** The Merit or Gate change behind a tier Revision. */
 const reasonFor = (from: TrustTier, t: TrustStanding): string => {

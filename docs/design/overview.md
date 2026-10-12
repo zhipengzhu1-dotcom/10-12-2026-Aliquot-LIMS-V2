@@ -29,12 +29,13 @@ Everything in the system derives from ten shapes. The Ledger holds Events. Every
 An Event is one entry in the Ledger. Events are numbered, append-only, and hash-chained, so a changed or deleted Event breaks the chain. `kind` is a closed union. A Projection is a reducer over Event kinds, so an illegal state change has no Event that can express it.
 
 ```ts
-type Actor = { tag: "Agent"; id: AgentId } | { tag: "Operator" } | { tag: "Conductor" };
+type Actor = { tag: "Agent"; id: AgentId } | { tag: "Operator" };
+type EventActor = Actor | { tag: "Conductor" };
 
 type Event = {
 	seq: Seq;
 	ts: IsoTime;
-	actor: Actor;
+	actor: EventActor;
 	task_id?: TaskId;
 	causation_id?: Seq;
 	prev_hash: Sha256;
@@ -50,7 +51,7 @@ type EventBody =
 	// and the rest of the initial set below
 ```
 
-The actor `Conductor` authors only the tier Revisions that Merit and Gates require (ADR-0011). The Ledger refuses any other Event it authors. No command line acts as the Conductor.
+The actor `Conductor` authors only the tier Revisions that Merit and Gates require (ADR-0011). The Ledger refuses any other Event it authors. Only an Event's `actor` and a definition's `revised_by` can name it, so no payload can make the Conductor a reviewer, an escalation target, or a Skill author. No command line acts as the Conductor.
 
 The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`.
 
@@ -75,7 +76,7 @@ type AgentDefinition = {
 	model: ModelName;
 	capacity: number;
 	trust_tier: TrustTier;
-	revised_by: Actor;
+	revised_by: EventActor;
 	revision_reason: string;
 };
 ```

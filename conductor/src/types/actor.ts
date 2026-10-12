@@ -1,17 +1,24 @@
 import { z } from "zod";
 import { AgentId } from "../ids.js";
 
-/**
- * Who appends an Event. `Conductor` authors only the tier Revisions that
- * Merit and Gates require (ADR-0011); no command line can act as it.
- */
+/** An Agent or the Operator: who reviews, requests, escalates, and talks. */
 export const Actor = z.discriminatedUnion("tag", [
 	z.strictObject({ tag: z.literal("Agent"), id: AgentId }),
 	z.strictObject({ tag: z.literal("Operator") }),
-	z.strictObject({ tag: z.literal("Conductor") }),
 ]);
 export type Actor = z.infer<typeof Actor>;
 
-/** `Operator`, `Conductor`, or the Agent's id: how messages and listings name an Actor. */
-export const actorText = (actor: Actor): string =>
+/**
+ * Who appends an Event: an Actor, or the `Conductor`, which authors only the
+ * tier Revisions that Merit and Gates require (ADR-0011). No payload field
+ * but `revised_by` can name the Conductor, and no command line can act as it.
+ */
+export const EventActor = z.discriminatedUnion("tag", [
+	...Actor.options,
+	z.strictObject({ tag: z.literal("Conductor") }),
+]);
+export type EventActor = z.infer<typeof EventActor>;
+
+/** `Operator`, `Conductor`, or the Agent's id: how messages and listings name an actor. */
+export const actorText = (actor: EventActor): string =>
 	actor.tag === "Agent" ? actor.id : actor.tag;

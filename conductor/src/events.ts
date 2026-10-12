@@ -12,7 +12,7 @@ import {
 	Sha256,
 	TaskId,
 } from "./ids.js";
-import { Actor } from "./types/actor.js";
+import { Actor, EventActor } from "./types/actor.js";
 import { AgentDefinition } from "./types/agent-definition.js";
 import { StoredArtifact } from "./types/artifact.js";
 import { GateDecision, GateKind } from "./types/gate.js";
@@ -159,7 +159,7 @@ export type PayloadOf<K extends EventKind> = Extract<
 >["payload"];
 
 const envelope = {
-	actor: Actor,
+	actor: EventActor,
 	task_id: TaskId.optional(),
 	causation_id: Seq.optional(),
 };
