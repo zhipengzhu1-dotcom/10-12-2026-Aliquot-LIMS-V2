@@ -79,3 +79,21 @@ Verify the hash chain. The command exits 0 when every Event is intact, and other
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot ledger verify
 ```
+
+## Tasks
+
+A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. A Task that the Trust tier rules skip for Review goes from `InProgress` straight to `Done`.
+
+Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot task propose --title "Parse the Submission Form" \
+  --goal "Extract every field" --tat Rush1to2Days --priority 2   # prints T-1
+pnpm -C conductor cli --home /tmp/aliquot task assign T-1 A-odile
+pnpm -C conductor cli --home /tmp/aliquot task start T-1 --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --review-required --reviewer Operator --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewed
+pnpm -C conductor cli --home /tmp/aliquot task list
+```
+
+`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. The other commands are `task handoff <id> <agent> --reason`, `task complete <id> --skip-review --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
