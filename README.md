@@ -51,7 +51,7 @@ uv run --directory sandbox synth --seed 42 --out /tmp/synth-42
 
 The output directory gets `submission_form.docx`, `receiving_log.xlsx`, `result_worksheet.xlsx`, `report_of_analysis.xlsx`, and `manifest.json`, which holds the invented record so tests can check the documents without parsing them. `uv run --directory sandbox` runs in `sandbox/`, so a relative `--out` path lands under `sandbox/`. Every name, address, code, and Lot number is invented.
 
-To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Keep the list out of the repository. Without the variable, that test is skipped.
+To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms, and until then the test skips with a notice.
 
 ### Data directory
 
@@ -59,7 +59,7 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. Then it runs stage 1 on every Fixture with `stage1 run-all fixtures` (see Stage 1 tracer). The `sandbox` job runs ruff check, ruff format check, pytest, the synthetic generator, and `docker build` of the Sandbox image.
+`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. Then it runs stage 1 on every Fixture with `stage1 run-all fixtures` (see Stage 1 tracer). The `sandbox` job runs ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), the synthetic generator, and `docker build` of the Sandbox image.
 
 ## Ledger
 
