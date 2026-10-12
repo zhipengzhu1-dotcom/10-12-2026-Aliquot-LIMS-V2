@@ -187,11 +187,15 @@ describe.skipIf(!docker)(suite, () => {
 		});
 
 		expect(performance.now() - started).toBeLessThan(30_000);
-		expect(run.exit_code).toBe(137);
+		// 124, the timeout convention, so Docker's 137 keeps meaning an OOM or
+		// an outside kill.
+		expect(run.exit_code).toBe(124);
 		expect(run.duration_ms).toBeGreaterThanOrEqual(3_000);
 		expect(
 			openArtifacts({ ledger, home }).read(run.stderr_ref).toString(),
-		).toMatch(/killed after the 3000 ms time limit/);
+		).toMatch(
+			/killed after the 3000 ms time limit \(docker kill [^)]+\); exit code 124, the time-limit code/,
+		);
 		expect(projectRuns(ledger).runs.get(run.id)?.finished).toEqual(run);
 	}, 120_000);
 });

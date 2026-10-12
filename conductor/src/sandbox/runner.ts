@@ -56,8 +56,13 @@ const SANDBOX_FLAGS = [
 	"/tmp",
 ] as const;
 
-/** Exit code of a container stopped by `docker kill` (128 + SIGKILL). */
-export const KILLED_EXIT_CODE = 137;
+/**
+ * Exit code of a Run the runner kills at its time limit: 124, the timeout
+ * convention of coreutils `timeout`. Docker reports 137 (128 + SIGKILL) for
+ * any killed container, so 137 keeps meaning an OOM kill or a kill from
+ * outside the runner.
+ */
+export const TIME_LIMIT_EXIT_CODE = 124;
 
 export type RunScriptOptions = {
 	ledger: Ledger;
@@ -155,7 +160,7 @@ const runContainer = async (
 	exited = true;
 	clearTimeout(timer);
 	return {
-		code: timedOut ? KILLED_EXIT_CODE : code,
+		code: timedOut ? TIME_LIMIT_EXIT_CODE : code,
 		timedOut,
 		stdout: Buffer.concat(stdout),
 		stderr: Buffer.concat(stderr),
@@ -182,7 +187,7 @@ const listFiles = (dir: string, skipped: string[]): string[] =>
  * Script left in `/outputs` (Lineage = the inputs, produced by this Run; bytes
  * the Ledger already holds get this Run's record as a further production),
  * then RunFinished. A Script killed at the time limit finishes with exit code
- * 137 and a closing line in its stderr Artifact saying so.
+ * 124 and a closing line in its stderr Artifact saying so.
  */
 export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 	const { ledger, home, actor, task_id } = options;
@@ -277,7 +282,7 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 		const notes: string[] = [];
 		if (exit.timedOut) {
 			notes.push(
-				`${runId} killed after the ${options.timeoutMs} ms time limit (docker kill ${name}); exit code ${KILLED_EXIT_CODE}`,
+				`${runId} killed after the ${options.timeoutMs} ms time limit (docker kill ${name}); exit code ${TIME_LIMIT_EXIT_CODE}, the time-limit code`,
 			);
 		}
 		const files = listFiles(outputsDir, notes);
