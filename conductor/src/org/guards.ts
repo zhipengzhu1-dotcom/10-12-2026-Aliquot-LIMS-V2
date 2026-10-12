@@ -10,6 +10,7 @@ import { canonicalJson } from "../hash.js";
 import type { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
+import { tierRefusal } from "../vitality/trust.js";
 import { type AgentState, type OrgState, orgState } from "./projection.js";
 
 const existing = (state: OrgState, id: AgentId): AgentState => {
@@ -76,56 +77,77 @@ const checkAuthor = (event: Event, definition: AgentDefinition) => {
 	);
 };
 
-/** How many Revisions have moved `id` into Mentor from another tier. */
-const mentorPromotions = (events: readonly Event[], id: AgentId): number => {
-	let tier: string | undefined;
-	let promotions = 0;
-	for (const e of events) {
-		const definition =
-			e.kind === "AgentRecruited"
-				? e.payload
-				: e.kind === "AgentDefinitionRevised"
-					? e.payload.definition
-					: undefined;
-		if (definition?.id !== id) continue;
-		if (definition.trust_tier === "Mentor" && tier !== "Mentor") {
-			promotions += 1;
-		}
-		tier = definition.trust_tier;
+/**
+ * A definition records the projected Trust tier and no other (ADR-0007,
+ * ADR-0011), whoever writes it.
+ */
+const checkTier = (
+	events: readonly Event[],
+	event: Event,
+	definition: AgentDefinition,
+) => {
+	const reason = tierRefusal(events, definition.id, definition.trust_tier);
+	if (reason !== undefined) {
+		throw new AppendRefused(`${event.kind} refused: ${reason}`);
 	}
-	return promotions;
 };
 
+const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
+	"version",
+	"trust_tier",
+	"revised_by",
+	"revision_reason",
+] satisfies (keyof AgentDefinition)[]);
+
 /**
- * Mentor needs the Operator's approval on top of Merit (ADR-0007): each
- * Promotion to Mentor uses one approved PromoteToMentor Gate naming the
- * Agent, so a return to Mentor after a Demotion needs a new Gate.
+ * The Conductor authors only the tier Revisions that Merit and Gates require
+ * (ADR-0011): each names the Event that caused it and changes the tier and
+ * nothing else. The rules every Revision follows, including that the tier
+ * is the projected one, run after this in `orgGuard`.
  */
-const checkMentorPromotion = (
-	events: readonly Event[],
-	from: AgentDefinition,
-	to: AgentDefinition,
-) => {
-	if (to.trust_tier !== "Mentor" || from.trust_tier === "Mentor") return;
-	const gates = approvedGatesFor(
-		projectGates(events),
-		"PromoteToMentor",
-		to.id,
-	).length;
-	if (gates > mentorPromotions(events, to.id)) return;
-	const used =
-		gates === 0
-			? "none is approved"
-			: `its ${gates} approved Gate${gates === 1 ? " was" : "s were"} used by earlier Promotions`;
-	throw new AppendRefused(
-		`AgentDefinitionRevised refused: ${to.id} cannot become Mentor without an approved PromoteToMentor Gate naming it; ${used}`,
+const conductorGuard: AppendGuard = (ctx, event) => {
+	if (event.actor.tag !== "Conductor") return;
+	const refuse = (reason: string): never => {
+		throw new AppendRefused(`${event.kind} refused: ${reason}`);
+	};
+	if (event.kind !== "AgentDefinitionRevised") {
+		return refuse("the Conductor authors only tier Revisions");
+	}
+	const { definition } = event.payload;
+	const { causation_id } = event;
+	if (causation_id === undefined) {
+		refuse(
+			`the Conductor's Revision of ${definition.id} names no causation_id`,
+		);
+	}
+	if (!ctx.events.some((e) => e.seq === causation_id)) {
+		refuse(`causation_id ${causation_id} names no Event in the Ledger`);
+	}
+	const current = existing(orgState(ctx.events), definition.id).definition;
+	const fields = new Set([...Object.keys(current), ...Object.keys(definition)]);
+	const changed = [...fields].filter(
+		(field) =>
+			!TIER_REVISION_FIELDS.has(field) &&
+			canonicalJson(current[field as keyof AgentDefinition]) !==
+				canonicalJson(definition[field as keyof AgentDefinition]),
 	);
+	if (changed.length > 0) {
+		refuse(
+			`the Conductor's Revision of ${definition.id} may change only its Trust tier; it also changes ${changed.join(", ")}`,
+		);
+	}
+	if (definition.trust_tier === current.trust_tier) {
+		refuse(
+			`the Conductor's Revision of ${definition.id} leaves its Trust tier at ${current.trust_tier}`,
+		);
+	}
 };
 
 /**
  * Org rules at append. Definitions follow ADR-0005: each names the actor
  * that wrote it as `revised_by`, Revisions go one version at a time, and
- * only the Operator revises the Auditor.
+ * only the Operator revises the Auditor, apart from the Conductor's tier
+ * Revisions.
  */
 const orgGuard: AppendGuard = (ctx, event) => {
 	switch (event.kind) {
@@ -137,12 +159,13 @@ const orgGuard: AppendGuard = (ctx, event) => {
 				);
 			}
 			checkAuthor(event, event.payload);
+			checkTier(ctx.events, event, event.payload);
 			return;
 		}
 		case "AgentDefinitionRevised": {
 			const { definition } = event.payload;
 			const current = existing(orgState(ctx.events), definition.id).definition;
-			if (current.role === "Auditor" && event.actor.tag !== "Operator") {
+			if (current.role === "Auditor" && event.actor.tag === "Agent") {
 				throw new AppendRefused(
 					`the Auditor can only be revised by the Operator; ${actorText(event.actor)} tried to revise ${current.id} (${current.name}, version ${current.version})`,
 				);
@@ -153,7 +176,7 @@ const orgGuard: AppendGuard = (ctx, event) => {
 				);
 			}
 			checkAuthor(event, definition);
-			checkMentorPromotion(ctx.events, current, definition);
+			checkTier(ctx.events, event, definition);
 			return;
 		}
 		case "AgentPaused":
@@ -175,4 +198,4 @@ const orgGuard: AppendGuard = (ctx, event) => {
 	}
 };
 
-export const orgGuards: readonly AppendGuard[] = [orgGuard];
+export const orgGuards: readonly AppendGuard[] = [conductorGuard, orgGuard];

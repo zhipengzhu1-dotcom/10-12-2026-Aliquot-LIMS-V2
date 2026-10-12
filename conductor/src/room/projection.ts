@@ -2,14 +2,14 @@ import type { Event } from "../events.js";
 import type { IsoTime, RoomId, Seq } from "../ids.js";
 import type { OrgState } from "../org/projection.js";
 import { fold, type Projection } from "../reduce.js";
-import { type Actor, actorText } from "../types/actor.js";
+import { type Actor, actorText, type EventActor } from "../types/actor.js";
 import type { Room } from "../types/room.js";
 
 /** One `MessageSent` Event, as a Room's reader sees it. */
 export type Message = {
 	readonly seq: Seq;
 	readonly ts: IsoTime;
-	readonly actor: Actor;
+	readonly actor: EventActor;
 	readonly room_id: RoomId;
 	readonly body: string;
 	/** The `seq` of the Message this one answers. */
@@ -62,18 +62,20 @@ export const roomState = (events: Iterable<Event>): RoomState =>
 
 /**
  * The one membership rule, for saying and for reading alike. The Operator
- * belongs to every Room. An Agent belongs while it is recruited and not
- * retired, to an `Everyone` Room, or to a `Listed` Room that names it.
+ * belongs to every Room and the Conductor to none. An Agent belongs while it
+ * is recruited and not retired, to an `Everyone` Room, or to a `Listed` Room
+ * that names it.
  */
 export const isMember = (
 	state: RoomState,
 	org: OrgState,
 	room_id: RoomId,
-	actor: Actor,
+	actor: EventActor,
 ): boolean => {
 	const room = state.rooms.get(room_id);
 	if (room === undefined) return false;
 	if (actor.tag === "Operator") return true;
+	if (actor.tag === "Conductor") return false;
 	const agent = org.agents.get(actor.id);
 	if (agent === undefined || agent.retired) return false;
 	return (
@@ -87,7 +89,7 @@ export const refusal = (
 	state: RoomState,
 	org: OrgState,
 	room_id: RoomId,
-	actor: Actor,
+	actor: EventActor,
 ): string | undefined => {
 	if (!state.rooms.has(room_id)) return `${room_id} is not an open Room`;
 	if (!isMember(state, org, room_id, actor)) {

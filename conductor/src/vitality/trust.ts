@@ -1,7 +1,7 @@
 import type { Event } from "../events.js";
 import { approvedGatesFor, projectGates } from "../gate/projection.js";
 import { sha256Hex } from "../hash.js";
-import type { AgentId, TaskId } from "../ids.js";
+import type { AgentId, GateId, Seq, TaskId } from "../ids.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { type Standing, standingOf } from "./merit.js";
 import { workOf } from "./work.js";
@@ -72,62 +72,108 @@ const step = (
 export type TrustStanding = {
 	readonly tier: TrustTier;
 	readonly standing: Standing;
-	readonly mentorGateApproved: boolean;
+	/** Approved PromoteToMentor Gates naming the Agent that no Promotion has used, oldest first. */
+	readonly unusedMentorGates: readonly GateId[];
+	/** The Gate the current Mentor tenure used; absent below Mentor. */
+	readonly mentorGate?: GateId;
 };
 
+type Step =
+	| { readonly seq: Seq; readonly tag: "Review"; readonly review: Review }
+	| { readonly seq: Seq; readonly tag: "Approval"; readonly gate: GateId };
+
 /**
- * The seqs of the decisions approving PromoteToMentor Gates that name the
- * Agent, so they interleave with its Reviews in Ledger order.
+ * The decisions approving PromoteToMentor Gates that name the Agent, so they
+ * interleave with its Reviews in Ledger order.
  */
-const mentorApprovals = (
-	events: readonly Event[],
-	agent: AgentId,
-): number[] => {
+const mentorApprovals = (events: readonly Event[], agent: AgentId): Step[] => {
 	const approved = new Set(
 		approvedGatesFor(projectGates(events), "PromoteToMentor", agent).map(
 			(gate) => gate.id,
 		),
 	);
-	return events
-		.filter((e) => e.kind === "GateDecided" && approved.has(e.payload.gate_id))
-		.map((e) => e.seq);
+	return events.flatMap((e): Step[] =>
+		e.kind === "GateDecided" && approved.has(e.payload.gate_id)
+			? [{ seq: e.seq, tag: "Approval", gate: e.payload.gate_id }]
+			: [],
+	);
 };
 
 /**
  * The Agent's Trust tier, folded from Probation at Recruitment over its
- * counted Reviews and approved PromoteToMentor Gates in Ledger order. A Demotion from
- * Mentor uses up the Gate: returning to Mentor needs a new one.
+ * counted Reviews and approved PromoteToMentor Gates in Ledger order. One
+ * Gate covers one Promotion to Mentor: a step into Mentor uses the oldest
+ * unused Gate, and a Demotion from Mentor leaves it used, so a return to
+ * Mentor needs another.
  */
 export const trustTierOf = (
 	events: readonly Event[],
 	agent: AgentId,
 ): TrustStanding => {
-	const steps = [
-		...workOf(events, agent).reviews.map((r) => ({
-			seq: r.seq,
-			review: r.review as Review | undefined,
-		})),
-		...mentorApprovals(events, agent).map((seq) => ({
-			seq,
-			review: undefined,
-		})),
+	const steps: Step[] = [
+		...workOf(events, agent).reviews.map(
+			(r): Step => ({ seq: r.seq, tag: "Review", review: r.review }),
+		),
+		...mentorApprovals(events, agent),
 	].sort((a, b) => a.seq - b.seq);
 
 	let tier: TrustTier = "Probation";
-	let gate = false;
+	let mentorGate: GateId | undefined;
+	const unused: GateId[] = [];
 	const counted: Review[] = [];
-	for (const { review } of steps) {
-		if (review === undefined) gate = true;
-		else counted.push(review);
+	for (const s of steps) {
+		if (s.tag === "Approval") unused.push(s.gate);
+		else counted.push(s.review);
 		const next = step(
 			tier,
-			{ ...standingOf(counted), mentorGateApproved: gate },
-			review,
+			{
+				...standingOf(counted),
+				mentorGateApproved: tier === "Mentor" || unused.length > 0,
+			},
+			s.tag === "Review" ? s.review : undefined,
 		);
-		if (tier === "Mentor" && next !== "Mentor") gate = false;
+		if (next !== "Mentor") mentorGate = undefined;
+		else if (tier !== "Mentor") mentorGate = unused.shift();
 		tier = next;
 	}
-	return { tier, standing: standingOf(counted), mentorGateApproved: gate };
+	return {
+		tier,
+		standing: standingOf(counted),
+		unusedMentorGates: unused,
+		...(mentorGate === undefined ? {} : { mentorGate }),
+	};
+};
+
+/**
+ * Why a definition may not record `tier` for the Agent, or undefined when it
+ * may: only the projected Trust tier is allowed.
+ */
+export const tierRefusal = (
+	events: readonly Event[],
+	agent: AgentId,
+	tier: TrustTier,
+): string | undefined => {
+	const projected = trustTierOf(events, agent);
+	if (projected.tier === tier) return undefined;
+	if (tier === "Mentor" && projected.unusedMentorGates.length === 0) {
+		return `${agent} cannot be Mentor: no approved, unused PromoteToMentor Gate names it; its projected Trust tier is ${projected.tier}`;
+	}
+	return `${agent}'s projected Trust tier is ${projected.tier}, not ${tier}`;
+};
+
+/**
+ * Why the Agent may not get another PromoteToMentor Gate approved, or
+ * undefined when it may: one Gate covers one Promotion, so an Agent holding
+ * an approved Gate that no Promotion has used gets no new one (ADR-0006).
+ */
+export const mentorGateRefusal = (
+	events: readonly Event[],
+	agent: AgentId,
+): string | undefined => {
+	const [unused] = trustTierOf(events, agent).unusedMentorGates;
+	return unused === undefined
+		? undefined
+		: `${agent} holds ${unused}, an approved PromoteToMentor Gate that no Promotion has used`;
 };
 
 /** How many Tasks per Review each tier gets: 1 in n. */
@@ -146,3 +192,16 @@ export const REVIEW_ONE_IN: Readonly<Record<TrustTier, number>> = {
 export const reviewSampled = (taskId: TaskId, tier: TrustTier): boolean =>
 	Number.parseInt(sha256Hex(taskId).slice(0, 8), 16) % REVIEW_ONE_IN[tier] ===
 	0;
+
+/**
+ * Whether a Task of `assignee` must be reviewed: the assignee's projected
+ * Trust tier, and whether the sample for that tier picks the Task.
+ */
+export const reviewSampleOf = (
+	events: readonly Event[],
+	assignee: AgentId,
+	taskId: TaskId,
+): { readonly tier: TrustTier; readonly sampled: boolean } => {
+	const { tier } = trustTierOf(events, assignee);
+	return { tier, sampled: reviewSampled(taskId, tier) };
+};

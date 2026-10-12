@@ -1,14 +1,14 @@
 import type { Event, PayloadOf } from "../events.js";
 import type { AgentId, GateId, IsoTime, Sha256, TaskId } from "../ids.js";
 import { fold, type Projection } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import type { GateDecision, GateKind, GateState } from "../types/gate.js";
 
 /** A requested Gate, and its decision once the Operator has signed one. */
 export type Gate = {
 	readonly id: GateId;
 	readonly kind: GateKind;
-	readonly requester: Actor;
+	readonly requester: EventActor;
 	readonly requested_at: IsoTime;
 	readonly task_id?: TaskId;
 	readonly payload: PayloadOf<"GateRequested">["payload"];
@@ -75,7 +75,10 @@ export const projectGates = (events: Iterable<Event>): Gates =>
 	fold(events, GateProjection.reduce, GateProjection.init);
 
 /** A string field of a Gate payload that is a JSON object, if it has one. */
-export const payloadText = (gate: Gate, field: string): string | undefined => {
+export const payloadText = (
+	gate: Pick<Gate, "payload">,
+	field: string,
+): string | undefined => {
 	const p = gate.payload;
 	if (typeof p !== "object" || p === null || Array.isArray(p)) return undefined;
 	const value = p[field];
@@ -83,7 +86,7 @@ export const payloadText = (gate: Gate, field: string): string | undefined => {
 };
 
 /** The Agent a Gate payload names as `agent_id`, if any. */
-export const agentNamedBy = (gate: Gate): string | undefined =>
+export const agentNamedBy = (gate: Pick<Gate, "payload">): string | undefined =>
 	payloadText(gate, "agent_id");
 
 /**

@@ -4,11 +4,7 @@ import { canonicalJson } from "../hash.js";
 import { fold } from "../reduce.js";
 import { actorText } from "../types/actor.js";
 import type { Task } from "../types/task.js";
-import {
-	REVIEW_ONE_IN,
-	reviewSampled,
-	trustTierOf,
-} from "../vitality/trust.js";
+import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
 import {
 	applyTaskEvent,
 	TaskProjection,
@@ -37,8 +33,8 @@ const checkReview = (
 	const { state } = task;
 	const { review } = event.payload;
 	if (review.tag === "Skipped" && state.tag === "InProgress") {
-		const { tier } = trustTierOf(events, state.assignee);
-		if (!reviewSampled(task.id, tier)) return;
+		const { tier, sampled } = reviewSampleOf(events, state.assignee, task.id);
+		if (!sampled) return;
 		refuse(
 			event,
 			tier === "Probation"

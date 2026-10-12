@@ -188,4 +188,77 @@ describe("trustTierOf", () => {
 		promote("A-rin", "approve");
 		expect(tier()).toBe("Mentor");
 	});
+
+	const approve = () => s.gate("PromoteToMentor", { agent_id: rin });
+	const demote = () => s.reviewed(rin, scores(3, { boundary_adherence: 0 }));
+
+	it("does not return to Mentor after a Demotion until a new PromoteToMentor Gate is approved", () => {
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		const first = approve();
+		expect(trustTierOf(s.events(), rin)).toMatchObject({
+			tier: "Mentor",
+			mentorGate: first,
+			unusedMentorGates: [],
+		});
+
+		demote();
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		const demoted = trustTierOf(s.events(), rin);
+		expect(demoted).toMatchObject({ tier: "Senior", unusedMentorGates: [] });
+		expect(demoted.mentorGate).toBeUndefined();
+
+		const second = approve();
+		expect(trustTierOf(s.events(), rin)).toMatchObject({
+			tier: "Mentor",
+			mentorGate: second,
+			unusedMentorGates: [],
+		});
+	});
+
+	it("holds a Gate approved during a Demotion until Merit qualifies again", () => {
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		approve();
+		demote();
+		const second = approve();
+		expect(trustTierOf(s.events(), rin)).toMatchObject({
+			tier: "Senior",
+			unusedMentorGates: [second],
+		});
+
+		repeat(19, () => s.reviewed(rin, scores(3)));
+		expect(tier()).toBe("Senior");
+		s.reviewed(rin, scores(3)); // the 0 leaves the 20-Task window
+		expect(trustTierOf(s.events(), rin)).toMatchObject({
+			tier: "Mentor",
+			mentorGate: second,
+			unusedMentorGates: [],
+		});
+	});
+
+	it("lets two Gates cover exactly two Promotions, each used once", () => {
+		const first = s.requested("PromoteToMentor", { agent_id: rin });
+		const second = s.requested("PromoteToMentor", { agent_id: rin });
+		s.decided(first);
+		expect(trustTierOf(s.events(), rin).unusedMentorGates).toEqual([first]);
+
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		s.decided(second);
+		expect(trustTierOf(s.events(), rin)).toMatchObject({
+			tier: "Mentor",
+			mentorGate: first,
+			unusedMentorGates: [second],
+		});
+
+		demote();
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		expect(trustTierOf(s.events(), rin)).toMatchObject({
+			tier: "Mentor",
+			mentorGate: second,
+			unusedMentorGates: [],
+		});
+
+		demote();
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		expect(tier()).toBe("Senior");
+	});
 });

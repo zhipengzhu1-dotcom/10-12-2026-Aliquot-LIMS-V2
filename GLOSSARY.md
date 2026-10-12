@@ -141,7 +141,7 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface.
+The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require.
 _Avoid_: orchestrator, server, backend, scheduler
 
 **Sandbox**:

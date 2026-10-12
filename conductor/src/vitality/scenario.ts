@@ -15,12 +15,12 @@ import {
 	Sha256,
 	TaskId,
 } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
+import { type Ledger, type LedgerOptions, openLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
-import { trustTierOf } from "./trust.js";
+import { reviewSampleOf } from "./trust.js";
 
 export type Scores = Pick<
 	Review,
@@ -48,13 +48,17 @@ const artifact = ArtifactId.parse("a".repeat(64));
  * A seeded Ledger in a temp home with a settable clock, and verbs that walk
  * Tasks through the real Task state machine. For tests and demos only.
  */
-export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
+export const scenario = (
+	start = "2026-10-01T00:00:00.000Z",
+	options: Pick<LedgerOptions, "followOns"> = {},
+) => {
 	const home = mkdtempSync(join(tmpdir(), "aliquot-vitality-"));
 	let now = new Date(start);
 	const ledger: Ledger = openLedger({
 		home,
 		writer: true,
 		clock: () => now,
+		...options,
 	});
 	seedOrg(ledger);
 	// One stored Artifact and one registered Script, so Runs pass the Sandbox guards.
@@ -154,25 +158,17 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 			reviewer,
 		);
 
-	/** A Task that `agent` finishes and the Operator reviews with `s`. */
-	const reviewed = (agent: AgentId, s: Scores): TaskId => {
-		const id = task(agent);
+	const completeReviewed = (agent: AgentId, id: TaskId, s: Scores) => {
 		submit(agent, id);
 		review(id, s);
 		on(id, {
 			kind: "TaskCompleted",
 			payload: { task_id: id, outputs: [], review: { tag: "Reviewed" } },
 		});
-		return id;
 	};
 
-	/**
-	 * A Task that the Trust tier rules skip for Review. The Ledger refuses it
-	 * unless the sample for the Agent's tier leaves the next Task id out.
-	 */
-	const skipped = (agent: AgentId): TaskId => {
-		const id = task(agent);
-		const { tier } = trustTierOf(ledger.all(), agent);
+	const completeSkipped = (agent: AgentId, id: TaskId) => {
+		const { tier } = reviewSampleOf(ledger.all(), agent, id);
 		on(
 			id,
 			{
@@ -188,6 +184,36 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 			},
 			self(agent),
 		);
+	};
+
+	/** A Task that `agent` finishes and the Operator reviews with `s`. */
+	const reviewed = (agent: AgentId, s: Scores): TaskId => {
+		const id = task(agent);
+		completeReviewed(agent, id, s);
+		return id;
+	};
+
+	/**
+	 * A Task that the Trust tier rules skip for Review. The Ledger refuses it
+	 * unless the sample for the Agent's tier leaves the next Task id out.
+	 */
+	const skipped = (agent: AgentId): TaskId => {
+		const id = task(agent);
+		completeSkipped(agent, id);
+		return id;
+	};
+
+	/**
+	 * A Task that `agent` finishes as the Trust tier rules say: reviewed with
+	 * `s` when the sample for its tier picks it, skipped otherwise.
+	 */
+	const worked = (agent: AgentId, s: Scores): TaskId => {
+		const id = task(agent);
+		if (reviewSampleOf(ledger.all(), agent, id).sampled) {
+			completeReviewed(agent, id, s);
+		} else {
+			completeSkipped(agent, id);
+		}
 		return id;
 	};
 
@@ -227,16 +253,28 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		});
 	};
 
+	/** A Gate the Operator requests and leaves Open. */
+	const requested = (kind: GateKind, payload: { agent_id: string }): GateId =>
+		requestGate(ledger, { actor: operator, kind, payload }).gate_id;
+
+	/** The Operator's decision on an Open Gate at the current time. */
+	const decided = (
+		gate_id: GateId,
+		meaning: "approve" | "reject" = "approve",
+	): Event => {
+		const open = projectGates(ledger.events()).gates.get(gate_id);
+		if (open === undefined) throw new Error(`${gate_id} was not stored`);
+		return append(gateDecision(open, now, meaning, "Checked"));
+	};
+
 	/** A Gate the Operator requests and decides at the current time. */
 	const gate = (
 		kind: GateKind,
 		payload: { agent_id: string },
 		meaning: "approve" | "reject" = "approve",
 	): GateId => {
-		const { gate_id } = requestGate(ledger, { actor: operator, kind, payload });
-		const requested = projectGates(ledger.events()).gates.get(gate_id);
-		if (requested === undefined) throw new Error(`${gate_id} was not stored`);
-		append(gateDecision(requested, now, meaning, "Checked"));
+		const gate_id = requested(kind, payload);
+		decided(gate_id, meaning);
 		return gate_id;
 	};
 
@@ -256,6 +294,8 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		home,
 		ledger,
 		append,
+		requested,
+		decided,
 		gate,
 		retire,
 		task,
@@ -263,6 +303,7 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		review,
 		reviewed,
 		skipped,
+		worked,
 		run,
 		events: () => ledger.all(),
 		now: () => now,

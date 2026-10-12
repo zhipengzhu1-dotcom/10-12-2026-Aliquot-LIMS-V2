@@ -3,7 +3,6 @@ import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
-import { tierRevisions } from "./projection.js";
 import { scenario, scores } from "./scenario.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
@@ -65,10 +64,6 @@ describe("aliquot vitality", () => {
 				"Revised A-rin to version 2: Trust tier Probation -> Trusted: Merit 2.98 over 10 reviewed Tasks\n",
 		);
 
-		expect(ok(vitality("tiers"))).toBe(
-			"Every Trust tier is in line with Merit; nothing to revise\n",
-		);
-
 		expect(ok(vitality("show", "A-rin"))).toBe(
 			"A-rin Rin load=0.00 fatigue=0.00 friction=0.00 confidence=1.00 morale=0.00 mood=fresh policy=mayAcceptTasks,mayOfferHelp,schedulable merit=2.98 reviewed=10 tier=Trusted (computed)\n",
 		);
@@ -79,7 +74,6 @@ describe("aliquot vitality", () => {
 		rmSync(home, { recursive: true, force: true });
 		const s = scenario();
 		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
-		for (const r of tierRevisions(s.events())) s.append(r);
 		const t = s.task(rin);
 		s.submit(rin, t);
 		s.ledger.close();
@@ -126,6 +120,33 @@ describe("aliquot vitality", () => {
 		expect(lines[0]).toMatch(
 			/ merit=- reviewed=0 tier=Probation \(computed\)$/,
 		);
+	});
+
+	it("lists each live Agent's Trust tier and standing, read-only, and has no --apply", () => {
+		rmSync(home, { recursive: true, force: true });
+		const s = scenario();
+		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
+		s.gate("PromoteToMentor", { agent_id: "A-ines" });
+		s.ledger.close();
+		home = s.home;
+
+		expect(ok(vitality("tiers"))).toBe(
+			[
+				"A-odile Odile merit=- reviewed=0 tier=Probation unused_mentor_gates=-",
+				"A-mabel Mabel merit=- reviewed=0 tier=Probation unused_mentor_gates=-",
+				"A-thorne Thorne merit=- reviewed=0 tier=Probation unused_mentor_gates=-",
+				"A-pia Pia merit=- reviewed=0 tier=Probation unused_mentor_gates=-",
+				"A-anselm Anselm merit=- reviewed=0 tier=Probation unused_mentor_gates=-",
+				"A-rin Rin merit=3.00 reviewed=10 tier=Trusted unused_mentor_gates=-",
+				"A-ines Ines merit=- reviewed=0 tier=Probation unused_mentor_gates=G-1",
+				"A-bram Bram merit=- reviewed=0 tier=Probation unused_mentor_gates=-",
+				"",
+			].join("\n"),
+		);
+
+		const apply = vitality("tiers", "--apply");
+		expect(apply.status).toBe(2);
+		expect(apply.stderr.split("\n")[0]).toMatch(/Unknown option '--apply'/);
 	});
 
 	it("orders Rest and shows the Agent resting and unschedulable", () => {

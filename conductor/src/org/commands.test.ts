@@ -81,6 +81,38 @@ describe("aliquot org", () => {
 		expect(asOperator.stdout).toBe("Revised A-thorne to version 2\n");
 	});
 
+	it("refuses a Revision to a Trust tier other than the projected one, and accepts one that keeps it", () => {
+		org("seed");
+		const rin = rosterDefinitions().find((d) => d.id === "A-rin");
+		const write = (name: string, changes: object) => {
+			const file = join(home, name);
+			writeFileSync(
+				file,
+				JSON.stringify({
+					...rin,
+					version: 2,
+					revision_reason: "Hand-set tier",
+					...changes,
+				}),
+			);
+			return file;
+		};
+
+		const trusted = org(
+			"revise",
+			"A-rin",
+			write("trusted.json", { trust_tier: "Trusted" }),
+		);
+		const kept = org("revise", "A-rin", write("kept.json", { capacity: 2 }));
+
+		expect(trusted.status).toBe(1);
+		expect(trusted.stderr).toBe(
+			"AppendRefused: AgentDefinitionRevised refused: A-rin's projected Trust tier is Probation, not Trusted\n",
+		);
+		expect(kept.stderr).toBe("");
+		expect(kept.stdout).toBe("Revised A-rin to version 2\n");
+	});
+
 	it("pauses, resumes and retires an Agent from the command line", () => {
 		org("seed");
 

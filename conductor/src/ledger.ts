@@ -9,7 +9,13 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { Event, NewEvent } from "./events.js";
-import { type AppendGuard, AppendRefused, appendGuards } from "./guards.js";
+import {
+	type AppendGuard,
+	AppendRefused,
+	appendFollowOns,
+	appendGuards,
+	type FollowOn,
+} from "./guards.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
 import { IsoTime, Seq, Sha256 } from "./ids.js";
 
@@ -22,11 +28,16 @@ export type LedgerOptions = {
 	clock?: () => Date;
 	/** Guards run before every append. Defaults to `appendGuards`. */
 	guards?: readonly AppendGuard[];
+	/** Follow-ons run after every append. Defaults to `appendFollowOns`. */
+	followOns?: readonly FollowOn[];
 };
 
 export type Ledger = {
 	readonly path: string;
-	/** Validate, guard, number, hash, and write one Event. Throws `AppendRefused`. */
+	/**
+	 * Validate, guard, number, hash, and write one Event and its follow-ons
+	 * in one transaction, and return that Event. Throws `AppendRefused`.
+	 */
 	append(newEvent: NewEvent): Event;
 	/** Every Event in seq order. */
 	events(): IterableIterator<Event>;
@@ -265,6 +276,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 	const lockPath = `${path}.lock`;
 	const clock = options.clock ?? (() => new Date());
 	const guards = options.guards ?? appendGuards;
+	const followOns = options.followOns ?? appendFollowOns;
 
 	if (options.writer) {
 		mkdirSync(options.home, { recursive: true });
@@ -295,11 +307,10 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 				`Ledger at ${path} is open read-only; open it with writer: true to append`,
 			);
 		}
-		db.exec("BEGIN IMMEDIATE");
-		try {
+		/** Number, hash, guard and insert one Event after `written`, and add it there. */
+		const write = (written: Event[], newEvent: NewEvent): Event => {
 			const body = parseNewEvent(newEvent);
-			appended ??= [...events()];
-			const last = appended.at(-1);
+			const last = written.at(-1);
 			const unhashed = {
 				seq: Seq.parse((last?.seq ?? 0) + 1),
 				ts: IsoTime.parse(clock().toISOString()),
@@ -313,7 +324,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 			const hash = sha256Hex(canonicalJson(unhashed));
 			const event = Event.parse(stripUndefined({ ...unhashed, hash }));
 
-			for (const guard of guards) guard({ events: appended }, event);
+			for (const guard of guards) guard({ events: written }, event);
 
 			insert.run({
 				seq: event.seq,
@@ -326,9 +337,23 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 				prev_hash: event.prev_hash,
 				hash: event.hash,
 			});
-			db.exec("COMMIT");
-			appended.push(event);
+			written.push(event);
 			return event;
+		};
+
+		db.exec("BEGIN IMMEDIATE");
+		try {
+			appended ??= [...events()];
+			// A copy, so a refusal anywhere in the transaction leaves `appended`
+			// as the Ledger was before the call.
+			const written = [...appended];
+			const cause = write(written, newEvent);
+			for (const followOn of followOns) {
+				for (const next of followOn(written, cause)) write(written, next);
+			}
+			db.exec("COMMIT");
+			appended = written;
+			return cause;
 		} catch (error) {
 			db.exec("ROLLBACK");
 			throw error;
