@@ -48,8 +48,8 @@ export type ArtifactMeta = Pick<
 /** Envelope fields for the ArtifactStored Event. */
 export type EventContext = {
 	actor: Actor;
-	task_id?: TaskId;
-	causation_id?: Seq;
+	task_id?: TaskId | undefined;
+	causation_id?: Seq | undefined;
 };
 
 export type Artifacts = {
