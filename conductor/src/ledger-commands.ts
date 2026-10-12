@@ -1,15 +1,8 @@
 import { readFileSync } from "node:fs";
-import type { Readable } from "node:stream";
 import { parseArgs } from "node:util";
-import { type CommandTable, UsageError } from "./command.js";
+import { type CommandTable, readAll, UsageError } from "./command.js";
 import { canonicalJson } from "./hash.js";
 import { openLedger, parseNewEvent } from "./ledger.js";
-
-const readAll = async (stream: Readable) => {
-	const chunks: Buffer[] = [];
-	for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-	return Buffer.concat(chunks).toString("utf8");
-};
 
 const parseJson = (text: string): unknown => {
 	try {

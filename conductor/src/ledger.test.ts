@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { NewEvent } from "./events.js";
 import { AppendRefused } from "./guards.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
-import { AgentId, Seq, TaskId } from "./ids.js";
+import { AgentId, RoomId, Seq, TaskId } from "./ids.js";
 import { type Ledger, LedgerLocked, openLedger } from "./ledger.js";
 
 const odile = AgentId.parse("A-odile");
@@ -37,7 +37,7 @@ const sampleEvent = (i: number): NewEvent => {
 				task_id,
 				causation_id: Seq.parse(i - 1),
 				kind: "MessageSent",
-				payload: { to: [{ tag: "Agent", id: odile }], body: `note ${i}` },
+				payload: { room_id: RoomId.parse("RM-lab"), body: `note ${i}` },
 			};
 	}
 };
