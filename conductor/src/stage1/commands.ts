@@ -154,7 +154,7 @@ export const stage1Commands: CommandTable = {
 				throw new Error(`${dir} holds no *.docx Fixtures`);
 			const { done, failed } = await runForms(forms, values, ctx);
 			ctx.stdout.write(
-				`${forms.length} Fixtures: ${done} Done, ${failed} Failed\n`,
+				`${forms.length} Fixture${forms.length === 1 ? "" : "s"}: ${done} Done, ${failed} Failed\n`,
 			);
 			return failed === 0 ? 0 : 1;
 		},
