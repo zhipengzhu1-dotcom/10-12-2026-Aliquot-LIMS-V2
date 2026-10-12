@@ -65,51 +65,78 @@ export const OrgProjection: Projection<OrgState> = {
 export const orgState = (events: Iterable<Event>): OrgState =>
 	fold(events, OrgProjection.reduce, OrgProjection.init);
 
-/** The reporting tree: the Operator at the root, live Agents below. */
+/**
+ * The reporting tree: the Operator at the root, live Agents below, and the
+ * Specialists as one pool node that reports to every live Supervisor.
+ */
 export type OrgNode =
 	| { readonly tag: "Operator"; readonly children: readonly OrgNode[] }
 	| {
 			readonly tag: "Agent";
 			readonly agent: AgentState;
 			readonly children: readonly OrgNode[];
+	  }
+	| {
+			readonly tag: "Pool";
+			readonly supervisors: readonly AgentState[];
+			readonly children: readonly OrgNode[];
 	  };
 
 /**
  * Build the reporting tree from live Agents, in Recruitment order. Retired
- * Agents are left out. The Specialists are one pool under every Supervisor,
- * so each Specialist appears under each live Supervisor. Any other Agent sits
- * under its `supervisor_id`, or under the Operator when it has none or its
- * supervisor is not live.
+ * Agents are left out. The Specialists are one pool that reports to every
+ * live Supervisor, so they appear once, in a pool node beside the
+ * Supervisors under their parent (the Director). Any other Agent sits under
+ * its `supervisor_id`, or under the Operator when it has none or its
+ * supervisor is not live; so do the Specialists when no Supervisor is live.
  */
 export const tree = (state: OrgState): OrgNode => {
 	const live = [...state.agents.values()].filter((a) => !a.retired);
 	const liveIds = new Set(live.map((a) => a.definition.id));
 	const supervisors = live.filter((a) => a.definition.role === "Supervisor");
+	const pool =
+		supervisors.length === 0
+			? []
+			: live.filter((a) => a.definition.role === "Specialist");
 
-	const parentsOf = (agent: AgentState): readonly (AgentId | "Operator")[] => {
-		const { role, supervisor_id } = agent.definition;
-		if (role === "Specialist" && supervisors.length > 0) {
-			return supervisors.map((s) => s.definition.id);
-		}
+	const parentOf = (agent: AgentState): AgentId | "Operator" => {
+		const { supervisor_id } = agent.definition;
 		return supervisor_id !== undefined && liveIds.has(supervisor_id)
-			? [supervisor_id]
-			: ["Operator"];
+			? supervisor_id
+			: "Operator";
 	};
+	const [firstSupervisor] = supervisors;
+	const poolParent = firstSupervisor && parentOf(firstSupervisor);
 
-	const childrenOf = (parent: AgentId | "Operator"): OrgNode[] =>
-		live
-			.filter((a) => parentsOf(a).includes(parent))
-			.map((agent) => ({
-				tag: "Agent",
-				agent,
-				children: childrenOf(agent.definition.id),
-			}));
+	const nodeOf = (agent: AgentState): OrgNode => ({
+		tag: "Agent",
+		agent,
+		children: childrenOf(agent.definition.id),
+	});
+	const childrenOf = (parent: AgentId | "Operator"): OrgNode[] => {
+		const agents = live
+			.filter((a) => !pool.includes(a) && parentOf(a) === parent)
+			.map(nodeOf);
+		if (parent !== poolParent || pool.length === 0) return agents;
+		return [
+			...agents,
+			{ tag: "Pool", supervisors, children: pool.map(nodeOf) },
+		];
+	};
 
 	return { tag: "Operator", children: childrenOf("Operator") };
 };
 
+const andList = (names: readonly string[]) =>
+	names.length <= 1
+		? names.join("")
+		: `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+
 const label = (node: OrgNode) => {
 	if (node.tag === "Operator") return "Operator";
+	if (node.tag === "Pool") {
+		return `Specialist pool, reports to ${andList(node.supervisors.map((s) => s.definition.name))}`;
+	}
 	const { definition, paused } = node.agent;
 	const line = `${definition.name}, ${definition.role}, ${definition.trust_tier}`;
 	return paused ? `${line} (paused)` : line;

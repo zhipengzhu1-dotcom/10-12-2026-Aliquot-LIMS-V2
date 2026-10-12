@@ -101,10 +101,8 @@ describe("org seed", () => {
 const SEEDED_TREE = `Operator
 +-- Odile, Director, Probation
 |   +-- Pia, Supervisor, Probation
-|   |   +-- Rin, Specialist, Probation
-|   |   +-- Ines, Specialist, Probation
-|   |   \\-- Bram, Specialist, Probation
-|   \\-- Anselm, Supervisor, Probation
+|   +-- Anselm, Supervisor, Probation
+|   \\-- Specialist pool, reports to Pia and Anselm
 |       +-- Rin, Specialist, Probation
 |       +-- Ines, Specialist, Probation
 |       \\-- Bram, Specialist, Probation
@@ -115,10 +113,21 @@ const SEEDED_TREE = `Operator
 const printedTree = () => renderTree(tree(orgState(ledger.events())));
 
 describe("org tree", () => {
-	it("puts the Operator at the root and the Specialist pool under both Supervisors", () => {
+	it("puts the Operator at the root and the Specialist pool once under the Director, beside both Supervisors", () => {
 		seedOrg(ledger);
 
 		expect(printedTree()).toBe(SEEDED_TREE);
+	});
+
+	it("names only the live Supervisors the Specialist pool reports to", () => {
+		seedOrg(ledger);
+		retire(AgentId.parse("A-pia"), "Merged intake into review");
+
+		expect(printedTree()).toContain(
+			"|   +-- Anselm, Supervisor, Probation\n" +
+				"|   \\-- Specialist pool, reports to Anselm\n" +
+				"|       +-- Rin, Specialist, Probation\n",
+		);
 	});
 
 	it("marks a paused Agent and drops it from the tree once Retired, keeping its Events", () => {
@@ -133,11 +142,11 @@ describe("org tree", () => {
 		const whilePaused = printedTree();
 		retire(rin, "Replaced by a new Specialist");
 
-		expect(whilePaused).toContain(
-			"|   |   +-- Rin, Specialist, Probation (paused)\n",
-		);
-		expect(whilePaused).toContain(
-			"|       +-- Rin, Specialist, Probation (paused)\n",
+		expect(whilePaused).toBe(
+			SEEDED_TREE.replace(
+				"Rin, Specialist, Probation",
+				"Rin, Specialist, Probation (paused)",
+			),
 		);
 		expect(printedTree()).toBe(SEEDED_TREE.replace(/^.*Rin.*\n/gm, ""));
 		expect(

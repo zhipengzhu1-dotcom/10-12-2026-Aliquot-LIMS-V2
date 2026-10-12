@@ -90,10 +90,23 @@ Recruit the eight-agent starting roster, all on `Probation`. A second run append
 pnpm -C conductor cli --home /tmp/aliquot org seed
 ```
 
-Print the tree: the Operator at the root, the Director, Steward and Auditor under it, the Supervisors under the Director, and the Specialist pool under both Supervisors. Retired Agents are left out.
+Print the tree: the Operator at the root, the Director, Steward and Auditor under it, and the Supervisors under the Director. The Specialists report to both Supervisors as one pool, so they appear once, under a `Specialist pool, reports to Pia and Anselm` line beside the Supervisors. Retired Agents are left out.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot org tree
+```
+
+```text
+Operator
++-- Odile, Director, Probation
+|   +-- Pia, Supervisor, Probation
+|   +-- Anselm, Supervisor, Probation
+|   \-- Specialist pool, reports to Pia and Anselm
+|       +-- Rin, Specialist, Probation
+|       +-- Ines, Specialist, Probation
+|       \-- Bram, Specialist, Probation
++-- Mabel, Steward, Probation
+\-- Thorne, Auditor, Probation
 ```
 
 Pause, resume, or revise an Agent. `revise` takes a JSON file with the full next definition; its `version` must be the current version plus 1.

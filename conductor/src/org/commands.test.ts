@@ -47,10 +47,8 @@ describe("aliquot org", () => {
 		expect(printed.stdout).toBe(`Operator
 +-- Odile, Director, Probation
 |   +-- Pia, Supervisor, Probation
-|   |   +-- Rin, Specialist, Probation
-|   |   +-- Ines, Specialist, Probation
-|   |   \\-- Bram, Specialist, Probation
-|   \\-- Anselm, Supervisor, Probation
+|   +-- Anselm, Supervisor, Probation
+|   \\-- Specialist pool, reports to Pia and Anselm
 |       +-- Rin, Specialist, Probation
 |       +-- Ines, Specialist, Probation
 |       \\-- Bram, Specialist, Probation
