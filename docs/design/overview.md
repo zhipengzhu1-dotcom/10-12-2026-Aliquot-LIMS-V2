@@ -20,9 +20,9 @@ The repository holds this design, the agent tooling configuration in `CLAUDE.md`
 
 None of the five files contains VBA. The macro workbooks, the SQL database, and the PDF reports and forms exist at the lab but are not yet available.
 
-## The nine data shapes
+## The ten data shapes
 
-Everything in the system derives from nine shapes. The Ledger holds Events. Every other shape is either the payload of an Event or a Projection computed from Events. The Ledger, its reducers, and these types are built before any Agent logic.
+Everything in the system derives from ten shapes. The Ledger holds Events. Every other shape is either the payload of an Event or a Projection computed from Events. The Ledger, its reducers, and these types are built before any Agent logic.
 
 ### 1. Event
 
@@ -50,7 +50,7 @@ type EventBody =
 	// and the rest of the initial set below
 ```
 
-The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`.
+The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`.
 
 ### 2. Agent definition
 
@@ -237,6 +237,21 @@ type Skill = { id: SkillId; version: number; title: string; body_md: string; aut
 type MemoryNote = { agent: AgentId; task_id: TaskId; lesson: string; applies_to: string[] };
 ```
 
+### 10. Room and Message
+
+A Room is where Agents talk (ADR-0010). The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room that names itself. The Operator is a member of every Room. A Message is a `MessageSent` Event projected for its reader. A reply names the Message it answers through the envelope's `causation_id`, which must be a Message in the same Room. One membership rule decides both who may say a Message and who may read a Room's history.
+
+```ts
+type RoomId = `RM-${string}`;
+
+type Membership = { tag: "Everyone" } | { tag: "Listed"; agents: AgentId[] };
+
+type Room = { id: RoomId; name: string; purpose: string; membership: Membership; opened_by: Actor; task_id?: TaskId };
+
+// Events: { kind: "RoomOpened"; payload: { room: Room } } and { kind: "MessageSent"; payload: { room_id: RoomId; body: string } }
+type Message = { seq: Seq; ts: IsoTime; actor: Actor; room_id: RoomId; body: string; causation_id?: Seq };
+```
+
 ## Runtime topology
 
 Five parts run on the Operator's Mac. Cloudflare carries only the Operator's browser traffic.
@@ -252,7 +267,7 @@ Five parts run on the Operator's Mac. Cloudflare carries only the Operator's bro
                                +--> Docker sandbox: Python scripts, toy LIMS SQLite, artifacts
 ```
 
-**Conductor.** The Conductor is a TypeScript process on Node. It is the only writer to the SQLite Ledger. It schedules Turns, enforces Policy, serves the interface, and streams Ledger Events over SSE. Each Turn is one `query()` call from `@anthropic-ai/claude-agent-sdk`. The Agent's tools are an in-process MCP server that exposes Ledger-backed verbs: `read_tasks`, `send_message`, `request_help`, `hand_off`, `run_script`, `propose_revision`, `request_gate`, `note_memory`, and `publish_skill`. A `PreToolUse` hook records every tool call in the Ledger and blocks the Charter's forbidden actions. The hook does this job because allow rules bypass `canUseTool`. `maxTurns` and `maxBudgetUsd` cap each Turn. The `modelUsage` field of each result feeds fatigue.
+**Conductor.** The Conductor is a TypeScript process on Node. It is the only writer to the SQLite Ledger. It schedules Turns, enforces Policy, serves the interface, and streams Ledger Events over SSE. Each Turn is one `query()` call from `@anthropic-ai/claude-agent-sdk`. The Agent's tools are an in-process MCP server that exposes Ledger-backed verbs: `read_tasks`, `send_message`, `read_room`, `open_room`, `request_help`, `hand_off`, `run_script`, `propose_revision`, `request_gate`, `note_memory`, and `publish_skill`. A `PreToolUse` hook records every tool call in the Ledger and blocks the Charter's forbidden actions. The hook does this job because allow rules bypass `canUseTool`. `maxTurns` and `maxBudgetUsd` cap each Turn. The `modelUsage` field of each result feeds fatigue.
 
 **Authentication.** The Agent SDK spawns the `claude` CLI, which uses the subscription login when no API key is set. The SDK documentation, read on 2026-10-12 for SDK 0.3.296, lists subscription OAuth last in precedence. It says `claude setup-token` and `CLAUDE_CODE_OAUTH_TOKEN` authenticate scripts with a subscription. It also says third-party developers may not offer claude.ai login in products built on the SDK, and it says nothing about personal internal tools. Authentication is one module, so an API key with `maxBudgetUsd` can replace it. Two Turns run at the same time to start. The Energy budget is the subscription's 5-hour window.
 
@@ -302,7 +317,8 @@ Every view is a Projection of the Ledger and updates live over SSE. No view stor
 |---|---|---|
 | Org | A tree of Agents by supervisor, with a Mood badge, Trust tier, and load bar for each | Pause, resume, reassign, retire (opens a `RetireAgent` Gate), open an Agent |
 | Flow | Tasks in one swimlane per stage, with causation arrows between Events, filtered by Task or Lot | Open a Task and read its Events |
-| Agent | Charter, Persona, current Vitality and Mood, Merit history, Memory notes, and Skills | Chat with the Agent, author a Revision, give Coaching |
+| Agent | Charter, Persona, current Vitality and Mood, Merit history, Memory notes, and Skills | Open the Agent's Room, a Room whose only listed member is that Agent; author a Revision; give Coaching |
+| Rooms | Every Room, private ones included, with its Messages live | Say a Message in any Room, open a Room |
 | Scripts | Each Script with its versions, owner, Fixtures, and latest Runs | Open a Run, read its stdout and stderr |
 | Gates | Open Gates, each with a diff of its payload | Approve or reject, with a reason |
 | Performance | Merit per Agent over time, the rubric breakdown, the Energy budget, and Tasks by state | Export CSV |
@@ -312,7 +328,7 @@ Every view is a Projection of the Ledger and updates live over SSE. No view stor
 
 Each slice ends in something the Operator can check.
 
-1. **Slice 0, the base.** Repository layout, the nine types, the Ledger with its hash chain and reducers, the Docker image, the synthetic generator, and CI that runs every Fixture. No Agents.
+1. **Slice 0, the base.** Repository layout, the ten types, the Ledger with its hash chain and reducers, the Docker image, the synthetic generator, and CI that runs every Fixture. No Agents.
 2. **Slice 1, the society on toy work.** The eight Agents run the toy workflow with live Vitality and Merit. The interface ships the Org, Flow, Agent, Gates, Performance, and Ledger views behind Tunnel and Access. The Mood thresholds get tuned against real data.
 3. **Slice 2, building for Lab staff.** Developer and Tester join. They build the first web application for a lab task, probably a Sample receiving screen that replaces the Receiving Log sheet. The `Deploy` Gate goes live.
 4. **Slice 3, real work.** A real data source connects behind the `WriteSystemOfRecord` Gate. Agents start reading VBA. Anonymized copies of the real templates become Fixtures.
@@ -329,4 +345,5 @@ Each item states the default we take and the one word the Operator can send to r
 | The templates hold real Client data and are untracked. | Ignore them in git and copy shapes only. | `anonymize`, which creates scrubbed copies for Fixtures |
 | Nobody knows how many Turns the subscription allows at once. | Two at a time, measured in slice 1. | `serial`, which runs one Turn at a time |
 | The Mood thresholds are guesses. | The numbers in `docs/design/vitality-and-merit.md`, tuned against slice 1 data. | `flat`, which treats every Agent as `fresh` until the data exists |
+| Agents may talk in private Rooms. | Allowed. The Operator is a member of every Room and reads everything. | `open`, which forbids Listed Rooms |
 | An Agent may write a Revision that removes one of its own forbidden actions. | Allow it. The Conductor, not the Charter, enforces Gates, and the Auditor flags every Revision that removes a boundary. | `lock`, which puts such Revisions behind a Gate |
