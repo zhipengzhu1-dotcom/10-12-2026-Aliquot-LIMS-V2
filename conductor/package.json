@@ -1,0 +1,24 @@
+{
+	"name": "conductor",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"cli": "tsx src/cli.ts"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@types/node": "24.19.2",
+		"tsx": "4.23.15",
+		"typescript": "7.0.2",
+		"vitest": "5.0.3"
+	},
+	"packageManager": "pnpm@12.8.1"
+}
