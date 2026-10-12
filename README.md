@@ -178,3 +178,41 @@ A Script is a directory with `main.py` (or `--entrypoint`). The container runs `
 - An optional `/outputs/manifest.json` types the outputs: `{"<filename>": {"artifact_type": "...", "media_type": "..."}}`. Without it, an output is typed `Other` with a media type guessed from its extension. The manifest itself is not stored.
 - stdout and stderr are stored as `Other` Artifacts (`text/plain`). The Run records the exit code.
 - A Script cannot import `synth` or anything else from the repository: only its own directory is mounted.
+
+## Vitality and Merit
+
+Vitality, Mood, Policy, Merit, and the Trust tier are Projections over the Ledger (ADR-0004, ADR-0007), with the thresholds of `docs/design/vitality-and-merit.md`. The code is in `conductor/src/vitality/`.
+
+- Vitality is computed from Events: `load` from open Tasks against `capacity`, `friction` and `confidence` from the Agent's last 10 Tasks, and `morale` from the slope of Review means over the last 7 days. No Event records token use yet, so `fatigue` comes from `--tokens`, and is 0 without it. From slice 1 the Conductor supplies it from each Turn's `modelUsage`.
+- Mood follows the first matching rule of the Mood table, and Policy follows from Mood. A resting Agent is unschedulable.
+- Merit is the mean of every dimension score over the Agent's last 20 reviewed Tasks. Tasks skipped for Review do not count.
+- The Trust tier starts at `Probation` and rises when Merit and tenure meet a tier's bar with no boundary score below 2 in the window. A boundary score of 0 demotes one tier at once, and the Agent cannot regain that tier until the 0 leaves its window. `Mentor` also needs an approved `PromoteToMentor` Gate whose payload has the Agent as its `agent_id`.
+
+Show every live Agent, or one:
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot vitality show
+pnpm -C conductor cli --home /tmp/aliquot vitality show A-rin
+```
+
+Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 \
+  --boundary 3 --collaboration 2 --timeliness 3 --note "IDs agree across Artifacts"
+```
+
+List the Revisions that bring each Agent definition's `trust_tier` in line with its projected tier, then append them with `--apply`. When every tier is already in line, the command appends nothing.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot vitality tiers
+pnpm -C conductor cli --home /tmp/aliquot vitality tiers --apply
+```
+
+Order Rest or end it, and append a `VitalitySampled` computed from the Ledger. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000).
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --begin --reason "fatigue 0.92" --as A-mabel
+pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --end --reason "fatigue 0.41" --as A-mabel
+pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --tokens 120000 --budget 1000000
+```

@@ -1,0 +1,109 @@
+import type { Event, NewEvent } from "../events.js";
+import type { AgentId } from "../ids.js";
+import { orgState } from "../org/projection.js";
+import type { TrustTier } from "../types/merit.js";
+import type { Mood, Policy, Vitality } from "../types/vitality.js";
+import { moodOf } from "./mood.js";
+import { policyOf } from "./policy.js";
+import { type TrustStanding, trustTierOf } from "./trust.js";
+import {
+	restInEffect,
+	type SampleOptions,
+	sampleVitality,
+} from "./vitality.js";
+import { openTasks } from "./work.js";
+
+/** What the Operator sees for one Agent. */
+export type AgentVitality = {
+	readonly vitality: Vitality;
+	/** True when `vitality` is the latest VitalitySampled, false when computed now. */
+	readonly sampled: boolean;
+	readonly mood: Mood;
+	readonly policy: Policy;
+	readonly merit: number | undefined;
+	readonly reviewedTasks: number;
+	readonly tier: TrustTier;
+};
+
+const latestSamples = (events: readonly Event[]) => {
+	const latest = new Map<AgentId, Vitality>();
+	for (const e of events) {
+		if (e.kind === "VitalitySampled") latest.set(e.payload.agent, e.payload);
+	}
+	return latest;
+};
+
+/**
+ * Vitality, Mood, Policy, Merit and Trust tier for every live Agent, in
+ * Recruitment order. Vitality is the Agent's latest VitalitySampled, or a
+ * sample computed from the Ledger when it has none. Mood reads Rest and Tasks
+ * InProgress from the Ledger as it stands.
+ */
+export const vitalityProjection = (
+	events: readonly Event[],
+	options: SampleOptions,
+): ReadonlyMap<AgentId, AgentVitality> => {
+	const samples = latestSamples(events);
+	const view = new Map<AgentId, AgentVitality>();
+	for (const { definition, retired } of orgState(events).agents.values()) {
+		if (retired) continue;
+		const id = definition.id;
+		const sample = samples.get(id);
+		const vitality = sample ?? sampleVitality(events, id, options);
+		const mood = moodOf(
+			vitality,
+			restInEffect(events, id),
+			openTasks(events, id).inProgress > 0,
+		);
+		const { tier, standing } = trustTierOf(events, id);
+		view.set(id, {
+			vitality,
+			sampled: sample !== undefined,
+			mood,
+			policy: policyOf(mood),
+			merit: standing.merit,
+			reviewedTasks: standing.reviewedTasks,
+			tier,
+		});
+	}
+	return view;
+};
+
+const reasonFor = (from: TrustTier, t: TrustStanding): string => {
+	const { merit, reviewedTasks, window } = t.standing;
+	const zero = [...window].reverse().find((r) => r.boundary_adherence === 0);
+	const meritText = `Merit ${merit === undefined ? "none" : merit.toFixed(2)} over ${reviewedTasks} reviewed Tasks`;
+	const why =
+		zero === undefined
+			? meritText
+			: `Demotion for boundary score 0 on ${zero.task_id}; ${meritText}`;
+	return `Trust tier ${from} -> ${t.tier}: ${why}`;
+};
+
+/**
+ * The Revisions that bring each live Agent's `trust_tier` in line with its
+ * projected Trust tier, authored by the Operator. Empty when every
+ * definition already matches, so appending the result is idempotent.
+ */
+export const tierRevisions = (events: readonly Event[]): NewEvent[] => {
+	const revisions: NewEvent[] = [];
+	for (const { definition, retired } of orgState(events).agents.values()) {
+		if (retired) continue;
+		const projected = trustTierOf(events, definition.id);
+		if (projected.tier === definition.trust_tier) continue;
+		revisions.push({
+			actor: { tag: "Operator" },
+			kind: "AgentDefinitionRevised",
+			payload: {
+				definition: {
+					...definition,
+					version: definition.version + 1,
+					trust_tier: projected.tier,
+					revised_by: { tag: "Operator" },
+					revision_reason: reasonFor(definition.trust_tier, projected),
+				},
+			},
+		});
+	}
+	return revisions;
+};

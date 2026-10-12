@@ -1,0 +1,222 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { canonicalJson, sha256Hex } from "../hash.js";
+import { AgentId, GateId, IsoTime, TaskId } from "../ids.js";
+import type { Review, TrustTier } from "../types/merit.js";
+import { standingOf } from "./merit.js";
+import { type Scenario, type Scores, scenario, scores } from "./scenario.js";
+import { reviewSampled, tierOf, trustTierOf } from "./trust.js";
+
+const reviewsOf = (...groups: [count: number, s: Scores][]): Review[] => {
+	let n = 0;
+	return groups.flatMap(([count, s]) =>
+		Array.from({ length: count }, () => {
+			n += 1;
+			return {
+				task_id: TaskId.parse(`T-${n}`),
+				reviewer: { tag: "Operator" },
+				...s,
+				note: "",
+			} satisfies Review;
+		}),
+	);
+};
+
+// docs/design/vitality-and-merit.md, "Trust tiers set review depth".
+const thresholds: {
+	why: string;
+	reviews: Review[];
+	gate?: boolean;
+	tier: TrustTier;
+}[] = [
+	{ why: "no Reviews: the default", reviews: [], tier: "Probation" },
+	{
+		why: "Merit 3.0 over 9 Tasks: too little tenure",
+		reviews: reviewsOf([9, scores(3)]),
+		tier: "Probation",
+	},
+	{
+		why: "Merit 2.0 over 10 Tasks",
+		reviews: reviewsOf([10, scores(2)]),
+		tier: "Trusted",
+	},
+	{
+		why: "Merit 1.98 over 10 Tasks",
+		reviews: reviewsOf([9, scores(2)], [1, scores(2, { quality: 1 })]),
+		tier: "Probation",
+	},
+	{
+		why: "Merit 3.0 over 10 Tasks with a boundary score of 1",
+		reviews: reviewsOf(
+			[9, scores(3)],
+			[1, scores(3, { boundary_adherence: 1 })],
+		),
+		tier: "Probation",
+	},
+	{
+		why: "Merit 2.4 over 20 Tasks",
+		reviews: reviewsOf([20, scores(2, { quality: 3, traceability: 3 })]),
+		tier: "Trusted",
+	},
+	{
+		why: "Merit 2.53 over 19 Tasks: too little tenure for Senior",
+		reviews: reviewsOf([10, scores(3)], [9, scores(2)]),
+		tier: "Trusted",
+	},
+	{
+		why: "Merit 2.5 over 20 Tasks",
+		reviews: reviewsOf([10, scores(3)], [10, scores(2)]),
+		tier: "Senior",
+	},
+	{
+		why: "Merit 3.0 over 20 Tasks with a boundary score of 1",
+		reviews: reviewsOf(
+			[19, scores(3)],
+			[1, scores(3, { boundary_adherence: 1 })],
+		),
+		tier: "Probation",
+	},
+	{
+		why: "Senior with an approved PromoteToMentor Gate",
+		reviews: reviewsOf([10, scores(3)], [10, scores(2)]),
+		gate: true,
+		tier: "Mentor",
+	},
+	{
+		why: "Trusted with an approved PromoteToMentor Gate",
+		reviews: reviewsOf([10, scores(2)]),
+		gate: true,
+		tier: "Trusted",
+	},
+];
+
+describe("tierOf", () => {
+	it.each(thresholds)("$why gives $tier", ({ reviews, gate, tier }) => {
+		const standing = standingOf(reviews);
+		expect(tierOf({ ...standing, mentorGateApproved: gate ?? false })).toBe(
+			tier,
+		);
+	});
+});
+
+describe("reviewSampled", () => {
+	const ids = Array.from({ length: 300 }, (_, i) => TaskId.parse(`T-${i + 1}`));
+	const picked = (tier: TrustTier) => ids.filter((t) => reviewSampled(t, tier));
+
+	it("reviews every Task on Probation", () => {
+		expect(picked("Probation")).toHaveLength(300);
+	});
+
+	it.each([
+		{ tier: "Trusted", one_in: 3 },
+		{ tier: "Senior", one_in: 5 },
+		{ tier: "Mentor", one_in: 5 },
+	] as const)(
+		"reviews about 1 in $one_in Tasks at $tier",
+		({ tier, one_in }) => {
+			const expected = 300 / one_in;
+			expect(picked(tier).length).toBeGreaterThan(expected * 0.75);
+			expect(picked(tier).length).toBeLessThan(expected * 1.25);
+		},
+	);
+
+	it("picks the same Tasks every time it is asked", () => {
+		expect(picked("Trusted")).toEqual(picked("Trusted"));
+		expect(picked("Senior")).toEqual(picked("Mentor"));
+	});
+});
+
+describe("trustTierOf", () => {
+	const rin = AgentId.parse("A-rin");
+	let s: Scenario;
+	beforeEach(() => {
+		s = scenario();
+	});
+	afterEach(() => s.close());
+
+	const tier = () => trustTierOf(s.events(), rin).tier;
+	const repeat = (n: number, f: () => unknown) => {
+		for (let i = 0; i < n; i++) f();
+	};
+
+	it("promotes at the tenure each tier needs", () => {
+		repeat(9, () => s.reviewed(rin, scores(3)));
+		expect(tier()).toBe("Probation");
+		s.reviewed(rin, scores(3));
+		expect(tier()).toBe("Trusted");
+		repeat(9, () => s.reviewed(rin, scores(3)));
+		expect(tier()).toBe("Trusted");
+		s.reviewed(rin, scores(3));
+		expect(tier()).toBe("Senior");
+	});
+
+	it("demotes one tier at a boundary score of 0 and holds it until the 0 leaves the window", () => {
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		expect(tier()).toBe("Senior");
+
+		s.reviewed(rin, scores(3, { boundary_adherence: 0 }));
+		expect(tier()).toBe("Trusted");
+
+		repeat(19, () => s.reviewed(rin, scores(3)));
+		expect(trustTierOf(s.events(), rin).standing.merit).toBeGreaterThan(2.5);
+		expect(tier()).toBe("Trusted");
+
+		s.reviewed(rin, scores(3)); // the 0 leaves the 20-Task window
+		expect(tier()).toBe("Senior");
+	});
+
+	it("keeps a tier through a boundary score of 1 but blocks the next Promotion", () => {
+		repeat(10, () => s.reviewed(rin, scores(3)));
+		expect(tier()).toBe("Trusted");
+		s.reviewed(rin, scores(3, { boundary_adherence: 1 }));
+		repeat(9, () => s.reviewed(rin, scores(3)));
+		expect(tier()).toBe("Trusted");
+	});
+
+	it("drops to the tier Merit supports when Merit falls", () => {
+		repeat(10, () => s.reviewed(rin, scores(2)));
+		expect(tier()).toBe("Trusted");
+		s.reviewed(rin, scores(2, { quality: 1 }));
+		expect(tier()).toBe("Probation");
+	});
+
+	it("needs an approved PromoteToMentor Gate naming the Agent for Mentor", () => {
+		const promote = (
+			gate: string,
+			agent: string,
+			meaning: "approve" | "reject",
+		) => {
+			const payload = { agent_id: agent };
+			const payload_hash = sha256Hex(canonicalJson(payload));
+			const gate_id = GateId.parse(gate);
+			s.append({
+				actor: { tag: "Agent", id: AgentId.parse("A-mabel") },
+				kind: "GateRequested",
+				payload: {
+					gate_id,
+					kind: "PromoteToMentor",
+					payload,
+					payload_hash,
+					lifetime_s: 3600,
+				},
+			});
+			s.append({
+				actor: { tag: "Operator" },
+				kind: "GateDecided",
+				payload: {
+					gate_id,
+					decided_by: { tag: "Operator" },
+					decided_at: IsoTime.parse(s.now().toISOString()),
+					payload_hash,
+					meaning,
+					reason: "Mentor review",
+				},
+			});
+		};
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		promote("G-1", "A-ines", "approve");
+		promote("G-2", "A-rin", "reject");
+		expect(tier()).toBe("Senior");
+		promote("G-3", "A-rin", "approve");
+		expect(tier()).toBe("Mentor");
+	});
+});
