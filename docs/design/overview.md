@@ -29,7 +29,7 @@ Everything in the system derives from ten shapes. The Ledger holds Events. Every
 An Event is one entry in the Ledger. Events are numbered, append-only, and hash-chained, so a changed or deleted Event breaks the chain. `kind` is a closed union. A Projection is a reducer over Event kinds, so an illegal state change has no Event that can express it.
 
 ```ts
-type Actor = { tag: "Agent"; id: AgentId } | { tag: "Operator" };
+type Actor = { tag: "Agent"; id: AgentId } | { tag: "Operator" } | { tag: "Conductor" };
 
 type Event = {
 	seq: Seq;
@@ -50,11 +50,13 @@ type EventBody =
 	// and the rest of the initial set below
 ```
 
+The actor `Conductor` authors only the tier Revisions that Merit and Gates require (ADR-0011). The Ledger refuses any other Event it authors. No command line acts as the Conductor.
+
 The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`.
 
 ### 2. Agent definition
 
-An Agent definition is a versioned document. A change is a Revision Event, never an edit in place.
+An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it.
 
 ```ts
 type Role = "Director" | "Steward" | "Auditor" | "Supervisor" | "Specialist" | "Developer" | "Tester";
@@ -189,7 +191,9 @@ declare function policyOf(m: Mood): Policy;
 
 ### 7. Merit and Trust tier
 
-A Review scores a completed Task on five dimensions. Merit is the rolling mean. The Trust tier is a Projection of Merit and tenure.
+A Review scores a completed Task on five dimensions. Merit is the rolling mean. The Trust tier is a Projection of Merit, tenure and approved `PromoteToMentor` Gates. One approved Gate covers one Promotion to Mentor.
+
+The Trust tier Projection is the only place that decides the tier. It answers three questions: the Agent's tier, whether a Revision may record a given tier, and whether a Task must have a Review. After every append, in the same transaction, the Ledger appends one follow-on `AgentDefinitionRevised` for each live Agent whose `trust_tier` differs from its projected tier (ADR-0011). Each follow-on Revision has the actor `Conductor` as its actor and its `revised_by`, names the Event that caused it in `causation_id`, and gives the Merit or Gate change as its `revision_reason`. A refused follow-on refuses its cause too. So `org tree` prints the tier that Review sampling uses, and a Ledger written before this rule catches up on its first append.
 
 ```ts
 type Score = 0 | 1 | 2 | 3;

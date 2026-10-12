@@ -133,7 +133,7 @@ pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
 pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
 ```
 
-These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty.
+These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)).
 
 Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
 
@@ -212,7 +212,7 @@ pnpm -C conductor cli --home /tmp/aliquot gate show G-1
 pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
 ```
 
-The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate.
+The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate. An approved `PromoteToMentor` Gate covers one Promotion to `Mentor`, so the Ledger refuses a new `PromoteToMentor` request for an Agent that holds an approved Gate no Promotion has used, naming the Agent and that Gate.
 
 ## Sandbox
 
@@ -250,7 +250,8 @@ Vitality, Mood, Policy, Merit, and the Trust tier are Projections over the Ledge
 - Vitality is computed from Events: `load` from open Tasks against `capacity`, `friction` and `confidence` from the Agent's last 10 Tasks, and `morale` from the slope of Review means over the last 7 days. No Event records token use yet, so `fatigue` comes from `--tokens`, and is 0 without it. From slice 1 the Conductor supplies it from each Turn's `modelUsage`.
 - Mood follows the first matching rule of the Mood table, and Policy follows from Mood. A resting Agent is unschedulable.
 - Merit is the mean of every dimension score over the Agent's last 20 reviewed Tasks. Tasks skipped for Review do not count.
-- The Trust tier starts at `Probation` and rises when Merit and tenure meet a tier's bar with no boundary score below 2 in the window. A boundary score of 0 demotes one tier at once, and the Agent cannot regain that tier until the 0 leaves its window. `Mentor` also needs an approved `PromoteToMentor` Gate whose payload has the Agent as its `agent_id`. Each Promotion to `Mentor` uses one such Gate, so a return after a Demotion needs a new one; the Ledger refuses a Revision to `Mentor` without an unused approved Gate.
+- The Trust tier starts at `Probation` and rises when Merit and tenure meet a tier's bar with no boundary score below 2 in the window. A boundary score of 0 demotes one tier at once, and the Agent cannot regain that tier until the 0 leaves its window. `Mentor` also needs an approved `PromoteToMentor` Gate whose payload has the Agent as its `agent_id`. Each Promotion to `Mentor` uses the oldest such Gate that no Promotion has used, so a return after a Demotion needs a new one. An unused approval does not lapse.
+- The definition's `trust_tier` always equals the projected tier. After every append, in the same transaction, the Ledger appends an `AgentDefinitionRevised` for each live Agent whose `trust_tier` differs from its projected tier (ADR-0011). The actor `Conductor` authors these Revisions and is their `revised_by`. Each names the Event that caused it in `causation_id`, such as the Review or the `GateDecided`, and its `revision_reason` names the Merit or Gate change. The Ledger refuses any other Event by the `Conductor`, and any definition, from anyone, that records a tier other than the projected one. A Ledger written before this rule catches up on its first append.
 
 Show every live Agent, or one:
 
@@ -259,18 +260,18 @@ pnpm -C conductor cli --home /tmp/aliquot vitality show
 pnpm -C conductor cli --home /tmp/aliquot vitality show A-rin
 ```
 
-Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee. In the same command, after the Review, it appends any Revision that brings a `trust_tier` in line with the projected tier, caused by the Review, and prints it. So a boundary score of 0 on a `Trusted` Agent records the Review and the Demotion together.
+Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee. The command prints the Conductor's Revisions that the Review caused. So a boundary score of 0 on a `Trusted` Agent records the Review and the Demotion together.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 \
   --boundary 3 --collaboration 2 --timeliness 3 --note "IDs agree across Artifacts"
 ```
 
-List the Revisions that bring each Agent definition's `trust_tier` in line with its projected tier, then append them with `--apply`. `vitality review` and the stage 1 tracer already do this after each Review, so `--apply` only catches up a Ledger written without them, or a tier that changed through a `PromoteToMentor` Gate. When every tier is already in line, the command appends nothing.
+Print each live Agent's Merit, reviewed Tasks, Trust tier, and unused `PromoteToMentor` Gates, one line each in Recruitment order. The command only reads the Ledger.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality tiers
-pnpm -C conductor cli --home /tmp/aliquot vitality tiers --apply
+# A-rin Rin merit=3.00 reviewed=10 tier=Trusted unused_mentor_gates=-
 ```
 
 Order Rest or end it, and append a `VitalitySampled` computed from the Ledger. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000).
@@ -299,7 +300,7 @@ The command does these steps in one process:
 5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
 6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
 7. It records `EvaluationRecorded`. When the Evaluation failed, it records `TaskFailed` with the findings.
-8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. After the Review it appends any Trust tier Revision the Review earned, caused by the Review, and prints it as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
+8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
 The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
 

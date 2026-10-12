@@ -10,3 +10,4 @@ The lab must show a human decision behind every action with effects outside the 
 
 - Each data source declares in configuration whether it is a System of record. The toy LIMS database is not, so agents write to it without a Gate. Connecting a real database changes configuration, not code.
 - An approved Gate covers one payload hash. A changed payload needs a new Gate.
+- An approved `PromoteToMentor` Gate covers one Promotion to Mentor. While an Agent holds an approved Gate that no Promotion has used, a new `PromoteToMentor` Gate for it is refused. An unused approval does not lapse; revoking one would be a new Event kind.

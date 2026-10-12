@@ -67,7 +67,7 @@ An Agent's Merit is the mean of all dimension scores over its last 20 reviewed T
 
 ## Trust tiers set review depth and allocation
 
-The Trust tier is projected from Merit and from tenure, counted in reviewed Tasks. Every tier change is also written as an `AgentDefinitionRevised` Event with the reason, so the Agent and the Operator see it happen.
+The Trust tier is projected from Merit, from tenure counted in reviewed Tasks, and from approved `PromoteToMentor` Gates. Every tier change is also written as an `AgentDefinitionRevised` Event with the reason, so the Agent and the Operator see it happen. The Ledger appends that Revision itself, in the same transaction as the Event that changed the tier, with the actor `Conductor` and a `causation_id` naming that Event (ADR-0011). No one else may record a tier other than the projected one.
 
 | Tier | Requirement (initial, tune in slice 1) | Tasks reviewed | Allocation weight | Extra rights |
 |---|---|---|---|---|
@@ -79,6 +79,8 @@ The Trust tier is projected from Merit and from tenure, counted in reviewed Task
 The Conductor chooses which Tasks get a Review from a hash of the Task ID, not from a random number. That keeps the choice reproducible from the Ledger.
 
 Any boundary score of 0 causes a Demotion of one tier at once. The Agent cannot regain that tier until the 0 leaves its 20-Task window.
+
+One approved `PromoteToMentor` Gate covers one Promotion to `Mentor`. A Promotion uses the oldest approved Gate that no Promotion has used. A `Mentor` that is Demoted needs a new Gate to return, and an unused approval waits, without lapsing, until Merit qualifies. While an Agent holds an unused approval, the Ledger refuses a new `PromoteToMentor` Gate request for it.
 
 ## Allocation favors trusted, unloaded Agents
 
