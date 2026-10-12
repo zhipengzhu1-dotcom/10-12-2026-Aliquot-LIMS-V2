@@ -1,4 +1,3 @@
-import type { Event } from "../events.js";
 import { AgentId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { AgentDefinition, Role } from "../types/agent-definition.js";
@@ -205,17 +204,17 @@ export const rosterDefinitions = (): AgentDefinition[] =>
 
 /**
  * Recruit every roster Agent the Ledger does not already hold, authored by
- * the Operator. Returns the Events appended; a second run returns none.
+ * the Operator. Returns the ids recruited; a second run returns none.
  */
-export const seedOrg = (ledger: Ledger): Event[] => {
+export const seedOrg = (ledger: Ledger): AgentId[] => {
 	const { agents } = orgState(ledger.events());
-	return rosterDefinitions()
-		.filter((definition) => !agents.has(definition.id))
-		.map((definition) =>
-			ledger.append({
-				actor: { tag: "Operator" },
-				kind: "AgentRecruited",
-				payload: definition,
-			}),
-		);
+	const missing = rosterDefinitions().filter((d) => !agents.has(d.id));
+	for (const definition of missing) {
+		ledger.append({
+			actor: { tag: "Operator" },
+			kind: "AgentRecruited",
+			payload: definition,
+		});
+	}
+	return missing.map((d) => d.id);
 };
