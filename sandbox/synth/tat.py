@@ -1,7 +1,7 @@
 """TAT codes as printed on the Submission Form, and the TatClass each one names.
 
 The glossary codes TAT on the Submission Form as 1 (regular), 2 (rush in 1 to 2
-days) and 3 (rush in 3 to 4 days). `parse_submission` imports or copies this table.
+days) and 3 (rush in 3 to 4 days).
 """
 
 from enum import StrEnum
@@ -13,6 +13,7 @@ class TatClass(StrEnum):
     RUSH_3_TO_4_DAYS = "Rush3to4Days"
 
 
+# Copied in sandbox/scripts/parse_submission/main.py, which may not import synth.
 TAT_CODES: dict[str, TatClass] = {
     "1": TatClass.REGULAR,
     "2": TatClass.RUSH_1_TO_2_DAYS,

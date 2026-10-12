@@ -5,6 +5,8 @@
  * `submission/1`, documented in that Script).
  */
 
+import { TAT_CODES } from "../types/task.js";
+
 /**
  * Required fields per section: the record key, then each field's record key
  * and its label on the Submission Form. Mirrors `REQUIRED_PARTY_FIELDS`,
@@ -58,8 +60,7 @@ export const REQUIRED_FIELDS = {
 	},
 } as const;
 
-/** The Submission Form's TAT codes (GLOSSARY.md, `sandbox/synth/tat.py`). */
-export const TAT_CODES = ["1", "2", "3"] as const;
+const VALID_TAT_CODES: readonly string[] = Object.keys(TAT_CODES);
 
 export type SubmissionEvaluation = {
 	/** Fraction of checks passed, 0 to 1. */
@@ -94,10 +95,10 @@ export const evaluateSubmission = (record: unknown): SubmissionEvaluation => {
 
 	checks++;
 	const tat = objectAt(record, "sample").tat_code;
-	if (!(TAT_CODES as readonly unknown[]).includes(tat)) {
+	if (typeof tat !== "string" || !VALID_TAT_CODES.includes(tat)) {
 		const shown = tat === undefined ? "(none)" : JSON.stringify(tat);
 		findings.push(
-			`Sample: TAT Code ${shown} is not a valid TAT code (${TAT_CODES.slice(0, -1).join(", ")} or ${TAT_CODES.at(-1)})`,
+			`Sample: TAT Code ${shown} is not a valid TAT code (${VALID_TAT_CODES.slice(0, -1).join(", ")} or ${VALID_TAT_CODES.at(-1)})`,
 		);
 	}
 
