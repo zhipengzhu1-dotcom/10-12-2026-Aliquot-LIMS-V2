@@ -66,6 +66,54 @@ describe("sampleVitality", () => {
 	});
 });
 
+describe("sampleVitality over the Agent's last 10 Tasks", () => {
+	it("counts failed Runs and Reviews with a 0 or 1 as friction", () => {
+		const old = s.task(rin);
+		s.run(old, 1); // an 11th-most-recent Task falls out of the window
+		const failedRun = s.task(rin);
+		s.run(failedRun, 2);
+		s.run(failedRun, 0);
+		s.reviewed(rin, scores(3, { timeliness: 1 }));
+		s.reviewed(rin, scores(2));
+		for (let i = 0; i < 7; i++) s.task(rin, { start: false });
+		// 10 Tasks: one failed Run and one Review with a 1.
+		expect(sample().friction).toBeCloseTo(2 / 10);
+	});
+
+	it("caps friction at 1", () => {
+		const t = s.task(rin);
+		s.run(t, 1);
+		s.run(t, 1);
+		expect(sample().friction).toBe(1);
+	});
+
+	it("takes confidence as the mean latest Evaluation score per Task", () => {
+		const a = s.task(rin);
+		s.run(a, 0, 0.1);
+		s.run(a, 0, 0.4); // the latest Evaluation of a Task stands
+		const b = s.task(rin);
+		s.run(b, 0, 0.8);
+		s.task(rin); // no Evaluation: does not pull the mean
+		expect(sample().confidence).toBeCloseTo(0.6);
+	});
+
+	it("takes morale as the slope of Review means over the last 7 days, per week", () => {
+		s.reviewed(rin, scores(0)); // 10 days before now: outside the window
+		s.advanceDays(4);
+		s.reviewed(rin, scores(1)); // mean 1.0 at day 4
+		s.advanceDays(3);
+		s.reviewed(rin, scores(2)); // mean 2.0 at day 7
+		s.advanceDays(3);
+		// +1 Merit point over 3 days is 7/3 points per week.
+		expect(sample().morale).toBeCloseTo(7 / 3);
+	});
+
+	it("gives morale 0 with fewer than two Reviews in the window", () => {
+		s.reviewed(rin, scores(3));
+		expect(sample().morale).toBe(0);
+	});
+});
+
 describe("restInEffect", () => {
 	it("follows RestOrdered begin and end for that Agent only", () => {
 		expect(restInEffect(s.events(), rin)).toBe(false);
