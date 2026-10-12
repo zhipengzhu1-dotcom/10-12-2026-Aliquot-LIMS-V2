@@ -1,0 +1,39 @@
+# Confidential records of a regulated lab. Never commit. See docs/adr/0009.
+Templates/
+
+# Node
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# SQLite
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
