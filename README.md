@@ -26,6 +26,10 @@ Install Node 24, pnpm 12, and uv first, and start Docker. Run every command from
 tools/check.sh
 ```
 
+### Landing a ticket
+
+`tools/land-ticket.sh <N>` merges `ticket-<N>` into the slice branch, runs `tools/check.sh` on the result, pushes, closes issue `#N`, and fast-forwards `main`. It holds a lock in the git common directory while it runs, and refuses when another landing holds that lock, when the local slice branch is not at `origin/<slice>`, or when the latest CI run on that commit did not succeed. `--branch <name>` in place of `<N>` lands any branch and closes no issue. [docs/agents/workflow.md](docs/agents/workflow.md) has the steps and the rules for landing.
+
 ### Conductor (TypeScript)
 
 | Task | Command |
