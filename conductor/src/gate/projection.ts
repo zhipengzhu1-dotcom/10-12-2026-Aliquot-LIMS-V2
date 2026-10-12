@@ -75,7 +75,10 @@ export const projectGates = (events: Iterable<Event>): Gates =>
 	fold(events, GateProjection.reduce, GateProjection.init);
 
 /** A string field of a Gate payload that is a JSON object, if it has one. */
-export const payloadText = (gate: Gate, field: string): string | undefined => {
+export const payloadText = (
+	gate: Pick<Gate, "payload">,
+	field: string,
+): string | undefined => {
 	const p = gate.payload;
 	if (typeof p !== "object" || p === null || Array.isArray(p)) return undefined;
 	const value = p[field];
@@ -83,7 +86,7 @@ export const payloadText = (gate: Gate, field: string): string | undefined => {
 };
 
 /** The Agent a Gate payload names as `agent_id`, if any. */
-export const agentNamedBy = (gate: Gate): string | undefined =>
+export const agentNamedBy = (gate: Pick<Gate, "payload">): string | undefined =>
 	payloadText(gate, "agent_id");
 
 /**

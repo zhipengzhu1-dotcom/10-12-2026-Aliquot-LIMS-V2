@@ -1,8 +1,16 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
+import { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
-import { expiresAt, type Gate, gateState, projectGates } from "./projection.js";
+import { trustTierOf } from "../vitality/trust.js";
+import {
+	agentNamedBy,
+	expiresAt,
+	type Gate,
+	gateState,
+	projectGates,
+} from "./projection.js";
 
 type Requested = Extract<Event, { kind: "GateRequested" }>;
 type Decided = Extract<Event, { kind: "GateDecided" }>;
@@ -68,12 +76,31 @@ const checkDecision = (gate: Gate | undefined, event: Decided) => {
 	}
 };
 
+/**
+ * One approved PromoteToMentor Gate covers one Promotion (ADR-0006), so an
+ * Agent holding an unused approval gets no new request. Open requests do
+ * not count: the Trust tier Projection queues every approval.
+ */
+const checkPromotionRequest = (events: readonly Event[], event: Requested) => {
+	const r = event.payload;
+	if (r.kind !== "PromoteToMentor") return;
+	const agent = AgentId.safeParse(agentNamedBy(r));
+	if (!agent.success) return;
+	const [unused] = trustTierOf(events, agent.data).unusedMentorGates;
+	if (unused === undefined) return;
+	refuse(
+		`GateRequested refused: ${agent.data} holds ${unused}, an approved PromoteToMentor Gate that no Promotion has used`,
+	);
+};
+
 const gateRules: AppendGuard = (ctx, event) => {
 	if (event.kind !== "GateRequested" && event.kind !== "GateDecided") return;
 	const { gates } = projectGates(ctx.events);
 	const gate = gates.get(event.payload.gate_id);
-	if (event.kind === "GateRequested") checkRequest(gate, event);
-	else checkDecision(gate, event);
+	if (event.kind === "GateRequested") {
+		checkRequest(gate, event);
+		checkPromotionRequest(ctx.events, event);
+	} else checkDecision(gate, event);
 };
 
 export const gateGuards: readonly AppendGuard[] = [gateRules];

@@ -16,6 +16,8 @@ import {
 import { type Ledger, openLedger } from "../ledger.js";
 import { fold } from "../reduce.js";
 import { TaskProjection } from "../task/projection.js";
+import { scenario, scores } from "../vitality/scenario.js";
+import { trustTierOf } from "../vitality/trust.js";
 
 const bram = AgentId.parse("A-bram");
 const g1 = GateId.parse("G-1");
@@ -254,6 +256,28 @@ describe("GateRequested", () => {
 	it("is refused when the gate id is already taken", () => {
 		ledger.append(request());
 		expectRefused(request(g1, { other: "payload" }), /G-1 already exists/);
+	});
+
+	it("is refused for PromoteToMentor while the Agent holds an approved Gate no Promotion has used", () => {
+		const s = scenario();
+		try {
+			const rin = AgentId.parse("A-rin");
+			const promote = () => s.requested("PromoteToMentor", { agent_id: rin });
+			const open = promote();
+			promote();
+			s.decided(open);
+
+			expect(promote).toThrow(
+				`GateRequested refused: A-rin holds ${open}, an approved PromoteToMentor Gate that no Promotion has used`,
+			);
+			s.requested("PromoteToMentor", { agent_id: "A-ines" });
+
+			for (let i = 0; i < 20; i++) s.reviewed(rin, scores(3));
+			expect(trustTierOf(s.events(), rin).tier).toBe("Mentor");
+			promote();
+		} finally {
+			s.close();
+		}
 	});
 });
 
