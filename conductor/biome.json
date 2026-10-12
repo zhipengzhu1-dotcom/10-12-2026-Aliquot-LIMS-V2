@@ -31,5 +31,33 @@
 				"organizeImports": "on"
 			}
 		}
-	}
+	},
+	"plugins": [
+		{
+			"path": "./lint/no-safe-parse-in-commands.grit",
+			"includes": ["**/src/*/commands.ts"]
+		}
+	],
+	"overrides": [
+		{
+			"includes": ["src/*/commands.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"../ledger.js": {
+										"importNames": ["openLedger"],
+										"message": "A domain's commands.ts opens the Ledger through withLedger in cli-support.ts, which closes it on every path."
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	]
 }

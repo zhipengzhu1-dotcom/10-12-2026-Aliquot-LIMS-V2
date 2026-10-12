@@ -2,12 +2,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { type CommandTable, readAll, UsageError } from "../command.js";
+import {
+	actorText,
+	parseActor,
+	parseOrThrow,
+	parseOrUsage,
+	readAll,
+	withLedger,
+} from "../cli-support.js";
+import { type CommandTable, UsageError } from "../command.js";
 import type { Event } from "../events.js";
-import { AgentId, RoomId, Seq } from "../ids.js";
-import { openLedger } from "../ledger.js";
+import { RoomId, Seq } from "../ids.js";
 import { orgState } from "../org/projection.js";
-import type { Actor } from "../types/actor.js";
 import { Room } from "../types/room.js";
 import {
 	history,
@@ -15,40 +21,24 @@ import {
 	RoomRefused,
 	roomState,
 	roomsOf,
-	who,
 } from "./projection.js";
 import { LAB_ROOM, seedRooms } from "./seed.js";
 
 const asOption = { as: { type: "string" } } as const;
 
-/** The reader or speaker: the Operator, unless `--as A-<slug>` names an Agent. */
-const actorOf = (as: string | undefined): Actor => {
-	if (as === undefined) return { tag: "Operator" };
-	const id = AgentId.safeParse(as);
-	if (!id.success) {
-		throw new UsageError(`--as must be an Agent id like A-rin, not ${as}`);
-	}
-	return { tag: "Agent", id: id.data };
-};
+const SeqText = z.string().regex(/^\d+$/).transform(Number).pipe(Seq);
 
 const roomIdOf = (command: string, positionals: string[]): RoomId => {
+	const what = `room ${command} takes one Room id like RM-lab`;
 	const [text, ...extra] = positionals;
-	const id = RoomId.safeParse(text);
-	if (text === undefined || extra.length > 0 || !id.success) {
-		throw new UsageError(`room ${command} takes one Room id like RM-lab`);
-	}
-	return id.data;
+	if (text === undefined || extra.length > 0) throw new UsageError(what);
+	return parseOrUsage(RoomId, text, what);
 };
 
-const ledgerEvents = (home: string): Event[] => {
-	if (!existsSync(join(home, "ledger.sqlite"))) return [];
-	const ledger = openLedger({ home, writer: false });
-	try {
-		return ledger.all();
-	} finally {
-		ledger.close();
-	}
-};
+const ledgerEvents = (home: string): Event[] =>
+	existsSync(join(home, "ledger.sqlite"))
+		? withLedger(home, false, (ledger) => ledger.all())
+		: [];
 
 const membersText = (room: Room) =>
 	room.membership.tag === "Everyone"
@@ -58,7 +48,7 @@ const membersText = (room: Room) =>
 const messageLine = (m: Message) => {
 	const reply =
 		m.causation_id === undefined ? "" : ` (reply to ${m.causation_id})`;
-	return `${m.seq}  ${m.ts}  ${who(m.actor)}${reply}: ${m.body}`;
+	return `${m.seq}  ${m.ts}  ${actorText(m.actor)}${reply}: ${m.body}`;
 };
 
 export const roomCommands: CommandTable = {
@@ -66,18 +56,13 @@ export const roomCommands: CommandTable = {
 		describe: "Open the Lab Room for every Agent; a second run appends nothing",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ledger = openLedger({ home: ctx.home, writer: true });
-			try {
-				const opened = seedRooms(ledger);
-				ctx.stdout.write(
-					opened
-						? `Opened ${LAB_ROOM.id} (${LAB_ROOM.name}) for Everyone\n`
-						: `${LAB_ROOM.id} is already open, nothing appended\n`,
-				);
-				return 0;
-			} finally {
-				ledger.close();
-			}
+			const opened = withLedger(ctx.home, true, seedRooms);
+			ctx.stdout.write(
+				opened
+					? `Opened ${LAB_ROOM.id} (${LAB_ROOM.name}) for Everyone\n`
+					: `${LAB_ROOM.id} is already open, nothing appended\n`,
+			);
+			return 0;
 		},
 	},
 	open: {
@@ -100,22 +85,15 @@ export const roomCommands: CommandTable = {
 			} catch (error) {
 				throw new Error(`the Room is not JSON: ${(error as Error).message}`);
 			}
-			const parsed = Room.safeParse(json);
-			if (!parsed.success) {
-				throw new Error(`not a Room: ${z.prettifyError(parsed.error)}`);
-			}
-			const room = parsed.data;
-			const ledger = openLedger({ home: ctx.home, writer: true });
-			try {
+			const room = parseOrThrow(Room, json, "not a Room");
+			withLedger(ctx.home, true, (ledger) =>
 				ledger.append({
 					actor: room.opened_by,
 					...(room.task_id === undefined ? {} : { task_id: room.task_id }),
 					kind: "RoomOpened",
 					payload: { room },
-				});
-			} finally {
-				ledger.close();
-			}
+				}),
+			);
 			ctx.stdout.write(
 				`Opened ${room.id} (${room.name}) for ${membersText(room)}\n`,
 			);
@@ -132,32 +110,23 @@ export const roomCommands: CommandTable = {
 				allowPositionals: true,
 			});
 			const room_id = roomIdOf("say", positionals);
-			const actor = actorOf(values.as);
+			const actor = parseActor(values.as);
 			const replyTo = values["reply-to"];
-			let causation_id: Seq | undefined;
-			if (replyTo !== undefined) {
-				const seq = Seq.safeParse(Number(replyTo));
-				if (!/^\d+$/.test(replyTo) || !seq.success) {
-					throw new UsageError(
-						`--reply-to must be a seq like 12, not ${replyTo}`,
-					);
-				}
-				causation_id = seq.data;
-			}
+			const causation_id =
+				replyTo === undefined
+					? undefined
+					: parseOrUsage(SeqText, replyTo, "--reply-to must be a seq like 12");
 			const body = (await readAll(ctx.stdin)).replace(/\n$/, "");
-			const ledger = openLedger({ home: ctx.home, writer: true });
-			try {
-				const event = ledger.append({
+			const event = withLedger(ctx.home, true, (ledger) =>
+				ledger.append({
 					actor,
 					kind: "MessageSent",
 					payload: { room_id, body },
 					...(causation_id === undefined ? {} : { causation_id }),
-				});
-				ctx.stdout.write(`${event.seq}  ${who(actor)} in ${room_id}\n`);
-				return 0;
-			} finally {
-				ledger.close();
-			}
+				}),
+			);
+			ctx.stdout.write(`${event.seq}  ${actorText(actor)} in ${room_id}\n`);
+			return 0;
 		},
 	},
 	list: {
@@ -169,7 +138,7 @@ export const roomCommands: CommandTable = {
 			const rooms = roomsOf(
 				roomState(events),
 				orgState(events),
-				actorOf(values.as),
+				parseActor(values.as),
 			);
 			if (rooms.length === 0) {
 				ctx.stdout.write("No Rooms\n");
@@ -198,7 +167,7 @@ export const roomCommands: CommandTable = {
 				roomState(events),
 				orgState(events),
 				room_id,
-				actorOf(values.as),
+				parseActor(values.as),
 			);
 			if (messages instanceof RoomRefused) {
 				ctx.stderr.write(`${messages.message}\n`);

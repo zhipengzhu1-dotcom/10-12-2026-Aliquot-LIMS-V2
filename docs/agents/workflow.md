@@ -13,6 +13,10 @@ How a GitHub issue becomes code on the integration branch. There are no pull req
 
 A ticket has three sections: **What to build**, **Acceptance criteria** as a checklist, and **Blocked by** naming issue numbers. It names behaviours and the data shape, in `GLOSSARY.md` vocabulary. It does not name functions; an implementer who finds a named function has no caller drops it. Label it `ready-for-agent` and `slice-<n>`.
 
+## Check the work
+
+Run `tools/check.sh` before every commit. It runs every check CI runs, for both languages, and exits non-zero at the first failure; CI and `tools/land-ticket.sh` call the same script. Under CI, a test whose prerequisite is missing fails instead of skipping: the Docker-backed vitest suites when Docker is down, and the forbidden-terms pytest when the `ALIQUOT_FORBIDDEN_TERMS` secret is unset. Biome refuses a domain's `commands.ts` that imports `openLedger` or calls `safeParse`; it uses `withLedger`, `parseOrUsage` and `parseOrThrow` from `conductor/src/cli-support.ts`.
+
 ## Land the ticket
 
 Two rules come first:
