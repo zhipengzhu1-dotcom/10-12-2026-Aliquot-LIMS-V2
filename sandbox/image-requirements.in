@@ -1,0 +1,7 @@
+# Python packages in the Sandbox image (sandbox/Dockerfile). sqlite3 is stdlib.
+# Regenerate the lock after editing:
+#   uv pip compile sandbox/image-requirements.in --python-version 3.13 --universal --generate-hashes -o sandbox/image-requirements.txt
+openpyxl==3.1.5
+python-docx==1.2.0
+pdfplumber==0.11.10
+reportlab==5.0.1

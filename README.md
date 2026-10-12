@@ -59,7 +59,7 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test. The `sandbox` job runs ruff check, ruff format check, pytest, and the synthetic generator.
+`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test; it builds the Sandbox image first, so the Docker-backed runner tests run there too. The `sandbox` job runs ruff check, ruff format check, pytest, the synthetic generator, and `docker build` of the Sandbox image.
 
 ## Ledger
 
@@ -129,7 +129,7 @@ pnpm -C conductor cli --home /tmp/aliquot task list
 
 A Gate is a request for an Operator decision on an action outside the Sandbox (ADR-0006). There are five kinds: `Deploy`, `WriteSystemOfRecord`, `ExternalMessage`, `RetireAgent`, and `PromoteToMentor`. The decision Event is the electronic signature record: it names the Operator, the time, the sha256 of the exact payload, and the meaning (approve or reject).
 
-Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to the Task that waits on it, `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
+Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to an `InProgress` Task, which shows as `Blocked` until the Operator decides the Gate; `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --task T-3 --as A-bram
@@ -149,6 +149,35 @@ pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --reason "di
 ```
 
 The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate.
+
+## Sandbox
+
+Every Script runs in a Docker container, never in the Conductor's process (ADR-0003). The image is `sandbox/Dockerfile`: `python:3.13-slim` with openpyxl, python-docx, pdfplumber, and reportlab from the hash-locked `sandbox/image-requirements.txt`, run as uid 10001. Each Run gets `--network none --cap-drop ALL --cpus 1 --memory 512m --pids-limit 256 --read-only --tmpfs /tmp`, the Script and its inputs mounted read-only, and a fresh output directory. A Run that outlives its time limit is stopped with `docker kill` and finishes with exit code 137.
+
+Artifacts are stored by content in `<home>/blobs/<sha256>`, so the same bytes always get the same id. Identity is per content and provenance is per production: the first store of some bytes is their canonical record, and each Run that produces the same bytes again appends its own `ArtifactStored` record with its Lineage, so a copy Run's output is the input's id with a second record whose Lineage lists the input.
+
+```sh
+H=/tmp/aliquot   # an absolute path, because pnpm -C conductor runs from conductor/
+pnpm -C conductor cli --home $H sandbox build      # prints the image id and tag aliquot-sandbox:<short sha>
+pnpm -C conductor cli --home $H sandbox register --name copy --owner A-odile --input-types Other --output-types Other
+pnpm -C conductor cli --home $H sandbox store receiving_log.csv --type Other   # prints the Artifact id
+pnpm -C conductor cli --home $H sandbox run copy --input <artifact id> --timeout 60000   # prints the Run as JSON
+pnpm -C conductor cli --home $H sandbox runs
+pnpm -C conductor cli --home $H sandbox artifacts    # each Artifact with its type and one line per production: producer and Lineage
+pnpm -C conductor cli --home $H sandbox cat <artifact id>
+```
+
+`register` records `ScriptRegistered` for a new name and `ScriptRevised` with the next version for a known one. It copies `sandbox/scripts/<name>/` (or `--script-dir`) to `<home>/scripts/S-<name>/<version>/`, so a version never changes, and records the image `Id` as `image_digest`; a local build has no registry digest. A Run uses the image its Script version names.
+
+### Script convention
+
+A Script is a directory with `main.py` (or `--entrypoint`). The container runs `python /script/main.py --inputs /inputs --outputs /outputs`.
+
+- `/inputs/manifest.json` lists the inputs: `[{"artifact_id", "filename", "artifact_type", "media_type"}]`. Each input is at `/inputs/<artifact_id>/<filename>`.
+- The Script writes its output files into `/outputs/`. Each regular file becomes an Artifact produced by the Run, with Lineage listing the inputs. Symlinks are ignored.
+- An optional `/outputs/manifest.json` types the outputs: `{"<filename>": {"artifact_type": "...", "media_type": "..."}}`. Without it, an output is typed `Other` with a media type guessed from its extension. The manifest itself is not stored.
+- stdout and stderr are stored as `Other` Artifacts (`text/plain`). The Run records the exit code.
+- A Script cannot import `synth` or anything else from the repository: only its own directory is mounted.
 
 ## Vitality and Merit
 

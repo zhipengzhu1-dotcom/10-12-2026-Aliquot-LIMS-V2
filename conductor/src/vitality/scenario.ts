@@ -3,12 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Event, NewEvent } from "../events.js";
 import {
-	type AgentId,
+	AgentId,
 	ArtifactId,
 	EvaluationId,
 	RubricId,
 	RunId,
 	ScriptId,
+	Sha256,
 	TaskId,
 } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
@@ -51,6 +52,34 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		clock: () => now,
 	});
 	seedOrg(ledger);
+	// One stored Artifact and one registered Script, so Runs pass the Sandbox guards.
+	ledger.append({
+		actor: operator,
+		kind: "ArtifactStored",
+		payload: {
+			id: artifact,
+			sha256: Sha256.parse(artifact),
+			media_type: "text/plain",
+			artifact_type: "Other",
+			produced_by: { tag: "Operator" },
+			lineage: [],
+		},
+	});
+	ledger.append({
+		actor: operator,
+		kind: "ScriptRegistered",
+		payload: {
+			id: ScriptId.parse("S-copy"),
+			version: 1,
+			name: "copy",
+			owner_agent: AgentId.parse("A-bram"),
+			input_types: [],
+			output_types: [],
+			entrypoint: "main.py",
+			fixtures: [],
+			image_digest: Sha256.parse("b".repeat(64)),
+		},
+	});
 	let tasks = 0;
 	let runs = 0;
 

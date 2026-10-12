@@ -11,12 +11,19 @@ import { openLedger } from "../ledger.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 
-const runCli = (args: string[], input = "") =>
+const aliquot = (args: string[], input = "") =>
 	spawnSync(
 		process.execPath,
-		["--import", "tsx", cli, "--home", home, "gate", ...args],
-		{ encoding: "utf8", input, env: { ...process.env, ALIQUOT_HOME: "" } },
+		["--import", "tsx", cli, "--home", home, ...args],
+		{
+			encoding: "utf8",
+			input,
+			env: { ...process.env, ALIQUOT_HOME: "" },
+		},
 	);
+
+const runCli = (args: string[], input = "") =>
+	aliquot(["gate", ...args], input);
 
 const deploy = { target: "receiving-screen", version: "1.2.0" };
 // sha256 of {"target":"receiving-screen","version":"1.2.0"}, from shasum.
@@ -73,6 +80,23 @@ describe("aliquot gate", () => {
 	it("requests, lists and decides a Gate end to end", () => {
 		const file = join(home, "payload.json");
 		writeFileSync(file, JSON.stringify(deploy));
+		for (const step of [
+			[
+				"propose",
+				"--title",
+				"Deploy",
+				"--goal",
+				"Ship it",
+				"--tat",
+				"Regular",
+				"--priority",
+				"1",
+			],
+			["assign", "T-1", "A-bram"],
+			["start", "T-1", "--as", "A-bram"],
+		]) {
+			expect(aliquot(["task", ...step]).status).toBe(0);
+		}
 
 		const requested = runCli([
 			"request",
@@ -81,13 +105,16 @@ describe("aliquot gate", () => {
 			"--payload",
 			file,
 			"--task",
-			"T-3",
+			"T-1",
 			"--as",
 			"A-bram",
 		]);
 		expect(requested.stderr).toBe("");
 		expect(requested.status).toBe(0);
 		expect(requested.stdout).toBe(`G-1 ${deployHash}\n`);
+		expect(aliquot(["task", "list"]).stdout).toMatch(
+			/^Blocked \(1\)\n {2}T-1 /m,
+		);
 
 		const fromStdin = runCli(
 			["request", "--kind", "RetireAgent", "--payload", "-"],
@@ -112,9 +139,9 @@ describe("aliquot gate", () => {
 		expect(decided.status).toBe(0);
 		const event = JSON.parse(decided.stdout);
 		expect(event).toMatchObject({
-			seq: 3,
+			seq: 6,
 			actor: { tag: "Operator" },
-			task_id: "T-3",
+			task_id: "T-1",
 			kind: "GateDecided",
 			payload: {
 				gate_id: "G-1",
@@ -125,6 +152,10 @@ describe("aliquot gate", () => {
 				reason: "diff checked",
 			},
 		});
+
+		expect(aliquot(["task", "list"]).stdout).toMatch(
+			/^InProgress \(1\)\n {2}T-1 /m,
+		);
 
 		const after = runCli(["list"]);
 		expect(after.stdout).not.toContain("G-1");
