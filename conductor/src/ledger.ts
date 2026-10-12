@@ -371,6 +371,11 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 			return cause;
 		});
 
+	const close = () => {
+		db.close();
+		if (options.writer) releaseLock(lockPath);
+	};
+
 	if (options.writer) {
 		try {
 			transaction((write, written) => {
@@ -379,8 +384,7 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 				}
 			});
 		} catch (error) {
-			db.close();
-			releaseLock(lockPath);
+			close();
 			throw error;
 		}
 	}
@@ -391,9 +395,6 @@ export const openLedger = (options: LedgerOptions): Ledger => {
 		events,
 		all: () => [...events()],
 		verify: () => verifyRows(selectAll.iterate()),
-		close: () => {
-			db.close();
-			if (options.writer) releaseLock(lockPath);
-		},
+		close,
 	};
 };

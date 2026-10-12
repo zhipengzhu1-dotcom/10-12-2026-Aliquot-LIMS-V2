@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Event, NewEvent } from "../events.js";
 import { AgentId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { orgState, renderTree, tree } from "../org/projection.js";
+import { seedOrg } from "../org/seed.js";
 import type { Actor, EventActor } from "../types/actor.js";
 import {
 	revisionsCausedBy,
@@ -381,20 +384,19 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		expect(reopened(false)).toHaveLength(lagging + 1);
 	});
 
-	it("refuses a Conductor Revision whose earlier cause is not where the projected tier last changed, naming that Event", () => {
+	it("refuses a Conductor Revision whose cause is not where the projected tier last changed, earlier or latest, naming that Event", () => {
 		repeat(20, () => old.reviewed(rin, scores(3)));
 		const decision = old.decided(
 			old.requested("PromoteToMentor", { agent_id: rin }),
 		);
-		const unrelated = sampled(rin);
-		sampled(ines);
+		const earlier = sampled(rin);
+		const latest = sampled(ines);
 		const current = orgState(old.events()).agents.get(rin)?.definition;
 		if (current === undefined) throw new Error("A-rin is not seeded");
-
-		expect(() =>
+		const revisionCausedBy = (cause: Event) => () =>
 			old.append({
 				actor: conductor,
-				causation_id: unrelated.seq,
+				causation_id: cause.seq,
 				kind: "AgentDefinitionRevised",
 				payload: {
 					definition: {
@@ -405,11 +407,67 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 						revision_reason: "Trust tier Probation -> Mentor",
 					},
 				},
-			}),
-		).toThrow(
-			`AgentDefinitionRevised refused: the Conductor's Revision of ${rin} names seq ${unrelated.seq} as its cause, but ${rin}'s projected Trust tier last changed to Mentor at seq ${decision.seq}; a late Revision names seq ${decision.seq}`,
-		);
+			});
+
+		for (const cause of [earlier, latest]) {
+			expect(revisionCausedBy(cause)).toThrow(
+				`AgentDefinitionRevised refused: the Conductor's Revision of ${rin} names seq ${cause.seq} as its cause, but ${rin}'s projected Trust tier last changed to Mentor at seq ${decision.seq}; the Revision names seq ${decision.seq}`,
+			);
+		}
 		old.ledger.close();
+	});
+
+	it("names the Recruitment of an Agent whose stored tier no Review or Gate ever supported", () => {
+		old.ledger.close();
+		const home = mkdtempSync(join(tmpdir(), "aliquot-unsupported-"));
+		try {
+			const unguarded = openLedger({
+				home,
+				writer: true,
+				guards: [],
+				followOns: [],
+			});
+			seedOrg(unguarded);
+			const events = unguarded.all();
+			const recruited = events.find(
+				(e) => e.kind === "AgentRecruited" && e.payload.id === ines,
+			);
+			const current = orgState(events).agents.get(ines)?.definition;
+			if (recruited === undefined || current === undefined) {
+				throw new Error("A-ines is not seeded");
+			}
+			unguarded.append({
+				actor: operator,
+				kind: "AgentDefinitionRevised",
+				payload: {
+					definition: {
+						...current,
+						version: 2,
+						trust_tier: "Trusted",
+						revised_by: operator,
+						revision_reason: "Trusted by hand before ADR-0011",
+					},
+				},
+			});
+			unguarded.close();
+
+			const ledger = openLedger({ home, writer: true });
+			try {
+				expect(revisions(ledger.all()).at(-1)).toEqual({
+					seq: events.length + 2,
+					actor: conductor,
+					causation_id: recruited.seq,
+					id: ines,
+					version: 3,
+					trust_tier: "Probation",
+					revision_reason: `Trust tier Trusted -> Probation: no Review or PromoteToMentor Gate has changed the projected tier since Recruitment; ${late}`,
+				});
+			} finally {
+				ledger.close();
+			}
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 
 	it("still refuses an Operator Revision that keeps a lagging tier, naming the projected tier, and org tree prints that tier after the catch-up", () => {

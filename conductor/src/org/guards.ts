@@ -10,7 +10,7 @@ import { canonicalJson } from "../hash.js";
 import type { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
-import { tierRefusal, trustTierOf } from "../vitality/trust.js";
+import { tierCauseRefusal, tierRefusal } from "../vitality/trust.js";
 import { type AgentState, type OrgState, orgState } from "./projection.js";
 
 const existing = (state: OrgState, id: AgentId): AgentState => {
@@ -102,10 +102,9 @@ const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 /**
  * The Conductor authors only the tier Revisions that Merit and Gates require
  * (ADR-0011): each changes the tier and nothing else, and names the Event
- * that caused it. A follow-on names the append it follows; a late Revision
- * names the Event where the projected tier last changed to the tier it
- * records. The rules every Revision follows, including that the tier is the
- * projected one, run after this in `orgGuard`.
+ * where the projected tier last changed to the tier it records. The rules
+ * every Revision follows, including that the tier is the projected one, run
+ * after this in `orgGuard`.
  */
 const conductorGuard: AppendGuard = (ctx, event) => {
 	if (event.actor.tag !== "Conductor") return;
@@ -143,20 +142,13 @@ const conductorGuard: AppendGuard = (ctx, event) => {
 			`the Conductor's Revision of ${definition.id} leaves its Trust tier at ${current.trust_tier}`,
 		);
 	}
-	const latest = [...ctx.events]
-		.reverse()
-		.find((e) => e.actor.tag !== "Conductor");
-	if (causation_id === latest?.seq) return;
-	const { tier, since } = trustTierOf(ctx.events, definition.id);
-	if (
-		tier === definition.trust_tier &&
-		since !== undefined &&
-		since.seq !== causation_id
-	) {
-		refuse(
-			`the Conductor's Revision of ${definition.id} names seq ${causation_id} as its cause, but ${definition.id}'s projected Trust tier last changed to ${tier} at seq ${since.seq}; a late Revision names seq ${since.seq}`,
-		);
-	}
+	const wrongCause = tierCauseRefusal(
+		ctx.events,
+		definition.id,
+		definition.trust_tier,
+		causation_id,
+	);
+	if (wrongCause !== undefined) refuse(wrongCause);
 };
 
 /**

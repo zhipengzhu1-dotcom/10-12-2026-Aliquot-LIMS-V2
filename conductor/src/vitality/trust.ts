@@ -76,12 +76,19 @@ export type TrustStanding = {
 	readonly unusedMentorGates: readonly GateId[];
 	/** The Gate the current Mentor tenure used; absent below Mentor. */
 	readonly mentorGate?: GateId;
-	/**
-	 * Where the tier last changed to `tier`, with the standing then: a Review,
-	 * an approved PromoteToMentor Gate's decision, or the Recruitment while the
-	 * Agent has held Probation since. Absent for an Agent not yet recruited.
-	 */
-	readonly since?: { readonly seq: Seq; readonly standing: Standing };
+	/** Where the tier last changed to `tier`; absent for an Agent not yet recruited. */
+	readonly lastChange?: TierChange;
+};
+
+/**
+ * The Event at which the projected tier became what it is, with the standing
+ * then: a Review, an approved PromoteToMentor Gate's decision, or the
+ * Recruitment while the Agent has held Probation since.
+ */
+export type TierChange = {
+	readonly seq: Seq;
+	readonly at: "Recruitment" | "Review" | "Approval";
+	readonly standing: Standing;
 };
 
 type Step =
@@ -126,10 +133,10 @@ export const trustTierOf = (
 	const recruited = events.find(
 		(e) => e.kind === "AgentRecruited" && e.payload.id === agent,
 	);
-	let since: TrustStanding["since"] =
+	let lastChange: TierChange | undefined =
 		recruited === undefined
 			? undefined
-			: { seq: recruited.seq, standing: standingOf([]) };
+			: { seq: recruited.seq, at: "Recruitment", standing: standingOf([]) };
 	let tier: TrustTier = "Probation";
 	let mentorGate: GateId | undefined;
 	const unused: GateId[] = [];
@@ -148,7 +155,7 @@ export const trustTierOf = (
 		);
 		if (next !== "Mentor") mentorGate = undefined;
 		else if (tier !== "Mentor") mentorGate = unused.shift();
-		if (next !== tier) since = { seq: s.seq, standing };
+		if (next !== tier) lastChange = { seq: s.seq, at: s.tag, standing };
 		tier = next;
 	}
 	return {
@@ -156,7 +163,7 @@ export const trustTierOf = (
 		standing: standingOf(counted),
 		unusedMentorGates: unused,
 		...(mentorGate === undefined ? {} : { mentorGate }),
-		...(since === undefined ? {} : { since }),
+		...(lastChange === undefined ? {} : { lastChange }),
 	};
 };
 
@@ -175,6 +182,30 @@ export const tierRefusal = (
 		return `${agent} cannot be Mentor: no approved, unused PromoteToMentor Gate names it; its projected Trust tier is ${projected.tier}`;
 	}
 	return `${agent}'s projected Trust tier is ${projected.tier}, not ${tier}`;
+};
+
+/**
+ * Why a Conductor Revision recording `tier` for the Agent may not name
+ * `cause`, or undefined when it may. A Revision recording another tier than
+ * the projected one is left to `tierRefusal`. The projected tier changes only
+ * at a Review or a Gate decision, so the Event that changed it is the cause
+ * of a follow-on Revision and of a late one alike (ADR-0011).
+ */
+export const tierCauseRefusal = (
+	events: readonly Event[],
+	agent: AgentId,
+	tier: TrustTier,
+	cause: Seq | undefined,
+): string | undefined => {
+	const { tier: projected, lastChange } = trustTierOf(events, agent);
+	if (
+		tier !== projected ||
+		lastChange === undefined ||
+		lastChange.seq === cause
+	) {
+		return undefined;
+	}
+	return `the Conductor's Revision of ${agent} names ${cause === undefined ? "no causation_id" : `seq ${cause} as its cause`}, but ${agent}'s projected Trust tier last changed to ${tier} at seq ${lastChange.seq}; the Revision names seq ${lastChange.seq}`;
 };
 
 /**
