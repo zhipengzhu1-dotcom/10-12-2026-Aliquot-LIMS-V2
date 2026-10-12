@@ -137,4 +137,21 @@ describe("tierRevisions", () => {
 		repeat(19, () => s.reviewed(rin, scores(3)));
 		expect(tierRevisions(s.events())).toEqual([]);
 	});
+
+	it("revises an Agent into Mentor once an approved Gate names it, and needs a new Gate after a Demotion", () => {
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		apply();
+		s.gate("PromoteToMentor", { agent_id: rin });
+		apply();
+		expect(rinDefinition()?.trust_tier).toBe("Mentor");
+
+		s.reviewed(rin, scores(3, { boundary_adherence: 0 }));
+		repeat(20, () => s.reviewed(rin, scores(3)));
+		apply();
+		expect(rinDefinition()?.trust_tier).toBe("Senior");
+
+		s.gate("PromoteToMentor", { agent_id: rin });
+		apply();
+		expect(rinDefinition()?.trust_tier).toBe("Mentor");
+	});
 });

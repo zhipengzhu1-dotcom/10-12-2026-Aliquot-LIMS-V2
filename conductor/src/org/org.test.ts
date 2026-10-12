@@ -219,6 +219,43 @@ describe("org guards", () => {
 		expect(ledger.all()).toHaveLength(8);
 	});
 
+	it("revises an Agent to Mentor only through an approved PromoteToMentor Gate, one Gate per Promotion", () => {
+		const toTier = (trust_tier: "Senior" | "Mentor") => {
+			const current = definitionOf("A-pia");
+			return ledger.append({
+				actor: operator,
+				kind: "AgentDefinitionRevised",
+				payload: {
+					definition: {
+						...current,
+						version: current.version + 1,
+						trust_tier,
+						revised_by: operator,
+						revision_reason: `Trust tier ${current.trust_tier} -> ${trust_tier}`,
+					},
+				},
+			});
+		};
+		const refusal =
+			/A-pia cannot become Mentor without an approved PromoteToMentor Gate naming it/;
+
+		expect(() => toTier("Mentor")).toThrow(refusal);
+		decidedGate("PromoteToMentor", { agent_id: "A-ines" });
+		decidedGate("PromoteToMentor", { agent_id: "A-pia" }, "reject");
+		decidedGate("RetireAgent", { agent_id: "A-pia" });
+		expect(() => toTier("Mentor")).toThrow(refusal);
+
+		decidedGate("PromoteToMentor", { agent_id: "A-pia" });
+		toTier("Mentor");
+		expect(definitionOf("A-pia").trust_tier).toBe("Mentor");
+
+		toTier("Senior");
+		expect(() => toTier("Mentor")).toThrow(refusal);
+		decidedGate("PromoteToMentor", { agent_id: "A-pia" });
+		toTier("Mentor");
+		expect(definitionOf("A-pia").trust_tier).toBe("Mentor");
+	});
+
 	it("refuses a second Recruitment of an existing Agent id", () => {
 		expect(() =>
 			ledger.append({

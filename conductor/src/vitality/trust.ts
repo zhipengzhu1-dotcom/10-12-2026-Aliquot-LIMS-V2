@@ -1,6 +1,7 @@
 import type { Event } from "../events.js";
+import { approvedGatesFor, projectGates } from "../gate/projection.js";
 import { sha256Hex } from "../hash.js";
-import type { AgentId, GateId, TaskId } from "../ids.js";
+import type { AgentId, TaskId } from "../ids.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { type Standing, standingOf } from "./merit.js";
 import { workOf } from "./work.js";
@@ -75,32 +76,21 @@ export type TrustStanding = {
 };
 
 /**
- * Approvals of PromoteToMentor Gates whose payload names the Agent as
- * `agent_id`, by the seq of the decision.
+ * The seqs of the decisions approving PromoteToMentor Gates that name the
+ * Agent, so they interleave with its Reviews in Ledger order.
  */
-const mentorApprovals = (events: Iterable<Event>, agent: AgentId): number[] => {
-	const forAgent = new Set<GateId>();
-	const approvals: number[] = [];
-	for (const e of events) {
-		if (e.kind === "GateRequested" && e.payload.kind === "PromoteToMentor") {
-			const p = e.payload.payload;
-			if (
-				typeof p === "object" &&
-				p !== null &&
-				!Array.isArray(p) &&
-				p.agent_id === agent
-			) {
-				forAgent.add(e.payload.gate_id);
-			}
-		} else if (
-			e.kind === "GateDecided" &&
-			e.payload.meaning === "approve" &&
-			forAgent.has(e.payload.gate_id)
-		) {
-			approvals.push(e.seq);
-		}
-	}
-	return approvals;
+const mentorApprovals = (
+	events: readonly Event[],
+	agent: AgentId,
+): number[] => {
+	const approved = new Set(
+		approvedGatesFor(projectGates(events), "PromoteToMentor", agent).map(
+			(gate) => gate.id,
+		),
+	);
+	return events
+		.filter((e) => e.kind === "GateDecided" && approved.has(e.payload.gate_id))
+		.map((e) => e.seq);
 };
 
 /**

@@ -8,6 +8,7 @@ import {
 } from "../gate/projection.js";
 import type { AgentId } from "../ids.js";
 import { actorText } from "../types/actor.js";
+import type { AgentDefinition } from "../types/agent-definition.js";
 import { type AgentState, type OrgState, orgState } from "./projection.js";
 
 const existing = (state: OrgState, id: AgentId): AgentState => {
@@ -62,6 +63,52 @@ const checkRetirement = (
 	);
 };
 
+/** How many Revisions have moved `id` into Mentor from another tier. */
+const mentorPromotions = (events: readonly Event[], id: AgentId): number => {
+	let tier: string | undefined;
+	let promotions = 0;
+	for (const e of events) {
+		const definition =
+			e.kind === "AgentRecruited"
+				? e.payload
+				: e.kind === "AgentDefinitionRevised"
+					? e.payload.definition
+					: undefined;
+		if (definition?.id !== id) continue;
+		if (definition.trust_tier === "Mentor" && tier !== "Mentor") {
+			promotions += 1;
+		}
+		tier = definition.trust_tier;
+	}
+	return promotions;
+};
+
+/**
+ * Mentor needs the Operator's approval on top of Merit (ADR-0007): each
+ * Promotion to Mentor uses one approved PromoteToMentor Gate naming the
+ * Agent, so a return to Mentor after a Demotion needs a new Gate.
+ */
+const checkMentorPromotion = (
+	events: readonly Event[],
+	from: AgentDefinition,
+	to: AgentDefinition,
+) => {
+	if (to.trust_tier !== "Mentor" || from.trust_tier === "Mentor") return;
+	const gates = approvedGatesFor(
+		projectGates(events),
+		"PromoteToMentor",
+		to.id,
+	).length;
+	if (gates > mentorPromotions(events, to.id)) return;
+	const used =
+		gates === 0
+			? "none is approved"
+			: `its ${gates} approved Gate${gates === 1 ? " was" : "s were"} used by earlier Promotions`;
+	throw new AppendRefused(
+		`${to.id} cannot become Mentor without an approved PromoteToMentor Gate naming it; ${used}`,
+	);
+};
+
 /**
  * Org rules at append. Revisions follow ADR-0005: one version at a time, and
  * only the Operator revises the Auditor.
@@ -90,6 +137,7 @@ const orgGuard: AppendGuard = (ctx, event) => {
 					`Revision to version ${definition.version} refused: ${current.id} is at version ${current.version}; the next must be ${current.version + 1}`,
 				);
 			}
+			checkMentorPromotion(ctx.events, current, definition);
 			return;
 		}
 		case "AgentPaused":
