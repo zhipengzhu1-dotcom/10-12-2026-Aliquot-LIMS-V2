@@ -1,12 +1,13 @@
 import { parseArgs } from "node:util";
 import {
-	type CommandContext,
-	type CommandTable,
-	UsageError,
-} from "../command.js";
+	actorText,
+	parseActor,
+	parseOrUsage,
+	withLedger,
+} from "../cli-support.js";
+import { type CommandTable, UsageError } from "../command.js";
 import type { Event } from "../events.js";
 import { AgentId, TaskId } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
 import { orgState } from "../org/projection.js";
 import type { Actor } from "../types/actor.js";
 import { Score } from "../types/merit.js";
@@ -27,38 +28,8 @@ export const DEFAULT_ENERGY_BUDGET_TOKENS = 1_000_000;
 
 const OPERATOR: Actor = { tag: "Operator" };
 
-const parseId = <T>(
-	schema: {
-		safeParse(v: unknown): { success: true; data: T } | { success: false };
-	},
-	text: string | undefined,
-	expected: string,
-): T => {
-	const parsed = schema.safeParse(text);
-	if (!parsed.success) {
-		throw new UsageError(`${expected}, not ${JSON.stringify(text ?? "")}`);
-	}
-	return parsed.data;
-};
-
 const agentId = (text: string | undefined) =>
-	parseId(AgentId, text, "expected an Agent id like A-rin");
-
-/** `Operator`, or an Agent id. */
-const actorArg = (text: string | undefined): Actor =>
-	text === undefined || text === "Operator"
-		? OPERATOR
-		: {
-				tag: "Agent",
-				id: parseId(
-					AgentId,
-					text,
-					"--as must be Operator or an Agent id like A-thorne",
-				),
-			};
-
-const who = (actor: Actor) =>
-	actor.tag === "Operator" ? "Operator" : actor.id;
+	parseOrUsage(AgentId, text, "expected an Agent id like A-rin");
 
 const atMostOne = (positionals: string[], command: string) => {
 	if (positionals.length > 1) {
@@ -94,19 +65,6 @@ const score = (text: string | undefined, flag: string): Score => {
 	return Score.parse(Number(text));
 };
 
-const withLedger = <T>(
-	ctx: CommandContext,
-	writer: boolean,
-	use: (ledger: Ledger) => T,
-): T => {
-	const ledger = openLedger({ home: ctx.home, writer });
-	try {
-		return use(ledger);
-	} finally {
-		ledger.close();
-	}
-};
-
 const liveAgents = (events: readonly Event[], only: AgentId | undefined) => {
 	const live = [...orgState(events).agents.values()]
 		.filter((a) => !a.retired)
@@ -139,7 +97,7 @@ export const vitalityCommands: CommandTable = {
 		run: async (args, ctx) => {
 			const { positionals } = parseArgs({ args, allowPositionals: true });
 			const only = atMostOne(positionals, "show");
-			const events = withLedger(ctx, false, (l) => l.all());
+			const events = withLedger(ctx.home, false, (l) => l.all());
 			const view = vitalityProjection(events, {
 				now: new Date(),
 				energyBudgetTokens: DEFAULT_ENERGY_BUDGET_TOKENS,
@@ -171,7 +129,7 @@ export const vitalityCommands: CommandTable = {
 				"--budget",
 				DEFAULT_ENERGY_BUDGET_TOKENS,
 			);
-			return withLedger(ctx, true, (ledger) => {
+			return withLedger(ctx.home, true, (ledger) => {
 				const events = ledger.all();
 				const now = new Date();
 				for (const d of liveAgents(events, only)) {
@@ -214,9 +172,9 @@ export const vitalityCommands: CommandTable = {
 				);
 			}
 			const action = values.begin ? "begin" : "end";
-			withLedger(ctx, true, (ledger) =>
+			withLedger(ctx.home, true, (ledger) =>
 				ledger.append({
-					actor: actorArg(values.as),
+					actor: parseActor(values.as),
 					kind: "RestOrdered",
 					payload: {
 						agent_id: id,
@@ -248,12 +206,12 @@ export const vitalityCommands: CommandTable = {
 			});
 			if (positionals.length !== 1)
 				throw new UsageError("vitality review takes one Task id");
-			const task_id = parseId(
+			const task_id = parseOrUsage(
 				TaskId,
 				positionals[0],
 				"expected a Task id like T-1",
 			);
-			const reviewer = actorArg(values.as);
+			const reviewer = parseActor(values.as);
 			if (values.note === undefined) throw new UsageError("--note is required");
 			const review = {
 				task_id,
@@ -265,7 +223,7 @@ export const vitalityCommands: CommandTable = {
 				timeliness: score(values.timeliness, "--timeliness"),
 				note: values.note,
 			};
-			withLedger(ctx, true, (ledger) =>
+			withLedger(ctx.home, true, (ledger) =>
 				ledger.append({
 					actor: reviewer,
 					task_id,
@@ -274,7 +232,7 @@ export const vitalityCommands: CommandTable = {
 				}),
 			);
 			ctx.stdout.write(
-				`Recorded a Review of ${task_id} by ${who(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
+				`Recorded a Review of ${task_id} by ${actorText(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
 			);
 			return 0;
 		},
@@ -288,7 +246,7 @@ export const vitalityCommands: CommandTable = {
 				args,
 				options: { apply: { type: "boolean" } },
 			});
-			return withLedger(ctx, Boolean(values.apply), (ledger) => {
+			return withLedger(ctx.home, Boolean(values.apply), (ledger) => {
 				const revisions = tierRevisions(ledger.all());
 				if (revisions.length === 0) {
 					ctx.stdout.write(

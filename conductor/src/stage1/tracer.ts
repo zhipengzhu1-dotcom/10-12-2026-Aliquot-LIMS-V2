@@ -7,6 +7,7 @@ import {
 	type AgentId,
 	type ArtifactId,
 	EvaluationId,
+	nextId,
 	RubricId,
 	ScriptId,
 	type Seq,
@@ -235,7 +236,14 @@ export const runStage1 = async (options: {
 
 		const { record, evaluation } = evaluateRun(ledger, home, run);
 		const eval_id = EvaluationId.parse(
-			`E-${ledger.all().filter((e) => e.kind === "EvaluationRecorded").length + 1}`,
+			nextId(
+				"E",
+				ledger
+					.all()
+					.flatMap((e) =>
+						e.kind === "EvaluationRecorded" ? [e.payload.eval_id] : [],
+					),
+			),
 		);
 		step(OPERATOR, {
 			kind: "EvaluationRecorded",

@@ -61,3 +61,14 @@ export type SkillId = z.infer<typeof SkillId>;
 
 export const EvaluationId = z.string().min(1).brand<"EvaluationId">();
 export type EvaluationId = z.infer<typeof EvaluationId>;
+
+/** `<prefix>-<n>` for the highest `n` among `existing` ids of that shape, plus one. */
+export const nextId = (prefix: string, existing: Iterable<string>): string => {
+	const shape = new RegExp(`^${prefix}-(\\d+)$`);
+	let highest = 0;
+	for (const id of existing) {
+		const n = Number(shape.exec(id)?.[1] ?? 0);
+		if (n > highest) highest = n;
+	}
+	return `${prefix}-${highest + 1}`;
+};

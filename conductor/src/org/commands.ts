@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { z } from "zod";
+import { parseActor, parseOrUsage, withLedger } from "../cli-support.js";
 import {
 	type CommandContext,
 	type CommandTable,
@@ -8,8 +9,6 @@ import {
 } from "../command.js";
 import type { NewEvent } from "../events.js";
 import { AgentId } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
-import type { Actor } from "../types/actor.js";
 import { AgentDefinition } from "../types/agent-definition.js";
 import { orgState, renderTree, tree } from "./projection.js";
 import { rosterDefinitions, seedOrg } from "./seed.js";
@@ -27,26 +26,15 @@ const parse = (command: string, args: string[], positionals: string[]) => {
 			`org ${command} takes ${positionals.map((p) => `<${p}>`).join(" ")}`,
 		);
 	}
-	const id = AgentId.safeParse(parsed.positionals[0]);
-	if (!id.success) {
-		throw new UsageError(
-			`org ${command}: ${parsed.positionals[0]} is not an Agent id (A-<slug>)`,
-		);
-	}
-	const as = parsed.values.as;
-	let actor: Actor = { tag: "Operator" };
-	if (as !== undefined) {
-		const asId = AgentId.safeParse(as);
-		if (!asId.success) {
-			throw new UsageError(`org ${command}: --as ${as} is not an Agent id`);
-		}
-		actor = { tag: "Agent", id: asId.data };
-	}
 	return {
-		id: id.data,
+		id: parseOrUsage(
+			AgentId,
+			parsed.positionals[0],
+			`org ${command} takes an Agent id like A-rin`,
+		),
 		rest: parsed.positionals.slice(1),
 		reason: parsed.values.reason,
-		actor,
+		actor: parseActor(parsed.values.as),
 	};
 };
 
@@ -57,17 +45,8 @@ const needReason = (command: string, reason: string | undefined) => {
 	return reason;
 };
 
-const withWriter = <T>(ctx: CommandContext, use: (ledger: Ledger) => T): T => {
-	const ledger = openLedger({ home: ctx.home, writer: true });
-	try {
-		return use(ledger);
-	} finally {
-		ledger.close();
-	}
-};
-
 const appendOne = (ctx: CommandContext, event: NewEvent, done: string) => {
-	withWriter(ctx, (ledger) => ledger.append(event));
+	withLedger(ctx.home, true, (ledger) => ledger.append(event));
 	ctx.stdout.write(`${done}\n`);
 	return 0;
 };
@@ -86,7 +65,7 @@ export const orgCommands: CommandTable = {
 			"Recruit the eight-agent starting roster; a second run appends nothing",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ids = withWriter(ctx, seedOrg);
+			const ids = withLedger(ctx.home, true, seedOrg);
 			if (ids.length === 0) {
 				const count = rosterDefinitions().length;
 				ctx.stdout.write(
@@ -103,13 +82,9 @@ export const orgCommands: CommandTable = {
 		describe: "Print the reporting tree of live Agents under the Operator",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ledger = openLedger({ home: ctx.home, writer: false });
-			try {
-				ctx.stdout.write(renderTree(tree(orgState(ledger.events()))));
-				return 0;
-			} finally {
-				ledger.close();
-			}
+			const state = withLedger(ctx.home, false, (l) => orgState(l.events()));
+			ctx.stdout.write(renderTree(tree(state)));
+			return 0;
 		},
 	},
 	pause: {

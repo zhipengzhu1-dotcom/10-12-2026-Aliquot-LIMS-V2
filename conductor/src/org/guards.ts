@@ -1,10 +1,7 @@
 import { type AppendGuard, AppendRefused } from "../append-guard.js";
 import type { AgentId } from "../ids.js";
-import type { Actor } from "../types/actor.js";
+import { actorText } from "../types/actor.js";
 import { type AgentState, type OrgState, orgState } from "./projection.js";
-
-const who = (actor: Actor) =>
-	actor.tag === "Operator" ? "Operator" : actor.id;
 
 const existing = (state: OrgState, id: AgentId): AgentState => {
 	const agent = state.agents.get(id);
@@ -42,7 +39,7 @@ const orgGuard: AppendGuard = (ctx, event) => {
 			const current = existing(orgState(ctx.events), definition.id).definition;
 			if (current.role === "Auditor" && event.actor.tag !== "Operator") {
 				throw new AppendRefused(
-					`the Auditor can only be revised by the Operator; ${who(event.actor)} tried to revise ${current.id} (${current.name}, version ${current.version})`,
+					`the Auditor can only be revised by the Operator; ${actorText(event.actor)} tried to revise ${current.id} (${current.name}, version ${current.version})`,
 				);
 			}
 			if (definition.version !== current.version + 1) {

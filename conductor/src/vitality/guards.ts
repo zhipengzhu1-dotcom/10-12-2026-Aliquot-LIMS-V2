@@ -5,11 +5,8 @@ import type { AgentId, TaskId } from "../ids.js";
 import { orgState } from "../org/projection.js";
 import { fold } from "../reduce.js";
 import { TaskProjection } from "../task/projection.js";
-import type { Actor } from "../types/actor.js";
+import { actorText } from "../types/actor.js";
 import { restInEffect } from "./vitality.js";
-
-const who = (actor: Actor) =>
-	actor.tag === "Operator" ? "Operator" : actor.id;
 
 const refuse = (kind: string, reason: string): never => {
 	throw new AppendRefused(`${kind} refused: ${reason}`);
@@ -55,7 +52,7 @@ const reviewRules: AppendGuard = (ctx, event) => {
 	if (canonicalJson(reviewer) !== canonicalJson(event.actor)) {
 		refuse(
 			kind,
-			`the reviewer ${who(reviewer)} is not the actor ${who(event.actor)}`,
+			`the reviewer ${actorText(reviewer)} is not the actor ${actorText(event.actor)}`,
 		);
 	}
 	const assignee = lastAssignee(ctx.events, task_id);

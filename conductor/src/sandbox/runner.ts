@@ -14,7 +14,13 @@ import { constants, tmpdir } from "node:os";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
-import { type ArtifactId, RunId, type Seq, type TaskId } from "../ids.js";
+import {
+	type ArtifactId,
+	nextId,
+	RunId,
+	type Seq,
+	type TaskId,
+} from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Actor } from "../types/actor.js";
 import { ArtifactFilename, ArtifactType } from "../types/artifact.js";
@@ -203,7 +209,7 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 	}
 
 	const artifacts = openArtifacts({ ledger, home });
-	const runId = RunId.parse(`R-${projectRuns(ledger).runs.size + 1}`);
+	const runId = RunId.parse(nextId("R", projectRuns(ledger).runs.keys()));
 	const work = mkdtempSync(join(tmpdir(), "aliquot-run-"));
 	try {
 		const inputsDir = join(work, "inputs");

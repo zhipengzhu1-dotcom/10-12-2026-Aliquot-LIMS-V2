@@ -1,9 +1,14 @@
 import { readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
+import {
+	fromInvocation,
+	parseOrUsage,
+	parseTimeout,
+	withLedger,
+} from "../cli-support.js";
 import { type CommandTable, UsageError } from "../command.js";
 import { AgentId, ArtifactId, ScriptId, TaskId } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
 import { ArtifactType } from "../types/artifact.js";
 import { openArtifacts, projectArtifacts } from "./artifacts.js";
 import { buildImage, defaultImageTag, imageId, scriptsRoot } from "./image.js";
@@ -13,46 +18,17 @@ import { projectScripts, registerScript } from "./scripts.js";
 
 const operator = { tag: "Operator" } as const;
 
-/** Relative paths mean relative to where the user typed the command. */
-const fromInvocation = (path: string) =>
-	resolve(process.env.INIT_CWD ?? process.cwd(), path);
-
-const parseOr = <T>(
-	schema: {
-		safeParse(v: unknown): { success: true; data: T } | { success: false };
-	},
-	value: string,
-	what: string,
-): T => {
-	const parsed = schema.safeParse(value);
-	if (!parsed.success) throw new UsageError(`${value} is not ${what}`);
-	return parsed.data;
-};
-
 const artifactTypes = (values: readonly string[] | undefined) =>
 	(values ?? [])
 		.flatMap((v) => v.split(","))
 		.filter(Boolean)
 		.map((v) =>
-			parseOr(
+			parseOrUsage(
 				ArtifactType,
 				v,
-				`an Artifact type (${ArtifactType.options.join(", ")})`,
+				`an Artifact type must be one of ${ArtifactType.options.join(", ")}`,
 			),
 		);
-
-const withLedger = async <T>(
-	home: string,
-	writer: boolean,
-	use: (ledger: Ledger) => T | Promise<T>,
-): Promise<T> => {
-	const ledger = openLedger({ home, writer });
-	try {
-		return await use(ledger);
-	} finally {
-		ledger.close();
-	}
-};
 
 export const sandboxCommands: CommandTable = {
 	build: {
@@ -107,10 +83,10 @@ export const sandboxCommands: CommandTable = {
 					scriptDir: values["script-dir"]
 						? fromInvocation(values["script-dir"])
 						: join(scriptsRoot, values.name as string),
-					owner_agent: parseOr(
+					owner_agent: parseOrUsage(
 						AgentId,
-						values.owner as string,
-						"an Agent id (A-<slug>)",
+						values.owner,
+						"--owner must be an Agent id like A-odile",
 					),
 					input_types: artifactTypes(values["input-types"]),
 					output_types: artifactTypes(values["output-types"]),
@@ -179,18 +155,17 @@ export const sandboxCommands: CommandTable = {
 			if (positionals.length !== 1) {
 				throw new UsageError("sandbox run takes exactly one Script name");
 			}
-			const id = parseOr(ScriptId, `S-${positionals[0]}`, "a Script name");
-			const timeoutMs = Number(values.timeout);
-			if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
-				throw new UsageError(
-					`--timeout ${values.timeout} is not a positive whole number of ms`,
-				);
-			}
+			const id = parseOrUsage(
+				ScriptId,
+				`S-${positionals[0]}`,
+				"the Script id must be S- then lowercase letters, digits, _ or -",
+			);
+			const timeoutMs = parseTimeout(values.timeout);
 			const inputs = (values.input ?? []).map((v) =>
-				parseOr(ArtifactId, v, "an Artifact id (64 hex)"),
+				parseOrUsage(ArtifactId, v, "--input must be an Artifact id (64 hex)"),
 			);
 			const task_id = values.task
-				? parseOr(TaskId, values.task, "a Task id (T-<n>)")
+				? parseOrUsage(TaskId, values.task, "--task must look like T-1")
 				: undefined;
 			const run = await withLedger(ctx.home, true, (ledger) => {
 				const versions = projectScripts(ledger).scripts.get(id);
@@ -271,10 +246,10 @@ export const sandboxCommands: CommandTable = {
 			if (positionals.length !== 1) {
 				throw new UsageError("sandbox cat takes exactly one Artifact id");
 			}
-			const id = parseOr(
+			const id = parseOrUsage(
 				ArtifactId,
-				positionals[0] as string,
-				"an Artifact id (64 hex)",
+				positionals[0],
+				"sandbox cat takes an Artifact id (64 hex)",
 			);
 			const bytes = await withLedger(ctx.home, false, (ledger) => {
 				if (!projectArtifacts(ledger).artifacts.has(id)) {
