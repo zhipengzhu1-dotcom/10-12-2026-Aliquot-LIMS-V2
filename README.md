@@ -57,6 +57,10 @@ To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORB
 
 The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `./.aliquot/` in the current directory. Every `aliquot` command accepts `--home <dir>` to override it. Git ignores that directory.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test. The `sandbox` job runs ruff check, ruff format check, pytest, and the synthetic generator.
+
 ## Ledger
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing.
@@ -75,7 +79,3 @@ Verify the hash chain. The command exits 0 when every Event is intact, and other
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot ledger verify
 ```
-
-### Continuous integration
-
-`.github/workflows/ci.yml` runs on every push and pull request. The `conductor` job runs lint, typecheck, and test. The `sandbox` job runs ruff check, ruff format check, pytest, and the synthetic generator.
