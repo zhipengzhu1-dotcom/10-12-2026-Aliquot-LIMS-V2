@@ -34,6 +34,13 @@ export type Command = {
  */
 export type CommandTable = Readonly<Record<string, Command>>;
 
+/** Everything a stream holds, as UTF-8 text. */
+export const readAll = async (stream: Readable) => {
+	const chunks: Buffer[] = [];
+	for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+	return Buffer.concat(chunks).toString("utf8");
+};
+
 /** The arguments do not fit the command's synopsis. Exits 2. */
 export class UsageError extends Error {
 	override readonly name = "UsageError";

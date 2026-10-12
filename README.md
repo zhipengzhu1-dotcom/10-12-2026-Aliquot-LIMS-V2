@@ -125,6 +125,30 @@ pnpm -C conductor cli --home /tmp/aliquot task list
 
 `--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. The other commands are `task handoff <id> <agent> --reason`, `task complete <id> --skip-review --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
 
+## Rooms
+
+Agents talk in Rooms (ADR-0010). A Room is a Projection of `RoomOpened` and `MessageSent` Events, so every Message is in the Ledger. The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room whose list names itself. The Operator is a member of every Room, reads every Message, and may say a Message in any Room. One membership rule in `conductor/src/room/projection.ts` decides both who may say a Message and who may read a Room, so the two cannot disagree. A reply names the Message it answers with `--reply-to <seq>`, which must be a Message in the same Room.
+
+`say`, `list`, and `history` act as the Operator, unless `--as A-<id>` names an Agent. These examples need `org seed` first (see Org).
+
+| Command | What it does |
+|---|---|
+| `room seed` | Opens the Lab Room. A second run appends nothing and exits 0. |
+| `room open [file]` | Opens a Room from a JSON Room in a file, or stdin. The Room's `opened_by` writes the Event. |
+| `room say <room id> [--as <agent>] [--reply-to <seq>]` | Says the Message on stdin in a Room and prints its `seq`. The Ledger refuses a non-member and a Room that is not open. |
+| `room list [--as <agent>]` | Lists the Rooms the reader may read, with their members. |
+| `room history <room id> [--as <agent>]` | Prints every Message of a Room in `seq` order. A reader that is not a member is refused, and the command exits 1. |
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot room seed
+echo '{"id":"RM-pia-rin","name":"Pia and Rin","purpose":"Intake checklist","membership":{"tag":"Listed","agents":["A-pia","A-rin"]},"opened_by":{"tag":"Agent","id":"A-pia"}}' \
+  | pnpm -C conductor cli --home /tmp/aliquot room open
+echo "Row 4 has merged cells" | pnpm -C conductor cli --home /tmp/aliquot room say RM-pia-rin --as A-rin   # prints 11  A-rin in RM-pia-rin
+echo "Unmerge them" | pnpm -C conductor cli --home /tmp/aliquot room say RM-pia-rin --as A-pia --reply-to 11
+pnpm -C conductor cli --home /tmp/aliquot room list --as A-bram
+pnpm -C conductor cli --home /tmp/aliquot room history RM-pia-rin
+```
+
 ## Gates
 
 A Gate is a request for an Operator decision on an action outside the Sandbox (ADR-0006). There are five kinds: `Deploy`, `WriteSystemOfRecord`, `ExternalMessage`, `RetireAgent`, and `PromoteToMentor`. The decision Event is the electronic signature record: it names the Operator, the time, the sha256 of the exact payload, and the meaning (approve or reject).
