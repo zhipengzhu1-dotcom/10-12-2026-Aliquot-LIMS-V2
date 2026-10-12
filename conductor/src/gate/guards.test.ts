@@ -14,6 +14,8 @@ import {
 	TaskId,
 } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
+import { fold } from "../reduce.js";
+import { TaskProjection } from "../task/projection.js";
 
 const bram = AgentId.parse("A-bram");
 const g1 = GateId.parse("G-1");
@@ -82,6 +84,43 @@ const expectRefused = (event: NewEvent, reason: RegExp) => {
 	expect(() => ledger.append(event)).toThrow(reason);
 	expect(ledger.all()).toHaveLength(before);
 };
+
+const t3 = TaskId.parse("T-3");
+
+/** Propose T-3, assign it to Bram and start it, so it may request a Gate. */
+const startT3 = () => {
+	ledger.append({
+		actor: { tag: "Operator" },
+		task_id: t3,
+		kind: "TaskProposed",
+		payload: {
+			task_id: t3,
+			title: "Deploy the receiving screen",
+			goal: "Lab staff log receipts on screen",
+			inputs: [],
+			rubric_id: RubricId.parse("deploy"),
+			priority: 1,
+			tat_class: "Regular",
+		},
+	});
+	ledger.append({
+		actor: { tag: "Operator" },
+		task_id: t3,
+		kind: "TaskAssigned",
+		payload: { task_id: t3, assignee: bram },
+	});
+	ledger.append({
+		actor: { tag: "Agent", id: bram },
+		task_id: t3,
+		kind: "TaskStarted",
+		payload: { task_id: t3 },
+	});
+};
+
+const taskState = () =>
+	fold(ledger.events(), TaskProjection.reduce, TaskProjection.init).tasks.get(
+		t3,
+	)?.state;
 
 describe("GateDecided", () => {
 	it("is refused from any actor other than the Operator", () => {
@@ -165,14 +204,19 @@ describe("GateDecided", () => {
 	});
 
 	it("is refused when its task_id is not the Task that requested the Gate", () => {
-		ledger.append({ ...request(), task_id: TaskId.parse("T-3") });
+		startT3();
+		ledger.append({ ...request(), task_id: t3 });
 		at("2026-10-12T09:10:00.000Z");
 		const event = decide("2026-10-12T09:10:00.000Z");
-		expectRefused({ ...event, task_id: TaskId.parse("T-4") }, /task_id/);
-		expectRefused(event, /task_id/);
-		expect(ledger.append({ ...event, task_id: TaskId.parse("T-3") }).seq).toBe(
-			2,
+		expectRefused(
+			{ ...event, task_id: TaskId.parse("T-4") },
+			/task_id T-4 is not the Task that requested Gate G-1, T-3/,
 		);
+		expectRefused(
+			event,
+			/task_id \(none\) is not the Task that requested Gate G-1, T-3/,
+		);
+		expect(ledger.append({ ...event, task_id: t3 }).seq).toBe(5);
 	});
 
 	it("is accepted from the Operator with the payload's hash", () => {
@@ -214,42 +258,28 @@ describe("GateRequested", () => {
 });
 
 describe("a Task that requests a Gate", () => {
-	const t3 = TaskId.parse("T-3");
-
-	it("carries its task_id on both the request and the decision, so the Task Projection can block and release it", () => {
-		const asBram = { actor: { tag: "Agent", id: bram }, task_id: t3 } as const;
-		ledger.append({
-			actor: { tag: "Operator" },
-			task_id: t3,
-			kind: "TaskProposed",
-			payload: {
-				task_id: t3,
-				title: "Deploy the receiving screen",
-				goal: "Lab staff log receipts on screen",
-				inputs: [],
-				rubric_id: RubricId.parse("deploy"),
-				priority: 1,
-				tat_class: "Regular",
-			},
-		});
-		ledger.append({
-			actor: { tag: "Operator" },
-			task_id: t3,
-			kind: "TaskAssigned",
-			payload: { task_id: t3, assignee: bram },
-		});
-		ledger.append({ ...asBram, kind: "TaskStarted", payload: { task_id: t3 } });
-		const requested = ledger.append({ ...request(), ...asBram });
-		at("2026-10-12T09:10:00.000Z");
-		const decided = ledger.append({
-			...decide("2026-10-12T09:10:00.000Z"),
+	it("is Blocked on the Gate once requested, and back InProgress once the Operator decides it", () => {
+		startT3();
+		const requested = ledger.append({
+			...request(),
+			actor: { tag: "Agent", id: bram },
 			task_id: t3,
 		});
-
 		expect(requested).toMatchObject({
 			kind: "GateRequested",
 			task_id: "T-3",
 			payload: { gate_id: "G-1" },
+		});
+		expect(taskState()).toEqual({
+			tag: "Blocked",
+			assignee: "A-bram",
+			gate: "G-1",
+		});
+
+		at("2026-10-12T09:10:00.000Z");
+		const decided = ledger.append({
+			...decide("2026-10-12T09:10:00.000Z"),
+			task_id: t3,
 		});
 		expect(decided).toMatchObject({
 			kind: "GateDecided",
@@ -257,5 +287,10 @@ describe("a Task that requests a Gate", () => {
 			task_id: "T-3",
 			payload: { gate_id: "G-1" },
 		});
+		expect(taskState()).toEqual({ tag: "InProgress", assignee: "A-bram" });
+	});
+
+	it("cannot be requested for a Task that does not exist", () => {
+		expectRefused({ ...request(), task_id: t3 }, /T-3 does not exist/);
 	});
 });

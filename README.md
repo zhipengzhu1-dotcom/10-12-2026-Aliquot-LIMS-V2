@@ -129,7 +129,7 @@ pnpm -C conductor cli --home /tmp/aliquot task list
 
 A Gate is a request for an Operator decision on an action outside the Sandbox (ADR-0006). There are five kinds: `Deploy`, `WriteSystemOfRecord`, `ExternalMessage`, `RetireAgent`, and `PromoteToMentor`. The decision Event is the electronic signature record: it names the Operator, the time, the sha256 of the exact payload, and the meaning (approve or reject).
 
-Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to the Task that waits on it, `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
+Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to an `InProgress` Task, which shows as `Blocked` until the Operator decides the Gate; `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --task T-3 --as A-bram
