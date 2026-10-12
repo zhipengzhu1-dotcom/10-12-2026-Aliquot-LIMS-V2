@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import type { NewEvent } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
-import { AgentId, GateId, IsoTime, type Sha256 } from "../ids.js";
+import { AgentId, GateId, IsoTime, type Sha256, TaskId } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
 
 const bram = AgentId.parse("A-bram");
@@ -96,6 +96,75 @@ describe("GateDecided", () => {
 				payload: { ...event.payload, decided_by: { tag: "Agent", id: bram } },
 			}),
 			/decided_by/,
+		);
+	});
+
+	it("is refused for a Gate that was never requested", () => {
+		expectRefused(decide("2026-10-12T09:00:00.000Z"), /no Gate G-1/);
+	});
+
+	it("is refused for a Gate that is already decided", () => {
+		ledger.append(request());
+		at("2026-10-12T09:10:00.000Z");
+		ledger.append(decide("2026-10-12T09:10:00.000Z"));
+		at("2026-10-12T09:20:00.000Z");
+		expectRefused(
+			decide("2026-10-12T09:20:00.000Z"),
+			/G-1 is already Approved/,
+		);
+	});
+
+	it("is refused once the Gate's lifetime has ended, judged by the Event's own ts", () => {
+		ledger.append(request(g1, payload, 3600));
+		at("2026-10-12T10:00:00.000Z");
+		expectRefused(
+			decide("2026-10-12T10:00:00.000Z"),
+			/G-1 expired at 2026-10-12T10:00:00.000Z/,
+		);
+		at("2026-10-12T09:59:59.999Z");
+		expect(ledger.append(decide("2026-10-12T09:59:59.999Z")).seq).toBe(2);
+	});
+
+	it("is refused when its payload_hash is not the hash of the requested payload", () => {
+		ledger.append(request());
+		at("2026-10-12T09:10:00.000Z");
+		const changed = { ...payload, version: "1.2.1" };
+		expectRefused(
+			decide("2026-10-12T09:10:00.000Z", { payload_hash: hashOf(changed) }),
+			/payload_hash .* does not match/,
+		);
+	});
+
+	it("cannot approve a changed payload, re-requested as a new Gate, with the old hash", () => {
+		ledger.append(request());
+		const changed = { ...payload, version: "1.2.1" };
+		const g2 = GateId.parse("G-2");
+		ledger.append(request(g2, changed));
+		at("2026-10-12T09:10:00.000Z");
+		expectRefused(
+			decide("2026-10-12T09:10:00.000Z", { payload_hash: hashOf(payload) }, g2),
+			/payload_hash .* does not match/,
+		);
+		const approved = ledger.append(
+			decide("2026-10-12T09:10:00.000Z", { payload_hash: hashOf(changed) }, g2),
+		);
+		expect(approved.payload).toMatchObject({ gate_id: "G-2" });
+	});
+
+	it("is refused when decided_at is not the Event's own ts", () => {
+		ledger.append(request());
+		at("2026-10-12T09:10:00.000Z");
+		expectRefused(decide("2026-10-12T09:05:00.000Z"), /decided_at/);
+	});
+
+	it("is refused when its task_id is not the Task that requested the Gate", () => {
+		ledger.append({ ...request(), task_id: TaskId.parse("T-3") });
+		at("2026-10-12T09:10:00.000Z");
+		const event = decide("2026-10-12T09:10:00.000Z");
+		expectRefused({ ...event, task_id: TaskId.parse("T-4") }, /task_id/);
+		expectRefused(event, /task_id/);
+		expect(ledger.append({ ...event, task_id: TaskId.parse("T-3") }).seq).toBe(
+			2,
 		);
 	});
 
