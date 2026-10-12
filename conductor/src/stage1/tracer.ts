@@ -34,7 +34,7 @@ import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
-import { appendTierRevisions } from "../vitality/projection.js";
+import { revisionsCausedBy } from "../vitality/projection.js";
 import { reviewSampleOf } from "../vitality/trust.js";
 import { evaluateSubmission, type SubmissionEvaluation } from "./evaluate.js";
 
@@ -310,7 +310,7 @@ export const runStage1 = async (options: {
 					kind: "TaskCompleted",
 					payload: { task_id, outputs: [], review: { tag: "Reviewed" } },
 				});
-				revisions.push(...appendTierRevisions(ledger, recorded.seq));
+				revisions.push(...revisionsCausedBy(ledger.all(), recorded.seq));
 			}
 		} else {
 			step(ownerActor, {

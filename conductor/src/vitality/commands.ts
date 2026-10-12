@@ -15,10 +15,10 @@ import { Score } from "../types/merit.js";
 import type { Policy, Vitality } from "../types/vitality.js";
 import {
 	type AgentVitality,
-	appendTierRevisions,
-	tierRevisions,
+	revisionsCausedBy,
 	vitalityProjection,
 } from "./projection.js";
+import { trustTierOf } from "./trust.js";
 import { sampleVitality } from "./vitality.js";
 import { mean, scoresOf } from "./work.js";
 
@@ -235,7 +235,7 @@ export const vitalityCommands: CommandTable = {
 					kind: "ReviewRecorded",
 					payload: review,
 				});
-				return appendTierRevisions(ledger, recorded.seq);
+				return revisionsCausedBy(ledger.all(), recorded.seq);
 			});
 			ctx.stdout.write(
 				`Recorded a Review of ${task_id} by ${actorText(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
@@ -245,40 +245,20 @@ export const vitalityCommands: CommandTable = {
 		},
 	},
 	tiers: {
-		args: "[--apply]",
 		describe:
-			"List the Revisions that bring each Trust tier in line with Merit; --apply appends them",
+			"Print each live Agent's Merit, reviewed Tasks, Trust tier and unused PromoteToMentor Gates",
 		run: async (args, ctx) => {
-			const { values } = parseArgs({
-				args,
-				options: { apply: { type: "boolean" } },
-			});
-			return withLedger(ctx.home, Boolean(values.apply), (ledger) => {
-				const revisions = tierRevisions(ledger.all());
-				if (revisions.length === 0) {
-					ctx.stdout.write(
-						"Every Trust tier is in line with Merit; nothing to revise\n",
-					);
-					return 0;
-				}
-				if (values.apply) {
-					for (const d of appendTierRevisions(ledger)) {
-						ctx.stdout.write(revisedLine(d));
-					}
-					return 0;
-				}
-				for (const r of revisions) {
-					if (r.kind !== "AgentDefinitionRevised") continue;
-					const d = r.payload.definition;
-					ctx.stdout.write(`${d.id} ${d.name}: ${d.revision_reason}\n`);
-				}
-				const noun = revisions.length === 1 ? "Revision" : "Revisions";
-				const it = revisions.length === 1 ? "it" : "them";
+			parseArgs({ args });
+			const events = withLedger(ctx.home, false, (l) => l.all());
+			for (const d of liveAgents(events, undefined)) {
+				const { tier, standing, unusedMentorGates } = trustTierOf(events, d.id);
+				const unused =
+					unusedMentorGates.length === 0 ? "-" : unusedMentorGates.join(",");
 				ctx.stdout.write(
-					`${revisions.length} ${noun} needed; run vitality tiers --apply to append ${it}\n`,
+					`${d.id} ${d.name} merit=${standing.merit === undefined ? "-" : n2(standing.merit)} reviewed=${standing.reviewedTasks} tier=${tier} unused_mentor_gates=${unused}\n`,
 				);
-				return 0;
-			});
+			}
+			return 0;
 		},
 	},
 };

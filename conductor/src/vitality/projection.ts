@@ -1,7 +1,7 @@
 import type { Event, NewEvent } from "../events.js";
 import type { AgentId, Seq } from "../ids.js";
-import type { Ledger } from "../ledger.js";
 import { orgState } from "../org/projection.js";
+import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Mood, Policy, Vitality } from "../types/vitality.js";
@@ -71,37 +71,47 @@ export const vitalityProjection = (
 	return view;
 };
 
+const CONDUCTOR: Actor = { tag: "Conductor" };
+
+/** The Merit or Gate change behind a tier Revision. */
 const reasonFor = (from: TrustTier, t: TrustStanding): string => {
 	const { merit, reviewedTasks, window } = t.standing;
 	const zero = [...window].reverse().find((r) => r.boundary_adherence === 0);
 	const meritText = `Merit ${merit === undefined ? "none" : merit.toFixed(2)} over ${reviewedTasks} reviewed Tasks`;
 	const why =
-		zero === undefined
-			? meritText
-			: `Demotion for boundary score 0 on ${zero.task_id}; ${meritText}`;
+		t.mentorGate !== undefined && from !== "Mentor"
+			? `Promotion through PromoteToMentor Gate ${t.mentorGate}; ${meritText}`
+			: zero === undefined
+				? meritText
+				: `Demotion for boundary score 0 on ${zero.task_id}; ${meritText}`;
 	return `Trust tier ${from} -> ${t.tier}: ${why}`;
 };
 
 /**
- * The Revisions that bring each live Agent's `trust_tier` in line with its
- * projected Trust tier, authored by the Operator. Empty when every
- * definition already matches, so appending the result is idempotent.
+ * The Ledger's follow-on for every append (ADR-0011): one Revision by the
+ * Conductor, caused by `cause`, for each live Agent whose `trust_tier`
+ * differs from its projected Trust tier. Empty when every definition
+ * matches, which is the case again once these are written.
  */
-export const tierRevisions = (events: readonly Event[]): NewEvent[] => {
+export const tierRevisions = (
+	events: readonly Event[],
+	cause: Event,
+): NewEvent[] => {
 	const revisions: NewEvent[] = [];
 	for (const { definition, retired } of orgState(events).agents.values()) {
 		if (retired) continue;
 		const projected = trustTierOf(events, definition.id);
 		if (projected.tier === definition.trust_tier) continue;
 		revisions.push({
-			actor: { tag: "Operator" },
+			actor: CONDUCTOR,
+			causation_id: cause.seq,
 			kind: "AgentDefinitionRevised",
 			payload: {
 				definition: {
 					...definition,
 					version: definition.version + 1,
 					trust_tier: projected.tier,
-					revised_by: { tag: "Operator" },
+					revised_by: CONDUCTOR,
 					revision_reason: reasonFor(definition.trust_tier, projected),
 				},
 			},
@@ -110,21 +120,15 @@ export const tierRevisions = (events: readonly Event[]): NewEvent[] => {
 	return revisions;
 };
 
-/**
- * Append the Revisions `tierRevisions` finds, each caused by `causation_id`
- * when given, and return their definitions. Run after every Review so a
- * Trust tier never lags its Merit; `vitality tiers --apply` catches up a
- * Ledger written without it.
- */
-export const appendTierRevisions = (
-	ledger: Ledger,
-	causation_id?: Seq,
+/** The definitions the Conductor revised because of the Event at `seq`. */
+export const revisionsCausedBy = (
+	events: readonly Event[],
+	seq: Seq,
 ): AgentDefinition[] =>
-	tierRevisions(ledger.all()).flatMap((revision) => {
-		const appended = ledger.append(
-			causation_id === undefined ? revision : { ...revision, causation_id },
-		);
-		return appended.kind === "AgentDefinitionRevised"
-			? [appended.payload.definition]
-			: [];
-	});
+	events.flatMap((e) =>
+		e.kind === "AgentDefinitionRevised" &&
+		e.actor.tag === "Conductor" &&
+		e.causation_id === seq
+			? [e.payload.definition]
+			: [],
+	);

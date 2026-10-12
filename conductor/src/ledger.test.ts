@@ -167,6 +167,49 @@ describe("Ledger append", () => {
 		expect(ledger.all().map((e) => e.seq)).toEqual([1]);
 		expect(seen).toEqual([0, 1]);
 	});
+
+	it("writes the follow-ons after their cause in the same append, and a refused follow-on rolls back the cause", () => {
+		const l = openLedger({
+			home,
+			writer: true,
+			guards: [
+				(_, event) => {
+					if (event.kind === "AgentPaused" && event.payload.reason === "no") {
+						throw new AppendRefused("reason 'no' is refused");
+					}
+				},
+			],
+			followOns: [
+				(events, cause) =>
+					cause.kind === "AgentPaused" &&
+					cause.payload.reason.startsWith("echo")
+						? [
+								paused(
+									cause.payload.reason === "echo no"
+										? "no"
+										: `after ${events.at(-1)?.seq}`,
+								),
+							]
+						: [],
+			],
+		});
+		ledger = l;
+		const reasons = () =>
+			l
+				.all()
+				.map((e) => (e.kind === "AgentPaused" ? e.payload.reason : e.kind));
+
+		l.append(paused("first"));
+		expect(l.append(paused("echo")).seq).toBe(2);
+		expect(reasons()).toEqual(["first", "echo", "after 2"]);
+
+		expect(() => l.append(paused("echo no"))).toThrow("reason 'no' is refused");
+		expect(reasons()).toEqual(["first", "echo", "after 2"]);
+
+		const next = l.append(paused("next"));
+		expect(next).toMatchObject({ seq: 4, prev_hash: l.all()[2]?.hash });
+		expect(l.verify()).toEqual({ ok: true, count: 4 });
+	});
 });
 
 describe("Ledger verify", () => {

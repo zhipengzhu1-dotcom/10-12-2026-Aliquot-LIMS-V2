@@ -200,9 +200,10 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const { events, verify } = readLedger();
 		expect(verify.ok).toBe(true);
 		const review = events.filter((e) => e.kind === "ReviewRecorded").at(-1);
-		const revision = events.at(-1);
+		const revision = events.find((e) => e.seq === (review?.seq ?? 0) + 1);
 		expect(review?.task_id).toBe("T-10");
 		expect(revision?.kind).toBe("AgentDefinitionRevised");
+		expect(revision?.actor).toEqual({ tag: "Conductor" });
 		expect(revision?.causation_id).toBe(review?.seq);
 		expect(revision?.payload).toMatchObject({
 			definition: { id: "A-rin", version: 2, trust_tier: "Trusted" },
