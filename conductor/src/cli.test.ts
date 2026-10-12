@@ -18,11 +18,12 @@ const runCli = (args: string[], options: RunOptions = {}) =>
 		env: { ...process.env, ALIQUOT_HOME: "", ...options.env },
 	});
 
-const paused = (reason: string) =>
+// MessageSent has no domain guard, so it appends to an empty Ledger.
+const message = (body: string) =>
 	JSON.stringify({
 		actor: { tag: "Operator" },
-		kind: "AgentPaused",
-		payload: { agent_id: "A-odile", reason },
+		kind: "MessageSent",
+		payload: { to: [{ tag: "Operator" }], body },
 	});
 
 let home: string;
@@ -55,11 +56,11 @@ describe("aliquot cli", () => {
 describe("aliquot ledger", () => {
 	it("appends Events from a file and from stdin, then verifies the chain", () => {
 		const file = join(home, "event.json");
-		writeFileSync(file, paused("from a file"));
+		writeFileSync(file, message("from a file"));
 
 		const fromFile = runCli(["--home", home, "ledger", "append", file]);
 		const fromStdin = runCli(["--home", home, "ledger", "append"], {
-			input: paused("from stdin"),
+			input: message("from stdin"),
 		});
 		const verified = runCli(["--home", home, "ledger", "verify"]);
 
@@ -67,8 +68,8 @@ describe("aliquot ledger", () => {
 		expect(fromFile.status).toBe(0);
 		expect(JSON.parse(fromFile.stdout)).toMatchObject({
 			seq: 1,
-			kind: "AgentPaused",
-			payload: { reason: "from a file" },
+			kind: "MessageSent",
+			payload: { body: "from a file" },
 		});
 		expect(fromStdin.status).toBe(0);
 		expect(JSON.parse(fromStdin.stdout)).toMatchObject({ seq: 2 });
@@ -77,7 +78,7 @@ describe("aliquot ledger", () => {
 	});
 
 	it("refuses an Event with an unknown kind and writes nothing", () => {
-		runCli(["--home", home, "ledger", "append"], { input: paused("first") });
+		runCli(["--home", home, "ledger", "append"], { input: message("first") });
 
 		const refused = runCli(["--home", home, "ledger", "append"], {
 			input: JSON.stringify({
@@ -104,7 +105,7 @@ describe("aliquot ledger", () => {
 
 	it("fails verify and names the first broken seq after a row is edited", () => {
 		for (const reason of ["a", "b", "c"]) {
-			runCli(["--home", home, "ledger", "append"], { input: paused(reason) });
+			runCli(["--home", home, "ledger", "append"], { input: message(reason) });
 		}
 		const db = new DatabaseSync(join(home, "ledger.sqlite"));
 		db.exec(`UPDATE events SET ts = '2020-01-01T00:00:00.000Z' WHERE seq = 2`);
@@ -122,7 +123,7 @@ describe("aliquot ledger", () => {
 		const holder = openLedger({ home, writer: true });
 		try {
 			const result = runCli(["--home", home, "ledger", "append"], {
-				input: paused("blocked"),
+				input: message("blocked"),
 			});
 			expect(result.status).toBe(1);
 			expect(result.stderr).toBe(
@@ -135,7 +136,7 @@ describe("aliquot ledger", () => {
 
 	it("uses ALIQUOT_HOME when --home is not given", () => {
 		runCli(["ledger", "append"], {
-			input: paused("env"),
+			input: message("env"),
 			env: { ALIQUOT_HOME: home },
 		});
 		const verified = runCli(["--home", home, "ledger", "verify"]);
