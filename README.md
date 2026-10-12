@@ -124,3 +124,28 @@ pnpm -C conductor cli --home /tmp/aliquot task list
 ```
 
 `--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. The other commands are `task handoff <id> <agent> --reason`, `task complete <id> --skip-review --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
+
+## Gates
+
+A Gate is a request for an Operator decision on an action outside the Sandbox (ADR-0006). There are five kinds: `Deploy`, `WriteSystemOfRecord`, `ExternalMessage`, `RetireAgent`, and `PromoteToMentor`. The decision Event is the electronic signature record: it names the Operator, the time, the sha256 of the exact payload, and the meaning (approve or reject).
+
+Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to the Task that waits on it, `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --task T-3 --as A-bram
+```
+
+List the open Gates with their kind, requester, age, and a one-line payload summary. `--all` lists every Gate with its state. A Gate that nobody decides within its lifetime shows as `Expired`; no Event records the expiry.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot gate list
+pnpm -C conductor cli --home /tmp/aliquot gate show G-1
+```
+
+Decide a Gate as the Operator. The command hashes the payload stored in the Ledger and prints the decision Event.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --reason "diff checked"
+```
+
+The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate.
