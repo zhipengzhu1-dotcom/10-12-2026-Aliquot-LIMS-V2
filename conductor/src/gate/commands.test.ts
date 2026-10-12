@@ -124,14 +124,20 @@ describe("aliquot gate", () => {
 
 		const open = runCli(["list"]);
 		expect(open.status).toBe(0);
-		expect(open.stdout).toMatch(/^ID +KIND +REQUESTER +AGE +PAYLOAD\n/);
-		expect(open.stdout).toMatch(/\nG-1 +Deploy +A-bram +\d+s +\{"target"/);
-		expect(open.stdout).toMatch(/\nG-2 +RetireAgent +Operator +\d+s +\{/);
+		expect(open.stdout).toMatch(/^ID +KIND +REQUESTER +AGE +HASH +PAYLOAD\n/);
+		expect(open.stdout).toMatch(
+			new RegExp(`\nG-1 +Deploy +A-bram +\\d+s +${deployHash} +\\{"target"`),
+		);
+		expect(open.stdout).toMatch(
+			/\nG-2 +RetireAgent +Operator +\d+s +[0-9a-f]{64} +\{/,
+		);
 
 		const decided = runCli([
 			"decide",
 			"G-1",
 			"--approve",
+			"--hash",
+			deployHash,
 			"--reason",
 			"diff checked",
 		]);
@@ -181,6 +187,7 @@ describe("aliquot gate", () => {
 			"Deploy",
 			"A-bram",
 			"2h 5m",
+			deployHash,
 			'{"target":"receiving-screen","version":"1.2.0"}',
 		]);
 		const summary = lines[2]?.split(/ {2,}/).at(-1) ?? "";
@@ -198,7 +205,15 @@ describe("aliquot gate", () => {
 		expect(runCli(["list", "--all"]).stdout).toMatch(
 			/\nG-1 +Expired +Deploy +A-bram +2h 0m /,
 		);
-		const refused = runCli(["decide", "G-1", "--approve", "--reason", "late"]);
+		const refused = runCli([
+			"decide",
+			"G-1",
+			"--approve",
+			"--hash",
+			deployHash,
+			"--reason",
+			"late",
+		]);
 		expect(refused.status).toBe(1);
 		expect(refused.stderr).toMatch(/^AppendRefused: Gate G-1 expired at /);
 
@@ -219,6 +234,32 @@ describe("aliquot gate", () => {
 		expect(stdout).toContain(
 			'{\n  "target": "receiving-screen",\n  "version": "1.2.0"\n}\n',
 		);
+	});
+
+	it("refuses a decision without the hash the Operator saw, or with another one, and writes nothing", () => {
+		requestedAgo([{ agoMs: 60_000, event: gateRequest("Deploy", deploy) }]);
+		const decide = (...hash: string[]) =>
+			runCli(["decide", "G-1", "--approve", ...hash, "--reason", "ok"]);
+
+		const missing = decide();
+		const other = decide("--hash", "0".repeat(64));
+
+		expect(missing.status).toBe(2);
+		expect(missing.stderr).toMatch(
+			/^UsageError: gate decide needs --hash, the payload hash shown by gate show/,
+		);
+		expect(other.status).toBe(2);
+		expect(other.stderr).toMatch(
+			new RegExp(
+				`^UsageError: --hash 0{64} is not G-1's payload hash, ${deployHash}; run gate show G-1 and check the payload again`,
+			),
+		);
+		const ledger = openLedger({ home, writer: false });
+		try {
+			expect(ledger.all().map((e) => e.kind)).toEqual(["GateRequested"]);
+		} finally {
+			ledger.close();
+		}
 	});
 
 	it("refuses a decision that both approves and rejects", () => {

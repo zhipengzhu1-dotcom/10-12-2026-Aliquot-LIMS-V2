@@ -88,6 +88,7 @@ const gateListing = (gates: Gates, now: Date, all: boolean): string => {
 		"KIND",
 		"REQUESTER",
 		"AGE",
+		"HASH",
 		"PAYLOAD",
 	];
 	const rows = listed.map((gate) => [
@@ -96,6 +97,7 @@ const gateListing = (gates: Gates, now: Date, all: boolean): string => {
 		gate.kind,
 		actorText(gate.requester),
 		ageOf(now.getTime() - Date.parse(gate.requested_at)),
+		gate.payload_hash,
 		summaryOf(gate.payload),
 	]);
 	return `${table([header, ...rows])}\n`;
@@ -168,6 +170,7 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 		options: {
 			approve: { type: "boolean" },
 			reject: { type: "boolean" },
+			hash: { type: "string" },
 			reason: { type: "string" },
 		},
 	});
@@ -183,6 +186,11 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 	if (!values.reason?.trim()) {
 		throw new UsageError("gate decide needs --reason");
 	}
+	if (values.hash === undefined) {
+		throw new UsageError(
+			"gate decide needs --hash, the payload hash shown by gate show",
+		);
+	}
 
 	// The signature time and the Event's ts are one instant, so this opens
 	// the Ledger with its own clock rather than through withLedger.
@@ -190,6 +198,13 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 	const ledger = openLedger({ home: ctx.home, writer: true, clock: () => now });
 	try {
 		const gate = gateOf(gatesOf(ledger), id);
+		// The signature binds the payload the Operator looked at: refuse here,
+		// before anything is written, when it is not the one stored.
+		if (values.hash !== gate.payload_hash) {
+			throw new UsageError(
+				`--hash ${values.hash} is not ${gate.id}'s payload hash, ${gate.payload_hash}; run gate show ${gate.id} and check the payload again`,
+			);
+		}
 		const decision = gateDecision(
 			gate,
 			now,
@@ -231,7 +246,8 @@ export const gateCommands: CommandTable = {
 	},
 	list: {
 		args: "[--all]",
-		describe: "List open Gates, or every Gate with its state",
+		describe:
+			"List open Gates with their payload hash, or every Gate with its state",
 		run: async (args, ctx) => {
 			const { values } = parseArgs({
 				args,
@@ -257,8 +273,9 @@ export const gateCommands: CommandTable = {
 		},
 	},
 	decide: {
-		args: "<gate id> --approve|--reject --reason <text>",
-		describe: "Sign the Operator's decision on an open Gate",
+		args: "<gate id> --approve|--reject --hash <sha256> --reason <text>",
+		describe:
+			"Sign the Operator's decision on an open Gate, for the payload hash the Operator checked",
 		run: decideGate,
 	},
 };

@@ -137,7 +137,7 @@ export const orgCommands: CommandTable = {
 				);
 				ctx.stdout.write(
 					`Requested ${gate_id} to retire ${id}; payload hash ${payload_hash}\n` +
-						`Decide it with \`aliquot gate decide ${gate_id} --approve --reason <text>\`, then run \`aliquot org retire ${id} --gate ${gate_id}\`\n`,
+						`Decide it with \`aliquot gate decide ${gate_id} --approve --hash ${payload_hash} --reason <text>\`, then run \`aliquot org retire ${id} --gate ${gate_id}\`\n`,
 				);
 				return 0;
 			}

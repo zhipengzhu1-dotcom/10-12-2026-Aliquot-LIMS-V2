@@ -116,6 +116,8 @@ describe("aliquot org", () => {
 			"decide",
 			"G-1",
 			"--approve",
+			"--hash",
+			hash ?? "",
 			"--reason",
 			"Mabel is replaced",
 		);
@@ -126,7 +128,7 @@ describe("aliquot org", () => {
 		expect(opened.stderr).toBe("");
 		expect(opened.stdout).toBe(
 			`Requested G-1 to retire A-mabel; payload hash ${hash}\n` +
-				"Decide it with `aliquot gate decide G-1 --approve --reason <text>`, then run `aliquot org retire A-mabel --gate G-1`\n",
+				`Decide it with \`aliquot gate decide G-1 --approve --hash ${hash} --reason <text>\`, then run \`aliquot org retire A-mabel --gate G-1\`\n`,
 		);
 		expect(shown).toContain("requester: A-odile\n");
 		expect(shown).toContain('"agent_id": "A-mabel"');

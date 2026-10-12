@@ -110,7 +110,7 @@ Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reas
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced" --as A-mabel   # prints G-1 and its hash
-pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --reason "Rin is replaced"
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "Rin is replaced"
 pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --gate G-1
 ```
 
@@ -146,17 +146,17 @@ Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the
 pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --task T-3 --as A-bram
 ```
 
-List the open Gates with their kind, requester, age, and a one-line payload summary. `--all` lists every Gate with its state. A Gate that nobody decides within its lifetime shows as `Expired`; no Event records the expiry.
+List the open Gates with their kind, requester, age, payload hash, and a one-line payload summary. `--all` lists every Gate with its state. A Gate that nobody decides within its lifetime shows as `Expired`; no Event records the expiry.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate list
 pnpm -C conductor cli --home /tmp/aliquot gate show G-1
 ```
 
-Decide a Gate as the Operator. The command hashes the payload stored in the Ledger and prints the decision Event.
+`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The command refuses with a usage error, and writes nothing, when that hash is not the Gate's stored `payload_hash`. Otherwise it records the decision and prints the decision Event.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --reason "diff checked"
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
 ```
 
 The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate.
