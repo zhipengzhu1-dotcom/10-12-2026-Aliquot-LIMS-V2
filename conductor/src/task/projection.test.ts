@@ -16,6 +16,8 @@ import {
 } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
 import { fold } from "../reduce.js";
+import { scenario, scores } from "../vitality/scenario.js";
+import { reviewSampled } from "../vitality/trust.js";
 import { taskGuards } from "./guards.js";
 import { TaskProjection } from "./projection.js";
 
@@ -39,6 +41,17 @@ const completed = (
 	review: TaskBody<"TaskCompleted">["payload"]["review"],
 	outputs = [output],
 ) => on("TaskCompleted", { task_id: T1, outputs, review });
+const reviewRecorded = () =>
+	on("ReviewRecorded", {
+		task_id: T1,
+		reviewer: operator,
+		quality: 3,
+		traceability: 3,
+		boundary_adherence: 3,
+		collaboration: 3,
+		timeliness: 3,
+		note: "",
+	});
 
 const G1 = GateId.parse("G-1");
 const payloadHash = Sha256.parse(sha256Hex(canonicalJson({})));
@@ -121,6 +134,7 @@ describe("TaskProjection", () => {
 			assigned(),
 			started(),
 			completed({ tag: "Required", reviewer: operator }),
+			reviewRecorded(),
 			completed({ tag: "Reviewed" }, []),
 		].map((event) => {
 			ledger.append(event);
@@ -132,9 +146,10 @@ describe("TaskProjection", () => {
 			{ tag: "Assigned", assignee: "A-odile" },
 			{ tag: "InProgress", assignee: "A-odile" },
 			{ tag: "UnderReview", assignee: "A-odile", reviewer: operator },
+			{ tag: "UnderReview", assignee: "A-odile", reviewer: operator },
 			{ tag: "Done" },
 		]);
-		expect(ledger.all()).toHaveLength(5);
+		expect(ledger.all()).toHaveLength(6);
 		expect(tasks().get(T1)?.outputs).toEqual([output]);
 	});
 
@@ -159,15 +174,31 @@ describe("TaskProjection", () => {
 	});
 
 	it("takes a Task skipped for Review from InProgress straight to Done", () => {
-		ledger.append(proposed());
-		ledger.append(assigned());
-		ledger.append(started());
-		ledger.append(completed({ tag: "Skipped", reason: "Trusted, 1 in 3" }));
+		// A Trusted Agent, so the Trust tier rules may skip a Task for Review.
+		const s = scenario();
+		try {
+			for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
+			const t = s.task(rin); // T-11, which the 1 in 3 sample does not pick
+			s.append({
+				actor: { tag: "Agent", id: rin },
+				task_id: t,
+				kind: "TaskCompleted",
+				payload: {
+					task_id: t,
+					outputs: [output],
+					review: { tag: "Skipped", reason: "Trusted, not sampled" },
+				},
+			});
 
-		expect(tasks().get(T1)).toMatchObject({
-			state: { tag: "Done" },
-			outputs: [output],
-		});
+			expect(reviewSampled(t, "Trusted")).toBe(false);
+			expect(
+				fold(s.events(), TaskProjection.reduce, TaskProjection.init).tasks.get(
+					t,
+				),
+			).toMatchObject({ state: { tag: "Done" }, outputs: [output] });
+		} finally {
+			s.close();
+		}
 	});
 });
 
@@ -278,7 +309,9 @@ describe("taskGuards", () => {
 		ledger.append(proposed());
 		ledger.append(assigned());
 		ledger.append(started());
-		ledger.append(completed({ tag: "Skipped", reason: "Senior" }));
+		ledger.append(completed({ tag: "Required", reviewer: operator }));
+		ledger.append(reviewRecorded());
+		ledger.append(completed({ tag: "Reviewed" }));
 
 		expect(() =>
 			ledger.append(on("TaskFailed", { task_id: T1, reason: "late" })),

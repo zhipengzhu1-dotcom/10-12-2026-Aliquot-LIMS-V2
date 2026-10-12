@@ -129,7 +129,7 @@ describe.skipIf(!docker)(suite, () => {
 		expect(verify.ok).toBe(true);
 		expect(taskState(events, "T-1")).toEqual({ tag: "Done" });
 
-		const completed = events.find((e) => e.kind === "TaskCompleted");
+		const completed = events.filter((e) => e.kind === "TaskCompleted").at(-1);
 		if (!completed) throw new Error("no TaskCompleted");
 		const chain = causes(events, completed);
 		expect(chain.map((e) => e.kind)).toEqual([
@@ -141,7 +141,26 @@ describe.skipIf(!docker)(suite, () => {
 			"RunFinished",
 			"EvaluationRecorded",
 			"TaskCompleted",
+			"ReviewRecorded",
+			"TaskCompleted",
 		]);
+		// A-rin is on Probation, so its Supervisor A-pia reviews every Task.
+		const pia = { tag: "Agent", id: "A-pia" };
+		const [submitted, review, reviewed] = chain.slice(-3);
+		expect(submitted?.payload).toMatchObject({
+			review: { tag: "Required", reviewer: pia },
+		});
+		expect(review?.actor).toEqual(pia);
+		expect(review?.payload).toMatchObject({
+			reviewer: pia,
+			quality: 3,
+			traceability: 3,
+			boundary_adherence: 3,
+			collaboration: 3,
+			timeliness: 3,
+		});
+		expect(reviewed?.actor).toEqual(pia);
+		expect(reviewed?.payload).toMatchObject({ review: { tag: "Reviewed" } });
 		const [fixtureStored] = chain;
 		expect(
 			fixtureStored?.kind === "ArtifactStored" && fixtureStored.payload.id,

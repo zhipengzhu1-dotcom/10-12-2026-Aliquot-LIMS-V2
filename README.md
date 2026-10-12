@@ -118,7 +118,7 @@ The Ledger refuses an `AgentRetired` that is not written by the Operator, or who
 
 ## Tasks
 
-A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. A Task that the Trust tier rules skip for Review goes from `InProgress` straight to `Done`.
+A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. A Task that the Trust tier rules skip for Review goes from `InProgress` straight to `Done`. The Ledger refuses that skip unless the sample for the assignee's current Trust tier leaves the Task out (every Task on `Probation` is reviewed; 1 in 3 at `Trusted`; 1 in 5 at `Senior` and `Mentor`, picked from the hash of the Task id). It also refuses `TaskCompleted` with `review: Reviewed` until the reviewer named at `--review-required` has recorded a Review of the Task, and from anyone but that reviewer.
 
 Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
 
@@ -128,6 +128,8 @@ pnpm -C conductor cli --home /tmp/aliquot task propose --title "Parse the Submis
 pnpm -C conductor cli --home /tmp/aliquot task assign T-1 A-odile
 pnpm -C conductor cli --home /tmp/aliquot task start T-1 --as A-odile
 pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --review-required --reviewer Operator --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 --boundary 3 \
+  --collaboration 3 --timeliness 3 --note "Clean work"
 pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewed
 pnpm -C conductor cli --home /tmp/aliquot task list
 ```
@@ -243,7 +245,8 @@ The command does these steps in one process:
 4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
 5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
 6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
-7. It records `EvaluationRecorded`. Then it records `TaskCompleted` (Review skipped, the record as output) when the Evaluation passed, or `TaskFailed` with the findings when it did not.
+7. It records `EvaluationRecorded`. When the Evaluation failed, it records `TaskFailed` with the findings.
+8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
 The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
 
@@ -251,7 +254,7 @@ The command prints the Task, Run, output Artifact, and score, and exits 0 when t
 - `--timeout <ms>` sets the Run's time limit. The default is 60000.
 - `--script-dir <dir>` runs another copy of the Script. The tests use it to prove that a record without a Lot fails.
 
-After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`.
+After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin` is on `Probation`, so the Task goes through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`.
 
 | seq | kind | task | causation |
 |---|---|---|---|
@@ -265,6 +268,8 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 | 15–17 | ArtifactStored (`submission.json`, stdout, stderr; Lineage the Fixture) | T-1 | 14 |
 | 18 | RunFinished | T-1 | 14 |
 | 19 | EvaluationRecorded (score 1, passed) | T-1 | 18 |
-| 20 | TaskCompleted (Review skipped) | T-1 | 19 |
+| 20 | TaskCompleted (Review required from A-pia), as A-rin | T-1 | 19 |
+| 21 | ReviewRecorded (3 on every dimension), as A-pia | T-1 | 20 |
+| 22 | TaskCompleted (Reviewed), as A-pia | T-1 | 21 |
 
 `task list` shows T-1 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage and the record with a Lineage of the Fixture. CI runs `stage1 run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. To add a Fixture, see [fixtures/README.md](fixtures/README.md).

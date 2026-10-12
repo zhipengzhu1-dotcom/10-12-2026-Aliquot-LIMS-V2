@@ -36,13 +36,14 @@ describe("meritOf", () => {
 	});
 
 	it("leaves out Tasks the Trust tier rules skipped for Review", () => {
-		for (let i = 0; i < 4; i++) s.reviewed(rin, scores(2));
+		// Ten Reviews at 2 make Rin Trusted, so the sample may skip a Task.
+		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(2));
 		const skipped = s.skipped(rin);
 		s.review(skipped, scores(0), thorne); // the Auditor samples it anyway
 
 		expect(meritOf(s.events(), rin)).toMatchObject({
 			merit: 2,
-			reviewedTasks: 4,
+			reviewedTasks: 10,
 		});
 	});
 

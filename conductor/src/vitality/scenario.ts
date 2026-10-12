@@ -20,6 +20,7 @@ import { seedOrg } from "../org/seed.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
+import { trustTierOf } from "./trust.js";
 
 export type Scores = Pick<
 	Review,
@@ -165,9 +166,13 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 		return id;
 	};
 
-	/** A Task that the Trust tier rules skip for Review. */
+	/**
+	 * A Task that the Trust tier rules skip for Review. The Ledger refuses it
+	 * unless the sample for the Agent's tier leaves the next Task id out.
+	 */
 	const skipped = (agent: AgentId): TaskId => {
 		const id = task(agent);
+		const { tier } = trustTierOf(ledger.all(), agent);
 		on(
 			id,
 			{
@@ -175,7 +180,10 @@ export const scenario = (start = "2026-10-01T00:00:00.000Z") => {
 				payload: {
 					task_id: id,
 					outputs: [artifact],
-					review: { tag: "Skipped", reason: "not sampled" },
+					review: {
+						tag: "Skipped",
+						reason: `not sampled for Review at tier ${tier}`,
+					},
 				},
 			},
 			self(agent),
