@@ -9,10 +9,13 @@ import type { CommandContext } from "../command.js";
 import { AgentId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
+import { finishTurn, startTurn } from "../turn/lifecycle.js";
+import { sample } from "../vitality/lifecycle.js";
 import { taskCommands } from "./commands.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const rin = AgentId.parse("A-rin");
+const ines = AgentId.parse("A-ines");
 
 let home: string;
 
@@ -42,6 +45,41 @@ const refused = (...args: string[]) => {
 	const [name, ...refusal] = result.stderr.trimEnd().split(": ");
 	expect(name).toBe("AppendRefused");
 	return refusal.join(": ");
+};
+
+/**
+ * A-ines spends 80,000 tokens in a Turn six hours ago and is sampled then:
+ * 80,000 of the 125,000 tokens each of 8 Agents gets under the default
+ * Energy budget puts fatigue at 0.64, so its latest sample is strained. A
+ * sample taken now leaves that Turn outside the 5-hour window.
+ */
+const strainedSixHoursAgo = (s: Scenario) => {
+	const energyBudgetTokens = 1_000_000;
+	s.at(new Date(Date.now() - 6 * 3_600_000).toISOString());
+	const { turn } = startTurn(s.ledger, {
+		agent: ines,
+		model: "claude-opus-5-5",
+		energyBudgetTokens,
+	});
+	finishTurn(s.ledger, {
+		turn_id: turn.started.turn_id,
+		usage: {
+			input_tokens: 80_000,
+			output_tokens: 0,
+			cache_creation_tokens: 0,
+			cache_read_tokens: 0,
+			cost_usd: 0.05,
+		},
+		outcome: { tag: "Completed" },
+		tool_calls: 1,
+	});
+	const { vitality } = sample(s.ledger, {
+		actor: { tag: "Operator" },
+		agent: ines,
+		now: s.now(),
+		energyBudgetTokens,
+	});
+	expect(vitality.fatigue).toBe(0.64);
 };
 
 /** A seeded Ledger in `home`, after `build`, closed for the command line. */
@@ -132,18 +170,19 @@ describe("aliquot task", () => {
 	});
 
 	it("assign assigns a Proposed Task, and is refused to an Agent strained or worse until Rest ends or a fresh sample", () => {
-		seeded((s) => s.task(rin, { start: false }));
+		seeded((s) => {
+			s.task(rin, { start: false });
+			strainedSixHoursAgo(s);
+		});
 
 		expect(ok("task", "assign", "T-1", "A-odile")).toBe(
 			"T-1 Assigned (assignee A-odile)\n",
 		);
 
-		// 80,000 of the 125,000 tokens each of 8 Agents gets: fatigue 0.64.
-		ok("vitality", "sample", "A-ines", "--tokens", "80000");
 		expect(refused("task", "assign", "T-1", "A-ines")).toBe(
 			"TaskAssigned refused: A-ines is strained and may not accept a Task",
 		);
-		ok("vitality", "sample", "A-ines");
+		expect(ok("vitality", "sample", "A-ines")).toMatch(/ fatigue=0\.00 /);
 		expect(ok("task", "assign", "T-1", "A-ines")).toBe(
 			"T-1 Assigned (assignee A-ines)\n",
 		);
@@ -167,15 +206,17 @@ describe("aliquot task", () => {
 	});
 
 	it("handoff hands an InProgress Task to another Agent, and is refused to an Agent strained or worse", () => {
-		seeded((s) => s.task(rin));
+		seeded((s) => {
+			s.task(rin);
+			strainedSixHoursAgo(s);
+		});
 
-		ok("vitality", "sample", "A-ines", "--tokens", "80000");
 		expect(
 			refused("task", "handoff", "T-1", "A-ines", "--reason", "too much"),
 		).toBe(
 			"TaskHandedOff refused: A-ines is strained and may not accept a Task",
 		);
-		ok("vitality", "sample", "A-ines");
+		expect(ok("vitality", "sample", "A-ines")).toMatch(/ fatigue=0\.00 /);
 		expect(
 			ok("task", "handoff", "T-1", "A-ines", "--reason", "second opinion"),
 		).toBe("T-1 Assigned (assignee A-ines)\n");
