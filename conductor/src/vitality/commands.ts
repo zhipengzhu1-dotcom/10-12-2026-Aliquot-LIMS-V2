@@ -36,12 +36,12 @@ const atMostOne = (positionals: string[], command: string) => {
 	return positionals[0] === undefined ? undefined : agentId(positionals[0]);
 };
 
-/** A whole number of tokens; `--budget` must also be above 0. */
-const tokens = (text: string | undefined, flag: string, fallback: number) => {
-	if (text === undefined) return fallback;
-	if (!/^[0-9]+$/.test(text) || (flag === "--budget" && Number(text) === 0)) {
+/** `--budget`: a whole number of tokens above 0. */
+const budget = (text: string | undefined) => {
+	if (text === undefined) return DEFAULT_ENERGY_BUDGET_TOKENS;
+	if (!/^[0-9]+$/.test(text) || Number(text) === 0) {
 		throw new UsageError(
-			`${flag} must be a whole number of tokens${flag === "--budget" ? " above 0" : ""}, not ${JSON.stringify(text)}`,
+			`--budget must be a whole number of tokens above 0, not ${JSON.stringify(text)}`,
 		);
 	}
 	return Number(text);
@@ -111,25 +111,17 @@ export const vitalityCommands: CommandTable = {
 		},
 	},
 	sample: {
-		args: "[A-<id>] [--tokens <n>] [--budget <n>]",
+		args: "[A-<id>] [--budget <n>]",
 		describe:
 			"Append a VitalitySampled computed from the Ledger for one Agent, or every live Agent",
 		run: async (args, ctx) => {
 			const { positionals, values } = parseArgs({
 				args,
 				allowPositionals: true,
-				options: { tokens: { type: "string" }, budget: { type: "string" } },
+				options: { budget: { type: "string" } },
 			});
 			const only = atMostOne(positionals, "sample");
-			if (values.tokens !== undefined && only === undefined) {
-				throw new UsageError("vitality sample --tokens needs one Agent id");
-			}
-			const tokensUsedInWindow = tokens(values.tokens, "--tokens", 0);
-			const energyBudgetTokens = tokens(
-				values.budget,
-				"--budget",
-				DEFAULT_ENERGY_BUDGET_TOKENS,
-			);
+			const energyBudgetTokens = budget(values.budget);
 			return withLedger(ctx.home, true, (ledger) => {
 				const now = new Date();
 				const agents =
@@ -142,7 +134,6 @@ export const vitalityCommands: CommandTable = {
 						agent,
 						now,
 						energyBudgetTokens,
-						tokensUsedInWindow,
 					});
 					ctx.stdout.write(`Sampled ${agent}: ${vector(vitality)}\n`);
 				}
