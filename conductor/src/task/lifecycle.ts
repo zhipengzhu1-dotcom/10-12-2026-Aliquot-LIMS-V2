@@ -18,7 +18,7 @@ import type { Task, TatClass } from "../types/task.js";
 import { reviewSampleOf } from "../vitality/trust.js";
 
 /** The rubric a Task is proposed with when none is named: the five-dimension rubric. */
-export const DEFAULT_RUBRIC = RubricId.parse("default");
+const DEFAULT_RUBRIC = RubricId.parse("default");
 
 /** Who appends a Task Event, and the Event that caused it. */
 type Step = { readonly actor: Actor; readonly causation_id?: Seq | undefined };
@@ -103,7 +103,7 @@ export const start = (
 ): Recorded =>
 	record(ledger, step, { kind: "TaskStarted", payload: { task_id } });
 
-export type Completion = Step & {
+type Completion = Step & {
 	readonly task_id: TaskId;
 	readonly outputs?: readonly ArtifactId[];
 	/** Who reviews the Task when the Trust tier samples it for Review. */
@@ -136,8 +136,8 @@ const reviewFor = (
 	if (reviewer !== undefined && (sampled || reviewUnsampled)) {
 		return { tag: "Required", reviewer };
 	}
-	// A sampled Task with no reviewer: the Ledger refuses the skip, saying the
-	// Task was sampled for Review.
+	// The Ledger refuses this skip for a sampled Task, saying it was sampled
+	// for Review.
 	return { tag: "Skipped", reason: `not sampled for Review at tier ${tier}` };
 };
 
