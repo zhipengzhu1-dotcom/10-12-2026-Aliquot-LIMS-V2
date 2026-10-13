@@ -10,11 +10,11 @@ import { ledgerCommands } from "./ledger-commands.js";
 import { orgCommands } from "./org/commands.js";
 import { roomCommands } from "./room/commands.js";
 import { sandboxCommands } from "./sandbox/commands.js";
-import { stage1Commands } from "./stage1/commands.js";
 import { taskCommands } from "./task/commands.js";
 import { trainingCommands } from "./training/commands.js";
 import { turnCommands } from "./turn/commands.js";
 import { vitalityCommands } from "./vitality/commands.js";
+import { workflowCommands } from "./workflow/commands.js";
 
 /** `aliquot <domain> <command>`. Each domain owns its table. */
 const domains: Readonly<Record<string, CommandTable>> = {
@@ -27,7 +27,7 @@ const domains: Readonly<Record<string, CommandTable>> = {
 	sandbox: sandboxCommands,
 	turn: turnCommands,
 	vitality: vitalityCommands,
-	stage1: stage1Commands,
+	workflow: workflowCommands,
 };
 
 const globalOptions = {

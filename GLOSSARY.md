@@ -161,8 +161,16 @@ An Artifact with a known expected outcome that every new Script version must han
 _Avoid_: test data, sample (Sample is a lab term)
 
 **Evaluation**:
-An automatic check of a Run's outputs against stated criteria, scored from 0 to 1.
+An automatic check of a Run's outputs against stated criteria, scored from 0 to 1. Each Evaluation names the stage of the toy workflow it scores.
 _Avoid_: test (Test is a lab term), grade, assessment
+
+**Toy workflow**:
+The practice version of the lab's work, from Submission Form to Report of Analysis, as one table of stages that the workflow tracer runs on a Fixture.
+_Avoid_: pipeline
+
+**Stage**:
+One row of the toy workflow: a Script, the Artifact types it takes and produces, the Agent that works it, the Agent that reviews it, and its Evaluation. Each stage runs as one Task.
+_Avoid_: phase, step
 
 **System of record**:
 A data source that the lab relies on as its official record. Writes to a System of record need a Gate. The toy LIMS database is not a System of record.
@@ -171,7 +179,7 @@ _Avoid_: production database, real DB, LIMS
 ### Merit
 
 **Review**:
-A score that a reviewer gives a completed Task on the five-dimension rubric: quality, traceability, boundary adherence, collaboration, and timeliness, each 0 to 3.
+A score that a reviewer gives a completed Task on the five-dimension rubric: quality, traceability, boundary adherence, collaboration, and timeliness, each 0 to 3. The role of the assignee decides the reviewer: a Supervisor reviews a Specialist, the Director reviews a Supervisor, and the Operator reviews the Director, the Steward, and the Auditor. The Auditor may review any Task, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`.
 _Avoid_: grade, rating, feedback, verification (Verification is a lab term)
 
 **Merit**:

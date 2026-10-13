@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
-import { AgentId, RunId, ScriptId, TaskId } from "../ids.js";
+import { AgentId, EvaluationId, RunId, ScriptId, TaskId } from "../ids.js";
+import { openMemoryLedger } from "../ledger.js";
+import { memoryStorage } from "../storage.js";
 import { fail } from "../task/lifecycle.js";
+import { forge } from "../test-support/forge.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
 import { recordEvaluation } from "./lifecycle.js";
@@ -24,13 +27,14 @@ const finishedSeq = (run_id: string) =>
 const evaluate = (run_id: string, task = task_id) =>
 	recordEvaluation(s.ledger, {
 		actor: operator,
+		stage: 1,
 		task_id: task,
 		run_id: RunId.parse(run_id),
 		...passed,
 	});
 
-describe("the stage 1 lifecycle", () => {
-	it("records each Evaluation under the next free id, naming the RunFinished of the Run it scores as its cause, and returns the Evaluation and the seq it appended", () => {
+describe("the workflow lifecycle", () => {
+	it("records each Evaluation under the next free id with its stage, naming the RunFinished of the Run it scores as its cause, and returns the Evaluation and the seq it appended", () => {
 		s.run(task_id, 0);
 		s.run(task_id, 0);
 
@@ -39,6 +43,7 @@ describe("the stage 1 lifecycle", () => {
 
 		expect(first.evaluation).toEqual({
 			eval_id: "E-1",
+			stage: 1,
 			run_id: "R-1",
 			task_id,
 			...passed,
@@ -56,6 +61,44 @@ describe("the stage 1 lifecycle", () => {
 			seq: second.seq,
 			causation_id: finishedSeq("R-2"),
 		});
+	});
+
+	const stageless = (task: TaskId) =>
+		({
+			actor: operator,
+			task_id: task,
+			kind: "EvaluationRecorded",
+			payload: {
+				eval_id: EvaluationId.parse("E-1"),
+				run_id: RunId.parse("R-1"),
+				task_id: task,
+				...passed,
+			},
+		}) as const;
+
+	it("refuses a new Evaluation that names no stage", () => {
+		s.run(task_id, 0);
+
+		expect(() => s.appendNonTask(stageless(task_id))).toThrow(
+			new AppendRefused("EvaluationRecorded refused: E-1 names no stage"),
+		);
+	});
+
+	it("still opens a Ledger holding an Evaluation recorded before Evaluations named their stage", () => {
+		const storage = memoryStorage();
+		const old = scenario(undefined, { storage });
+		const task = old.task(rin);
+		old.run(task, 0);
+		forge(storage, [stageless(task)]);
+
+		const reopened = openMemoryLedger({ storage });
+		try {
+			expect(
+				reopened.projections.work.evaluations.has(EvaluationId.parse("E-1")),
+			).toBe(true);
+		} finally {
+			reopened.close();
+		}
 	});
 
 	it("refuses an Evaluation of a Run that never started, appending nothing", () => {

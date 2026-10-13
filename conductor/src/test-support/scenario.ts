@@ -17,7 +17,6 @@ import type { Recorded } from "../lifecycle-support.js";
 import { retire as retireAgent } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
 import { finishRun, register, startRun, store } from "../sandbox/lifecycle.js";
-import { recordEvaluation } from "../stage1/lifecycle.js";
 import type { Storage } from "../storage.js";
 import {
 	assign,
@@ -28,10 +27,13 @@ import {
 	type TaskEventKind,
 	taskEventKind,
 } from "../task/lifecycle.js";
+import { assigneeOf } from "../task/projection.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
 import type { Task } from "../types/task.js";
+import { reviewerOf } from "../vitality/reviewers.js";
+import { recordEvaluation } from "../workflow/lifecycle.js";
 
 export type Scores = Pick<
 	Review,
@@ -132,13 +134,28 @@ export const scenario = (
 			reviewer,
 		});
 
+	/** The reviewer that the reviewer rule names first for `agent`'s Tasks. */
+	const reviewerFor = (agent: AgentId): Actor =>
+		reviewerOf(ledger.projections, agent) ?? operator;
+
+	/** The reviewer of a Task UnderReview, or else the rule's for its assignee. */
+	const reviewerOfTask = (task_id: TaskId): Actor => {
+		const task = ledger.projections.tasks.tasks.get(task_id);
+		if (task?.state.tag === "UnderReview") return task.state.reviewer;
+		const assignee = assigneeOf(task);
+		return assignee === undefined ? operator : reviewerFor(assignee);
+	};
+
 	/**
 	 * The next Task of `agent` that the sample for its tier picks for Review,
 	 * completed for `reviewer` to review, so it is UnderReview. Each Task the
 	 * sample leaves out on the way is completed with Review skipped, as
 	 * production records it. On Probation the sample picks every Task.
 	 */
-	const submitted = (agent: AgentId, reviewer: Actor = operator): TaskId => {
+	const submitted = (
+		agent: AgentId,
+		reviewer: Actor = reviewerFor(agent),
+	): TaskId => {
 		for (;;) {
 			const id = task(agent);
 			const { task: done } = completed(agent, id, reviewer);
@@ -149,19 +166,20 @@ export const scenario = (
 	const review = (
 		task_id: TaskId,
 		s: Scores,
-		reviewer: Actor = operator,
+		reviewer: Actor = reviewerOfTask(task_id),
 	): Recorded<"task", Task> =>
 		reviewTask(ledger, { task_id, reviewer, ...s, note: "" });
 
-	/** The Operator reviews a Task UnderReview with `s` and completes it. */
+	/** The reviewer of a Task UnderReview reviews it with `s` and completes it. */
 	const close = (task_id: TaskId, s: Scores) => {
-		review(task_id, s);
-		complete(ledger, { actor: operator, task_id });
+		const reviewer = reviewerOfTask(task_id);
+		review(task_id, s, reviewer);
+		complete(ledger, { actor: reviewer, task_id });
 	};
 
 	/**
-	 * The next Task of `agent` that the sample picks for Review, which the
-	 * Operator reviews with `s`; see `submitted`.
+	 * The next Task of `agent` that the sample picks for Review, which its
+	 * reviewer reviews with `s`; see `submitted`.
 	 */
 	const reviewed = (agent: AgentId, s: Scores): TaskId => {
 		const id = submitted(agent);
@@ -180,12 +198,12 @@ export const scenario = (
 	};
 
 	/**
-	 * A Task that `agent` completes for the Operator to review when the
+	 * A Task that `agent` completes for its reviewer to review when the
 	 * sample for its tier picks it: reviewed with `s` then, skipped otherwise.
 	 */
 	const worked = (agent: AgentId, s: Scores): TaskId => {
 		const id = task(agent);
-		const { task: done } = completed(agent, id, operator);
+		const { task: done } = completed(agent, id, reviewerFor(agent));
 		if (done.state.tag === "UnderReview") close(id, s);
 		return id;
 	};
@@ -214,6 +232,7 @@ export const scenario = (
 		if (score === undefined) return;
 		recordEvaluation(ledger, {
 			actor: operator,
+			stage: 1,
 			task_id,
 			run_id: id,
 			score,

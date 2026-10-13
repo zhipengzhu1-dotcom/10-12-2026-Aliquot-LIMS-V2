@@ -17,9 +17,15 @@ import { Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { Review } from "../types/merit.js";
 import type { Task, TaskState, TatClass } from "../types/task.js";
+import { reviewRefusal } from "../vitality/guards.js";
+import { reviewerRefusal } from "../vitality/reviewers.js";
 import { reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
-import { helpTargetRefusal, sampledRefusal } from "./guards.js";
+import {
+	assigneeRefusal,
+	helpTargetRefusal,
+	sampledRefusal,
+} from "./guards.js";
 import { helpRequester, stateIn } from "./projection.js";
 
 /** The Event kinds that only the Task lifecycle appends. */
@@ -112,6 +118,7 @@ export const propose = (
 		},
 	);
 
+/** Assign a Task to `assignee`, refused when it is strained or worse. */
 export const assign = (
 	ledger: Ledger,
 	{
@@ -119,11 +126,13 @@ export const assign = (
 		assignee,
 		...origin
 	}: Origin & { readonly task_id: TaskId; readonly assignee: AgentId },
-): Recorded<"task", Task> =>
-	record(ledger, origin, {
+): Recorded<"task", Task> => {
+	orRefuse("TaskAssigned", assigneeRefusal(ledger.projections, assignee));
+	return record(ledger, origin, {
 		kind: "TaskAssigned",
 		payload: { task_id, assignee },
 	});
+};
 
 export const start = (
 	ledger: Ledger,
@@ -141,7 +150,8 @@ export type Completed = Recorded<"task", Task> & {
 /**
  * The Review a completion records: Reviewed for a Task UnderReview; for an
  * InProgress one, Required from `reviewer` when the Trust tier samples it,
- * refused without a reviewer, and Skipped when the sample leaves it out.
+ * refused without a reviewer or with one the reviewer rule does not allow,
+ * and Skipped when the sample leaves it out.
  */
 const reviewFor = (
 	projections: Projections,
@@ -158,14 +168,21 @@ const reviewFor = (
 	if (!sampled) {
 		return { tag: "Skipped", reason: `not sampled for Review at tier ${tier}` };
 	}
-	return reviewer === undefined
-		? new Refusal(sampledRefusal(task_id, state.assignee, tier))
-		: { tag: "Required", reviewer };
+	if (reviewer === undefined) {
+		return new Refusal(sampledRefusal(task_id, state.assignee, tier));
+	}
+	return (
+		reviewerRefusal(projections, task_id, state.assignee, reviewer) ?? {
+			tag: "Required",
+			reviewer,
+		}
+	);
 };
 
 /**
  * Complete a Task. An InProgress Task goes UnderReview to `reviewer` when the
- * Trust tier samples it for Review, and is refused without one; otherwise it
+ * Trust tier samples it for Review, and is refused without one or with one
+ * that the assignee's role does not allow; otherwise it
  * skips Review to Done, leaving `reviewer` unused. A Task UnderReview goes
  * Done once its reviewer has recorded a Review, which the completion names
  * as its cause.
@@ -209,23 +226,31 @@ export const complete = (
 	return { ...recorded, review };
 };
 
-/** The reviewer records a Review of a Task UnderReview, or Done. */
+/**
+ * The reviewer records a Review of a Task UnderReview, or Done, when the
+ * reviewer rule allows it for the assignee.
+ */
 export const review = (
 	ledger: Ledger,
 	{
 		causation_id,
 		...payload
 	}: Review & { readonly causation_id?: Seq | undefined },
-): Recorded<"task", Task> =>
-	record(
+): Recorded<"task", Task> => {
+	orRefuse(
+		"ReviewRecorded",
+		reviewRefusal(ledger.projections, payload, payload.reviewer),
+	);
+	return record(
 		ledger,
 		{ actor: payload.reviewer, causation_id },
 		{ kind: "ReviewRecorded", payload },
 	);
+};
 
 /**
  * Hand an InProgress Task off from its assignee to `to`, which returns it to
- * Assigned.
+ * Assigned. Refused when `to` is strained or worse.
  */
 export const handOff = (
 	ledger: Ledger,
@@ -244,6 +269,7 @@ export const handOff = (
 		"TaskHandedOff",
 		stateIn(ledger.projections.tasks, task_id, ["InProgress"]),
 	);
+	orRefuse("TaskHandedOff", assigneeRefusal(ledger.projections, to));
 	return record(ledger, origin, {
 		kind: "TaskHandedOff",
 		payload: { task_id, from, to, reason },

@@ -95,6 +95,38 @@ export const lineageOf = (
 		: projection.artifacts.get(id)
 	)?.lineage;
 
+/** One production on the walk back from an Artifact, and how far back it is. */
+export type LineageLink = {
+	readonly depth: number;
+	readonly production: Production;
+};
+
+/**
+ * Each production of `id`, followed by the walk back through its Lineage,
+ * depth first, down to the Artifacts that have none. An Artifact already on
+ * the path is not walked again, so a Run that wrote back its own input does
+ * not loop.
+ */
+export const walkLineage = (
+	projection: ArtifactProjection,
+	id: ArtifactId,
+): LineageLink[] => {
+	const walk = (
+		id: ArtifactId,
+		depth: number,
+		path: ReadonlySet<ArtifactId>,
+	): LineageLink[] => {
+		const on = new Set(path).add(id);
+		return (projection.productions.get(id) ?? []).flatMap((production) => [
+			{ depth, production },
+			...production.record.lineage
+				.filter((input) => !on.has(input))
+				.flatMap((input) => walk(input, depth + 1, on)),
+		]);
+	};
+	return walk(id, 0, new Set());
+};
+
 /** Who produced an Artifact: a Run or the Operator. */
 export type Producer = Artifact["produced_by"];
 

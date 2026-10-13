@@ -23,6 +23,7 @@ const rin = AgentId.parse("A-rin");
 const asRin: Actor = { tag: "Agent", id: rin };
 const asOdile: Actor = { tag: "Agent", id: odile };
 const pia: Actor = { tag: "Agent", id: AgentId.parse("A-pia") };
+const thorne: Actor = { tag: "Agent", id: AgentId.parse("A-thorne") };
 const output = ArtifactId.parse("c".repeat(64));
 const threes = {
 	quality: 3,
@@ -118,18 +119,18 @@ const started = (agent: AgentId): TaskId => {
 };
 
 /**
- * A Task `agent` on Probation completes, so the sample picks it, and the
- * Operator reviews with 3 on every dimension.
+ * A Specialist `agent` on Probation completes a Task, so the sample picks
+ * it, and Pia, a Supervisor, reviews with 3 on every dimension.
  */
 const reviewed = (agent: AgentId) => {
 	const task_id = started(agent);
 	complete(ledger, {
 		actor: { tag: "Agent", id: agent },
 		task_id,
-		reviewer: operator,
+		reviewer: pia,
 	});
-	review(ledger, { task_id, reviewer: operator, ...threes, note: "" });
-	complete(ledger, { actor: operator, task_id });
+	review(ledger, { task_id, reviewer: pia, ...threes, note: "" });
+	complete(ledger, { actor: pia, task_id });
 };
 
 describe("completing a Task decides its own Review", () => {
@@ -183,13 +184,13 @@ describe("completing a Task decides its own Review", () => {
 			const submitted = complete(ledger, {
 				actor: asRin,
 				task_id: sampled,
-				reviewer: operator,
+				reviewer: pia,
 			});
 
 			expect(submitted.task.state).toEqual({
 				tag: "UnderReview",
 				assignee: rin,
-				reviewer: operator,
+				reviewer: pia,
 			});
 		});
 	});
@@ -207,7 +208,7 @@ describe("completing a Task after Review", () => {
 		expect(close(pia)).toThrow(
 			"TaskCompleted refused: T-1 has no Review by A-pia, its reviewer",
 		);
-		reviewBy(operator);
+		reviewBy(thorne);
 		expect(close(pia)).toThrow(/T-1 has no Review by A-pia/);
 		reviewBy(pia);
 		expect(close(operator)).toThrow(
