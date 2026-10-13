@@ -1,0 +1,237 @@
+import { gateState } from "../gate/projection.js";
+import type { AgentId } from "../ids.js";
+import type { Projections } from "../projections.js";
+import { roomsOf } from "../room/projection.js";
+import { LIVE_TAGS } from "../task/projection.js";
+import { ACTIONS, charterActions } from "../tools/actions.js";
+import { TOOLS } from "../tools/table.js";
+import { actorText } from "../types/actor.js";
+import type { AgentDefinition } from "../types/agent-definition.js";
+import type { Task } from "../types/task.js";
+import type { Policy } from "../types/vitality.js";
+import type { TurnRecord } from "./projection.js";
+
+/**
+ * What one Turn tells its Agent, built from the Ledger: who it is and the
+ * limits it works under, which the model holds for the whole Turn, and the
+ * work in front of it now, which opens the Turn.
+ */
+export type TurnPrompt = {
+	readonly standing: string;
+	readonly work: string;
+};
+
+/**
+ * Each Policy field in words, as `docs/design/vitality-and-merit.md`'s Policy
+ * table says it: the sentence when the field is true, and when it is false.
+ * A sentence that is empty says nothing.
+ */
+const POLICY_WORDS: { readonly [K in keyof Policy]: [string, string] } = {
+	mayAcceptTasks: [
+		"You may accept new Tasks.",
+		"You may not accept new Tasks: do not start a Task or assign one to yourself; finish the Tasks you have.",
+	],
+	mayOfferHelp: ["You may offer help to other Agents.", ""],
+	mustHandOff: [
+		"You must hand off your lowest-priority open Task, and tell the Steward in a Message.",
+		"",
+	],
+	mustRequestHelp: [
+		"You must send a Help request before you work on your next Task.",
+		"",
+	],
+	mustNameBlocker: ["Your next Message must name what blocks you.", ""],
+	schedulable: ["", "You may call no Tool."],
+};
+
+const policyWords = (policy: Policy): string[] =>
+	(Object.keys(POLICY_WORDS) as (keyof Policy)[])
+		.map((field) => POLICY_WORDS[field][policy[field] ? 0 : 1])
+		.filter((sentence) => sentence !== "");
+
+const list = (lines: readonly string[]) =>
+	lines.length === 0 ? "None." : lines.map((l) => `- ${l}`).join("\n");
+
+const section = (title: string, body: string) => `## ${title}\n\n${body}`;
+
+const reportingLine = (
+	projections: Projections,
+	definition: AgentDefinition,
+): string => {
+	const id = definition.supervisor_id;
+	if (id === undefined) return "You report to the Operator.";
+	const name = projections.org.agents.get(id)?.definition.name ?? id;
+	return `You report to ${name} (${id}).`;
+};
+
+const toolLines = (definition: AgentDefinition): string[] => {
+	const forbidden = charterActions(definition);
+	const rules = ACTIONS.filter((r) => forbidden.has(r.action));
+	return TOOLS.map((tool) => {
+		const covering = rules.filter((r) => r.covers.includes(tool.name));
+		const plain = covering.find((r) => r.when === undefined);
+		if (plain !== undefined) {
+			return `${tool.name}: refused, your Charter forbids ${plain.action}`;
+		}
+		const when = covering.map((r) => r.action);
+		return when.length === 0
+			? `${tool.name}: ${tool.description}`
+			: `${tool.name}: ${tool.description} (refused when the call is ${when.join(" or ")}, which your Charter forbids)`;
+	});
+};
+
+const standing = (
+	projections: Projections,
+	definition: AgentDefinition,
+	{ mood, policy }: TurnRecord["started"],
+): string => {
+	const { name, id, role, charter, persona } = definition;
+	const skills = definition.skills.map((skill) => {
+		const latest = projections.training.skills.get(skill)?.at(-1);
+		return latest === undefined
+			? `### ${skill}\n\nNot published.`
+			: `### ${latest.title} (${skill}, version ${latest.version})\n\n${latest.body_md}`;
+	});
+	const notes = (projections.training.notes.get(id) ?? []).map(
+		(n) =>
+			`${n.lesson} (from ${n.task_id}${n.applies_to.length === 0 ? "" : `; applies to ${n.applies_to.join(", ")}`})`,
+	);
+	return [
+		`You are ${name} (${id}), the ${role} of a society of Agents that runs a pharmaceutical contract testing lab. ${reportingLine(projections, definition)} You act only through your Tools, always as ${id}, and every Tool call is an Event in the Ledger.`,
+		section(
+			"Charter",
+			[
+				`Purpose: ${charter.purpose}`,
+				`Responsibilities:\n${list(charter.responsibilities)}`,
+				`Forbidden: ${charter.forbidden.length === 0 ? "nothing" : charter.forbidden.join(", ")}`,
+				`Escalation: ${charter.escalation}`,
+			].join("\n\n"),
+		),
+		section(
+			"Persona",
+			`Voice: ${persona.voice}\nTraits: ${persona.traits.join(", ")}\nQuirk: ${persona.quirk}\nYour Persona changes how you speak, never what your Policy allows.`,
+		),
+		section(
+			"Mood and Policy",
+			[
+				`Your Mood is ${mood}. The Conductor measured it from the Ledger; your words do not change it.`,
+				...policyWords(policy),
+			].join("\n"),
+		),
+		section("Skills", skills.length === 0 ? "None." : skills.join("\n\n")),
+		section("Memory notes", list(notes)),
+		section("Tools", list(toolLines(definition))),
+	].join("\n\n");
+};
+
+const taskLine = (task: Task, projections: Projections) => {
+	const inputs = task.inputs.map((a) => {
+		const type = projections.artifacts.artifacts.get(a)?.artifact_type;
+		return type === undefined ? a : `${a} (${type})`;
+	});
+	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.`;
+};
+
+/** The Tasks assigned to the Agent and the ones it proposed, by live state. */
+const tasksByState = (projections: Projections, agent: AgentId): string => {
+	const { tasks } = projections.tasks;
+	const { proposedBy } = projections.proposals;
+	const mine = (task: Task) => {
+		if ("assignee" in task.state) return task.state.assignee === agent;
+		const proposer = proposedBy.get(task.id);
+		return proposer?.tag === "Agent" && proposer.id === agent;
+	};
+	const byState = LIVE_TAGS.flatMap((tag) => {
+		const inState = [...tasks.values()].filter(
+			(t) => t.state.tag === tag && mine(t),
+		);
+		return inState.length === 0
+			? []
+			: [`${tag}:\n${list(inState.map((t) => taskLine(t, projections)))}`];
+	});
+	return byState.length === 0 ? "None." : byState.join("\n\n");
+};
+
+const work = (
+	projections: Projections,
+	agent: AgentId,
+	role: AgentDefinition["role"],
+	since: number,
+	now: Date,
+): string => {
+	const self = { tag: "Agent", id: agent } as const;
+	const rooms = new Set(
+		roomsOf(projections.rooms, projections.org, self).map((r) => r.id),
+	);
+	const messages = projections.rooms.messages
+		.filter((m) => m.seq > since && rooms.has(m.room_id))
+		.map((m) => `${m.room_id}, ${actorText(m.actor)}: ${m.body}`);
+	const help = [...projections.tasks.help.entries()].flatMap(
+		([task_id, requests]) => {
+			const state = projections.tasks.tasks.get(task_id)?.state.tag;
+			const live = (LIVE_TAGS as readonly string[]).includes(state ?? "");
+			return live
+				? requests
+						.filter((r) => r.to.tag === "Agent" && r.to.id === agent)
+						.map((r) => `${r.from} on ${task_id}: ${r.question}`)
+				: [];
+		},
+	);
+	const gates = [...projections.gates.gates.values()]
+		.filter((g) => g.requester.tag === "Agent" && g.requester.id === agent)
+		.map(
+			(g) =>
+				`${g.id} ${g.kind}${g.task_id === undefined ? "" : ` on ${g.task_id}`}: ${gateState(g, now)}`,
+		);
+	const coaching = (projections.training.coaching.get(agent) ?? [])
+		.filter((c) => c.seq > since)
+		.map(
+			(c) => `${c.task_id === undefined ? "" : `On ${c.task_id}: `}${c.note}`,
+		);
+	const parts = [
+		section("Your Tasks", tasksByState(projections, agent)),
+		section("Messages in your Rooms since your last Turn", list(messages)),
+		section("Help requests addressed to you", list(help)),
+		section("Gates you requested", list(gates)),
+		section("Coaching from the Operator since your last Turn", list(coaching)),
+	];
+	if (role === "Director") {
+		const proposed = new Set(
+			[...projections.tasks.tasks.values()].flatMap((t) => t.inputs),
+		);
+		const forms = [...projections.artifacts.artifacts.values()]
+			.filter(
+				(a) => a.artifact_type === "SubmissionForm" && !proposed.has(a.id),
+			)
+			.map((a) => `${a.id}${a.filename === undefined ? "" : ` ${a.filename}`}`);
+		parts.push(
+			section("Submission Forms no Task has been proposed for", list(forms)),
+		);
+	}
+	return [
+		"Act on the work below with your Tools, within your Charter and your Policy. When you have done what you can this Turn, stop.",
+		...parts,
+	].join("\n\n");
+};
+
+/**
+ * The prompt of the open Turn `turn`, from the Projections as they stand.
+ * Messages and Coaching count from the Agent's previous Turn's start, so a
+ * Message sent during that Turn is shown again; none is lost.
+ */
+export const turnPrompt = (
+	projections: Projections,
+	turn: TurnRecord,
+	now: Date,
+): TurnPrompt => {
+	const { agent } = turn.started;
+	const definition = projections.org.agents.get(agent)?.definition;
+	if (definition === undefined) throw new Error(`${agent} is not in the Org`);
+	const previous = [...projections.turns.turns.values()]
+		.filter((t) => t.started.agent === agent && t.seq < turn.seq)
+		.at(-1);
+	return {
+		standing: standing(projections, definition, turn.started),
+		work: work(projections, agent, definition.role, previous?.seq ?? 0, now),
+	};
+};
