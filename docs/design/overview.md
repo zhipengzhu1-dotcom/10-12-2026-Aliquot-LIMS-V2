@@ -509,12 +509,14 @@ Every view is a Projection of the Ledger and updates live over SSE. No view stor
 
 ## Slices and roadmap
 
-Each slice ends in something the Operator can check.
+Each slice ends in something the Operator can check. The first edition is the chat flow: the Operator reports received Samples in the Lab Room and an Agent logs them; the Operator gives the notebook reference and the results, and an Agent drafts the Report of Analysis as xlsx and PDF behind a Gate. Everything that does not serve that flow waits for a later edition, whatever its ticket says.
 
-1. **Slice 0, the base.** Repository layout, the ten types, the Ledger with its hash chain and reducers, the Docker image, the synthetic generator, and CI that runs every Fixture. No Agents.
-2. **Slice 1, the society on toy work.** The eight Agents run the toy workflow with live Vitality and Merit. The interface ships the Org, Flow, Agent, Gates, Performance, and Ledger views behind Tunnel and Access. The Mood thresholds get tuned against real data.
-3. **Slice 2, building for Lab staff.** Developer and Tester join. They build the first web application for a lab task, probably a Sample receiving screen that replaces the Receiving Log sheet. The `Deploy` Gate goes live.
-4. **Slice 3, real work.** A real data source connects behind the `WriteSystemOfRecord` Gate. Agents start reading VBA. Anonymized copies of the real templates become Fixtures.
+1. **Slice 0, the base.** Built. Repository layout, the ten types, the Ledger with its hash chain and reducers, the Docker image, the synthetic generator, and CI that runs every Fixture. No Agents.
+2. **Slice 1, the society on toy work.** Built except its end: the lifecycles, the toy workflow's stages 1 to 4 under a tracer, the views behind Tunnel and Access, Turns as Events, and the Agent's Tools. It ends with the first real Turn of one Agent through the Agent SDK, and a Scheduler that runs one Turn at a time. Mood is `flat`: every Agent is `fresh` until the flow has run long enough to tune against.
+3. **Slice 2, the chat flow.** A Chat view on the Lab Room. Receiving from chat: the Operator's Message becomes a Submission Record, and stages 2 and 3 log the Samples and open the Work Order. Results from chat: the Operator's Message with the notebook reference and the results becomes the Result Worksheet, which replaces stage 4's synthetic weighings. The Report: stage 6 renders the Report of Analysis from the worksheet and the Receiving Log row, and requests an `ExternalMessage` Gate the Operator decides. It ends when the Operator has logged Samples and approved a report from the Chat view, on synthetic data.
+4. **Slice 3, real work.** The same flow on the lab's real Submission Forms, writing the real Receiving Log workbook and real reports behind the `WriteSystemOfRecord` Gate. Anonymized copies of the real templates become Fixtures.
+
+Later, not in the first edition: stage 5 Verification by a second Agent, tuning the Mood thresholds, the Energy budget and allocation weights in the Scheduler, Developer and Tester building for Lab staff behind the `Deploy` Gate, and reading VBA.
 
 ## Risks and open questions
 
