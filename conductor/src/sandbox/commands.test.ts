@@ -3,7 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vitest";
 import { AgentId, ArtifactId, Sha256 } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
@@ -23,11 +31,11 @@ const aliquot = (...args: string[]) =>
 	);
 
 const operator = { tag: "Operator" } as const;
-// Each build gives a tag a new image id, and Docker may drop the image the
-// tag held, so these tags are this suite's own: the runner suite holds
-// aliquot-sandbox:test while it runs.
-const IMAGE = "aliquot-sandbox:cli-test";
-const BUILT = "aliquot-sandbox:cli-build-test";
+// Each build gives its tag a new image id and Docker drops the image the tag
+// held, so this process's tags are its own: other suites and checkouts build
+// at the same time.
+const IMAGE = `aliquot-sandbox:cli-${process.pid}`;
+const BUILT = `aliquot-sandbox:cli-build-${process.pid}`;
 const FORM_ID =
 	"397ec95583578116203359d83765a9858213da59fa537356d290521a91c239ad";
 
@@ -166,13 +174,17 @@ describe.skipIf(!requireDocker())(suite, () => {
 		await buildImage({ tag: IMAGE });
 	}, 600_000);
 
+	afterAll(() => {
+		spawnSync("docker", ["rmi", IMAGE], { stdio: "ignore" });
+	});
+
 	it("build builds the Sandbox image and prints its id and tag", () => {
 		try {
 			const built = aliquot("sandbox", "build", "--tag", BUILT);
 
 			expect(built.status).toBe(0);
 			expect(built.stdout).toMatch(
-				/^sha256:[0-9a-f]{64} aliquot-sandbox:cli-build-test\n$/,
+				new RegExp(`^sha256:[0-9a-f]{64} ${BUILT}\n$`),
 			);
 		} finally {
 			spawnSync("docker", ["rmi", BUILT], { stdio: "ignore" });
