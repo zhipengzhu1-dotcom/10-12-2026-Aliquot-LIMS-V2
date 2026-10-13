@@ -1,13 +1,13 @@
 # Org tree and its Actions
 
-The Org view at `#/org` draws the reporting tree that `org tree` prints, each Agent with its Mood, Trust tier, load and a `paused` badge, and lets the Operator pause and resume an Agent, order Rest through the Action bar, reassign it, and request its retirement, with the tree redrawn from the Event stream and no reload.
+The Org view at `#/org` draws the reporting tree that `org tree` prints, each Agent with its Trust tier, load and a `paused` badge (no Mood: it is flat since #62), and lets the Operator pause and resume an Agent, order Rest through the Action bar, reassign it, and request its retirement, with the tree redrawn from the Event stream and no reload.
 
 ## Sub-features
 
 - `org-tree` draws the Operator, Odile (Director), Pia and Anselm (Supervisors), the Specialist pool under both (Rin, Ines, Bram), Mabel (Steward) and Thorne (Auditor).
 - `org-pause` pauses an Agent with a reason from its Actions panel; the `paused` badge and a Resume button appear.
 - `org-resume` resumes a paused Agent; a second resume is refused with `AgentResumed refused: <id> is not paused`.
-- `org-rest` orders Rest through the Action bar's `rest-order` verb; the Mood badge reads `resting`.
+- `org-rest` orders Rest through the Action bar's `rest-order` verb; the Ledger records `RestOrdered`, the view draws no Mood badge, and `/api/vitality` still gives the Agent Mood `fresh`.
 - `org-reassign` revises `supervisor_id` through the Reassign form; the Agent moves in the tree.
 - `org-retire-request` requests a `RetireAgent` Gate; it appears in `#/gates` (see [gates.md](./gates.md)).
 - `org-live` redraws the tree when another client appends an Event, keeping open panels and typed text.
@@ -29,9 +29,9 @@ Preconditions:
 - **Pause from the view.** Open Rin's panel, type a reason, choose Pause. `scripts/browser.mjs "$RUN" org/ui goto '#/org' mark click '#act-A-rin > summary' fill '#pause-A-rin-reason' 'verify: pause Rin from the Org view' click '#pause-A-rin button' text '#answer' 'Appended AgentPaused' wait '[data-agent="A-rin"] .badge.paused' wait '#resume-A-rin'`. The status line reads `Appended AgentPaused at seq <n>` and Rin shows `paused` and the Resume form `#resume-A-rin` in place of the Pause one.
 - **Redraw over the stream.** In the same browser run, another client resumes Rin: `outside resume '{"agent_id":"A-rin"}' gone '[data-agent="A-rin"] .badge.paused'`. The badge goes with no reload (`same-page` holds).
 - **Refused resume.** `scripts/api.sh "$RUN" act resume '{"agent_id":"A-rin"}' --expect 409`. The body is `AgentResumed refused: A-rin is not paused`.
-- **Rest through the Action bar.** `fill '#action input[name=verb]' rest-order fill '#action textarea[name=body]' '{"agent_id":"A-ines","action":"begin","reason":"verify: Rest from the Action bar"}' click '#action button' text '#answer' 'Appended RestOrdered' wait '[data-agent="A-ines"] .badge.mood-resting'`. The Mood badge is `.badge.mood-<mood>`; `.badge` alone also matches the tier and paused badges.
+- **Rest through the Action bar.** `fill '#action input[name=verb]' rest-order fill '#action textarea[name=body]' '{"agent_id":"A-ines","action":"begin","reason":"verify: Rest from the Action bar"}' click '#action button' text '#answer' 'Appended RestOrdered' count '.agent [class*="mood"]' 0`. Mood is flat, so the view draws no Mood badge; `.badge` matches the tier and paused badges.
 - **Reassign.** `click '#act-A-mabel > summary' choose '#revise-A-mabel-supervisor' A-odile fill '#revise-A-mabel-reason' 'verify: report to Odile' click '#revise-A-mabel button' text '#answer' 'Appended AgentDefinitionRevised'`. Mabel's line moves under Odile. Not in `drive_org`.
-- **Proof.** `scripts/api.sh "$RUN" get org` has `.agents["A-rin"].paused == false`; `scripts/api.sh "$RUN" get vitality` has `.["A-ines"].mood == "resting"`; `sqlite3 "$RUN/home/ledger.sqlite" "select seq, kind, actor, payload from events where kind in ('AgentPaused','AgentResumed','RestOrdered')"` shows the three rows with actor `{"tag":"Operator"}`; `tools/aliquot --home "$RUN/home" ledger verify` says chain intact.
+- **Proof.** `scripts/api.sh "$RUN" get org` has `.agents["A-rin"].paused == false`; `scripts/api.sh "$RUN" get vitality` has `.["A-ines"].mood == "fresh"`, as every live Agent's is; `sqlite3 "$RUN/home/ledger.sqlite" "select seq, kind, actor, payload from events where kind in ('AgentPaused','AgentResumed','RestOrdered')"` shows the three rows with actor `{"tag":"Operator"}`, the `RestOrdered` one with Ines, `begin` and the typed reason; `tools/aliquot --home "$RUN/home" ledger verify` says chain intact.
 
 ## Gotchas
 

@@ -1,8 +1,4 @@
-import type { AgentId } from "../ids.js";
-import type { Projections } from "../projections.js";
 import type { Mood, Vitality } from "../types/vitality.js";
-import { restInEffect } from "./vitality.js";
-import { openTasks } from "./work.js";
 
 export type MoodInput = {
 	readonly v: Vitality;
@@ -12,7 +8,10 @@ export type MoodInput = {
 
 /**
  * The Mood table of docs/design/vitality-and-merit.md, in order. The first
- * rule that matches sets the Mood; the last always matches.
+ * rule that matches sets the Mood; the last always matches. Not in force:
+ * Mood is flat in the first edition (#62), so nothing but its tests reads
+ * this table. It stays, thresholds and all, for the later decision on
+ * whether Vitality limits what an Agent may do.
  */
 export const MOOD_RULES: readonly {
 	readonly mood: Mood;
@@ -35,6 +34,7 @@ export const MOOD_RULES: readonly {
 	{ mood: "fresh", when: () => true },
 ];
 
+/** The Mood the table gives. Not in force; see `MOOD_RULES`. */
 export const moodOf = (
 	v: Vitality,
 	restInEffect: boolean,
@@ -44,25 +44,9 @@ export const moodOf = (
 	return MOOD_RULES.find((rule) => rule.when(input))?.mood ?? "fresh";
 };
 
-/** What `sampleVitality` gives an Agent with no work, no Turns and no Reviews. */
-const unsampled = (agent: AgentId): Vitality => ({
-	agent,
-	load: 0,
-	fatigue: 0,
-	friction: 0,
-	confidence: 1,
-	morale: 0,
-});
-
 /**
- * The Mood of `agent` as the Ledger stands: its latest VitalitySampled, with
- * Rest and Tasks InProgress read now. A guard reads no clock, so it cannot
- * take a sample; an Agent never sampled reads as one with no work, which is
- * `fresh` unless Rest or a Task InProgress says otherwise.
+ * The Mood of every live Agent: `fresh`, whatever its Vitality, Turns, Tasks
+ * or Rest orders say (#62). Its Policy is therefore the normal one. Every
+ * reader of Mood reads it here.
  */
-export const currentMood = (projections: Projections, agent: AgentId): Mood =>
-	moodOf(
-		projections.work.samples.get(agent) ?? unsampled(agent),
-		restInEffect(projections.work, agent),
-		openTasks(projections.tasks, agent).inProgress > 0,
-	);
+export const currentMood = (): Mood => "fresh";

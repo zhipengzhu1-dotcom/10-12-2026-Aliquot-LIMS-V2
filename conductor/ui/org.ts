@@ -31,7 +31,6 @@ type OrgNode =
 /** One live Agent of `/api/vitality`, the fields this view reads. */
 type AgentVitality = {
 	readonly vitality: { readonly load: number };
-	readonly mood: string;
 };
 
 /** The roles an Agent may report to by `supervisor_id`. */
@@ -122,15 +121,11 @@ const agentLine = (
 ) => {
 	const { definition, paused } = node.agent;
 	const id = escapeHtml(definition.id);
-	const v = vitality[definition.id];
-	const load = v?.vitality.load;
+	const load = vitality[definition.id]?.vitality.load;
 	return [
 		`<div class="agent" data-agent="${id}">`,
 		`<a href="#/agent?id=${encodeURIComponent(definition.id)}">${escapeHtml(definition.name)}</a>`,
 		`<span class="role">${escapeHtml(definition.role)}</span>`,
-		v === undefined
-			? ""
-			: `<span class="badge mood-${escapeHtml(v.mood)}">${escapeHtml(v.mood)}</span>`,
 		`<span class="badge tier">${escapeHtml(definition.trust_tier)}</span>`,
 		paused ? `<span class="badge paused">paused</span>` : "",
 		load === undefined
@@ -159,9 +154,9 @@ const branch = (
 };
 
 /**
- * The reporting tree in `org tree`'s order, each Agent with its Mood (the
- * Vitality reading's), Trust tier, load from its latest Vitality sample, and
- * the Operator's actions on it. The name opens the Agent view.
+ * The reporting tree in `org tree`'s order, each Agent with its Trust tier,
+ * load from its latest Vitality sample, and the Operator's actions on it. No
+ * Mood: it is flat (#62). The name opens the Agent view.
  */
 const render = (_view: View, data: Sources): string => {
 	const root = data["org-tree"] as OrgNode;

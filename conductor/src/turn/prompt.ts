@@ -8,7 +8,6 @@ import { TOOLS } from "../tools/table.js";
 import { actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Task } from "../types/task.js";
-import type { Policy } from "../types/vitality.js";
 import { reviewerOf } from "../vitality/reviewers.js";
 import { reviewSampleOf } from "../vitality/trust.js";
 import type { TurnRecord } from "./projection.js";
@@ -22,34 +21,6 @@ export type TurnPrompt = {
 	readonly standing: string;
 	readonly work: string;
 };
-
-/**
- * Each Policy field in words, as `docs/design/vitality-and-merit.md`'s Policy
- * table says it: the sentence when the field is true, and when it is false.
- * A sentence that is empty says nothing.
- */
-const POLICY_WORDS: { readonly [K in keyof Policy]: [string, string] } = {
-	mayAcceptTasks: [
-		"You may accept new Tasks.",
-		"You may not accept new Tasks: do not start a Task or assign one to yourself; finish the Tasks you have.",
-	],
-	mayOfferHelp: ["You may offer help to other Agents.", ""],
-	mustHandOff: [
-		"You must hand off your lowest-priority open Task, and tell the Steward in a Message.",
-		"",
-	],
-	mustRequestHelp: [
-		"You must send a Help request before you work on your next Task.",
-		"",
-	],
-	mustNameBlocker: ["Your next Message must name what blocks you.", ""],
-	schedulable: ["", "You may call no Tool."],
-};
-
-const policyWords = (policy: Policy): string[] =>
-	(Object.keys(POLICY_WORDS) as (keyof Policy)[])
-		.map((field) => POLICY_WORDS[field][policy[field] ? 0 : 1])
-		.filter((sentence) => sentence !== "");
 
 const list = (lines: readonly string[]) =>
 	lines.length === 0 ? "None." : lines.map((l) => `- ${l}`).join("\n");
@@ -85,7 +56,6 @@ const toolLines = (definition: AgentDefinition): string[] => {
 const standing = (
 	projections: Projections,
 	definition: AgentDefinition,
-	{ mood, policy }: TurnRecord["started"],
 ): string => {
 	const { name, id, role, charter, persona } = definition;
 	const skills = definition.skills.map((skill) => {
@@ -111,14 +81,7 @@ const standing = (
 		),
 		section(
 			"Persona",
-			`Voice: ${persona.voice}\nTraits: ${persona.traits.join(", ")}\nQuirk: ${persona.quirk}\nYour Persona changes how you speak, never what your Policy allows.`,
-		),
-		section(
-			"Mood and Policy",
-			[
-				`Your Mood is ${mood}. The Conductor measured it from the Ledger; your words do not change it.`,
-				...policyWords(policy),
-			].join("\n"),
+			`Voice: ${persona.voice}\nTraits: ${persona.traits.join(", ")}\nQuirk: ${persona.quirk}\nYour Persona changes how you speak, never what your Charter allows.`,
 		),
 		section("Skills", skills.length === 0 ? "None." : skills.join("\n\n")),
 		section("Memory notes", list(notes)),
@@ -229,7 +192,7 @@ const work = (
 		);
 	}
 	return [
-		"Act on the work below with your Tools, within your Charter and your Policy. When you have done what you can this Turn, stop.",
+		"Act on the work below with your Tools, within your Charter. When you have done what you can this Turn, stop.",
 		...parts,
 	].join("\n\n");
 };
@@ -251,7 +214,7 @@ export const turnPrompt = (
 		.filter((t) => t.started.agent === agent && t.seq < turn.seq)
 		.at(-1);
 	return {
-		standing: standing(projections, definition, turn.started),
+		standing: standing(projections, definition),
 		work: work(projections, agent, definition.role, previous?.seq ?? 0, now),
 	};
 };

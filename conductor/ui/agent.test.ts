@@ -119,7 +119,11 @@ describe("the Agent view", () => {
 		);
 		const vitalityShown = sectionOf(page, "vitality");
 		expect(vitalityShown).toContain(
-			`<span class="badge mood-${vitality.mood}">${vitality.mood}</span>`,
+			"<h2>Vitality (Mood is flat in the first edition)</h2><p>From a sample computed now.</p>",
+		);
+		expect(vitalityShown).not.toContain("mood");
+		expect(vitalityShown).toContain(
+			`<dt>friction</dt><dd>${vitality.vitality.friction.toFixed(2)}</dd>`,
 		);
 		expect(vitalityShown).toContain(
 			`<dt>schedulable</dt><dd>${vitality.policy.schedulable ? "yes" : "no"}</dd>`,

@@ -2,6 +2,8 @@
 
 This document defines how the Conductor measures an Agent's Vitality, how that Vitality becomes a Mood and a Policy, and how Reviews become Merit, Trust tiers, and Promotion. ADR-0004 and ADR-0007 record why the system works this way. Every number below is initial, to be tuned in slice 1.
 
+Mood is flat in the first edition (#62). Every live Agent's Mood is `fresh`, whatever its Vitality, its Turns or its Rest orders say, so its Policy is the normal one. The Mood thresholds and the Policy table below are not in force, and neither is any refusal they imply: the Conductor refuses no assignment, Hand-off or Tool call for an Agent's Mood, the Scheduler passes over no Agent for it, the Turn prompt names neither Mood nor Policy, and Rest no longer stops Turns. The Operator pauses an Agent to stop its Turns. Vitality is still sampled and shown, and Rest is still ordered and recorded. The live run of 2026-10-13 sampled every Agent `fresh`; its largest fatigue was 0.0819. Whether Vitality limits behaviour again is a later decision.
+
 ## Vitality is measured, never reported
 
 The Conductor records a `VitalitySampled` Event for an Agent at the end of each of its Turns. That sample is the Conductor's own act (ADR-0013): its actor is `Conductor`, and its `causation_id` names the Turn's `TurnFinished`. The Ledger refuses a sample by the Conductor that names no `TurnFinished` of the same Agent. The Operator may also take a sample with `vitality sample`, which names no cause. Each field comes from Events already in the Ledger, so anyone can recompute a sample. An Agent may say how it feels in a message, but those words never change its Vitality.
@@ -89,7 +91,7 @@ The Director and the Supervisors create Tasks. The Director or a Supervisor may 
 The Scheduler in `aliquot serve` does this as built (`conductor/src/scheduler/plan.ts`). A Proposed Task that no one has assigned one Tick after its `TaskProposed` is assigned by the Conductor, as its own act: the `TaskAssigned` has the actor `Conductor` and names the `TaskProposed` as its cause (ADR-0013).
 
 - The candidates are the live Agents of the Task's role. A stage's Task, one whose inputs cover the stage's input types, goes to the role of the Agent that works the stage in the stage table. Any other Task goes to a Specialist.
-- A candidate is passed over when it is paused, when its Mood does not let it accept a Task, or when the Verifier rule refuses it.
+- A candidate is passed over when it is paused or when the Verifier rule refuses it. Its Mood passes it over no longer (#62).
 - Each other candidate weighs `round(tier weight × max(0, 1 - load) × 100)`, a whole number. Its load is the Tasks it holds (`Assigned`, `InProgress` or `Blocked`), counting those assigned earlier in the same Tick, divided by its `capacity`. A candidate at capacity weighs 0 and is passed over.
 - The pick is the first 32 bits of the SHA-256 of the Task id, as the Review sample reads them, mod the total weight. The candidates lie in id order, and the pick falls in one of them. The same Ledger gives the same assignee.
 - A Task no candidate may take waits for the next Tick, and the Scheduler's line names each candidate and why it was passed over.

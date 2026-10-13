@@ -73,10 +73,10 @@ describe("the Turn lifecycle", () => {
 		});
 	});
 
-	it("records the Mood the Agent works under, as vitality show gives it", () => {
+	it("records Mood fresh for an Agent with a Task InProgress, since Mood is flat", () => {
 		s.task(rin);
 
-		expect(start(rin).turn.started.mood, "a Task InProgress").toBe("focused");
+		expect(start(rin).turn.started.mood).toBe("fresh");
 	});
 
 	it("finishes a Turn as the Conductor, naming its TurnStarted as the cause, and closes it", () => {
@@ -117,7 +117,7 @@ describe("the Turn lifecycle", () => {
 		});
 	});
 
-	it("refuses a Turn for an Agent that is not live, is resting, is paused, or has an open Turn, and appends nothing", () => {
+	it("refuses a Turn for an Agent that is not live, is paused, or has an open Turn, and appends nothing, but starts one for a resting Agent", () => {
 		const anselm = AgentId.parse("A-anselm");
 		const bram = AgentId.parse("A-bram");
 		s.retire(anselm, "Replaced");
@@ -140,10 +140,14 @@ describe("the Turn lifecycle", () => {
 			AgentId.parse("A-nobody"),
 			"A-nobody is not a live Agent in the Org",
 		);
-		refused(ines, "A-ines is resting");
 		refused(bram, "A-bram is paused");
 		refused(rin, "A-rin already has an open Turn, TN-1");
 		expect(s.events()).toHaveLength(before);
+
+		expect(start(ines).turn.started).toMatchObject({
+			agent: ines,
+			mood: "fresh",
+		});
 	});
 
 	it("refuses to finish a Turn that is unknown or already finished, and appends nothing", () => {

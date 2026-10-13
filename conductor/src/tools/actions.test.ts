@@ -347,8 +347,8 @@ describe("the relational Actions", () => {
 	});
 });
 
-describe("the Policy", () => {
-	it("refuses start_task for an overloaded Agent, records ActionRefused with the Mood in its reason, and names the open Turn as its cause", async () => {
+describe("flat Mood", () => {
+	it("accepts start_task from an Agent whose fatigue the Mood table, not in force, reads as overloaded", async () => {
 		const energyBudgetTokens = 800_000;
 		const t1 = task([], { to: "rin" });
 		const { turn } = startTurn(s.ledger, {
@@ -375,51 +375,40 @@ describe("the Policy", () => {
 			energyBudgetTokens,
 		});
 		expect(vitality.fatigue, "90,000 tokens of a 100,000 share").toBe(0.9);
-		const next = startTurn(s.ledger, {
+		startTurn(s.ledger, {
 			agent: id("rin"),
 			model: "claude-sonnet-5-5",
 			energyBudgetTokens,
 		});
 
-		expect(await call("rin", "start_task", { task_id: t1 })).toEqual({
-			tag: "Refused",
-			text: "start_task refused: A-rin is overloaded, and its Policy accepts no Task",
+		expect(await call("rin", "start_task", { task_id: t1 })).toMatchObject({
+			tag: "Done",
 		});
 		expect(lastEvent()).toMatchObject({
-			kind: "ActionRefused",
-			actor: { tag: "Conductor" },
-			causation_id: next.seq,
-			payload: {
-				agent: "A-rin",
-				tool: "start_task",
-				action: "Policy",
-				reason: "A-rin is overloaded, and its Policy accepts no Task",
-				task_id: t1,
-			},
+			kind: "TaskStarted",
+			payload: { task_id: t1 },
 		});
-		expect(
-			verdict("rin", "assign_task", { task_id: t1, assignee: id("ines") }),
-		).toBeUndefined();
-		expect(verdict("rin", "read_tasks", {})).toBeUndefined();
+		expect(s.events().filter((e) => e.kind === "ActionRefused")).toEqual([]);
 		expect(s.ledger.verify().ok).toBe(true);
 	});
 
-	it("refuses every Tool call of a resting Agent", () => {
+	it("accepts a call from a resting Agent when its Charter allows the Action", async () => {
 		s.ledger.append({
 			actor: self("mabel"),
 			kind: "RestOrdered",
 			payload: { agent_id: id("ines"), action: "begin", reason: "Long week" },
 		});
 
-		expect(verdict("ines", "read_tasks", {})).toEqual({
-			action: "Policy",
-			reason: "A-ines is resting, and its Policy allows no Tool call",
+		expect(verdict("ines", "read_tasks", {})).toBeUndefined();
+		expect(await call("ines", "read_tasks", {})).toMatchObject({
+			tag: "Done",
 		});
+		expect(s.events().filter((e) => e.kind === "ActionRefused")).toEqual([]);
 	});
 });
 
 describe("the Charter's Actions", () => {
-	it("checks the Charter before the Policy", () => {
+	it("refuses a resting Agent's call for the Action its Charter forbids, as any Agent's", () => {
 		s.ledger.append({
 			actor: self("mabel"),
 			kind: "RestOrdered",

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, RoomId, TaskId } from "../ids.js";
 import { intake } from "../intake/command.js";
+import { pause } from "../org/lifecycle.js";
 import { open, say } from "../room/lifecycle.js";
 import { assign, propose } from "../task/lifecycle.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
@@ -18,6 +19,8 @@ import {
 } from "../turn/model.js";
 import type { TurnUsage } from "../types/turn.js";
 import { orderRest, sample } from "../vitality/lifecycle.js";
+import { moodOf } from "../vitality/mood.js";
+import { vitalityProjection } from "../vitality/projection.js";
 import { plan, type SchedulerOptions } from "./plan.js";
 import { lineOf, openScheduler, type Said } from "./scheduler.js";
 
@@ -83,7 +86,11 @@ const spent = (s: Scenario, agent: AgentId, tokens: number) => {
 	});
 };
 
-/** Bram strained: 80,000 tokens six hours ago are fatigue 0.64 in a sample taken then. */
+/**
+ * Bram fatigued: 80,000 tokens six hours ago are fatigue 0.64 in a sample
+ * taken then, over the 0.6 the Mood table, not in force (#62), reads as
+ * strained.
+ */
 const strainBram = (s: Scenario) => {
 	s.at(new Date(Date.parse(T0) - 6 * 3_600_000).toISOString());
 	spent(s, bram, 80_000);
@@ -93,7 +100,7 @@ const strainBram = (s: Scenario) => {
 		now: s.now(),
 		energyBudgetTokens: OPTIONS.energyBudgetTokens,
 	});
-	expect(vitality.fatigue, "Bram is strained by fatigue").toBe(0.64);
+	expect(vitality.fatigue).toBe(0.64);
 };
 
 const task = (
@@ -126,7 +133,7 @@ afterEach(() => {
 });
 
 describe("the Scheduler on the scripted model", () => {
-	it("assigns the Director's proposal by the weighted pick, starts at most two Turns at once, skips a resting and a strained Agent, and records every Turn", async () => {
+	it("assigns the Director's proposal by the weighted pick, weighs a fatigued Agent, starts at most two Turns at once, starts a resting Agent, and records every Turn", async () => {
 		fresh();
 		strainBram(s);
 		s.at(T0);
@@ -215,6 +222,7 @@ describe("the Scheduler on the scripted model", () => {
 
 		const assigned = s.ledger.projections.tasks.tasks.get(proposed)?.state;
 		const winner = expectedPick(proposed, [
+			[bram, 100],
 			[ines, 100],
 			[rin, 67],
 		]);
@@ -233,8 +241,9 @@ describe("the Scheduler on the scripted model", () => {
 		const assignLine = said.find(
 			(d) => d.verb === "assign" && d.agent !== "nobody",
 		);
-		expect(assignLine?.why).toContain(
-			`over A-ines 100, A-rin 67; passed over: A-bram is strained and may not accept a Task`,
+		expect(assignLine?.why).toContain("over A-bram 100, A-ines 100, A-rin 67");
+		expect(assignLine?.why, "no one is passed over").not.toContain(
+			"passed over",
 		);
 
 		expect(mostOpen, "two Turns were open at once").toBe(2);
@@ -249,14 +258,9 @@ describe("the Scheduler on the scripted model", () => {
 			"the third Agent with work waits for a free Turn",
 		).toBe(true);
 		expect(
-			said.filter((d) => d.agent === mabel).map((d) => d.verb),
-			"the resting Steward never starts",
-		).toEqual(["skip", "skip", "skip", "skip"]);
-		expect(said.find((d) => d.agent === mabel)?.why).toMatch(
-			/^A-mabel is resting; standing duty/,
-		);
-		expect(starts.map((d) => d.agent)).not.toContain(mabel);
-		expect(starts.map((d) => d.agent)).not.toContain(bram);
+			said.find((d) => d.agent === mabel),
+			"the resting Steward starts on its standing duty",
+		).toMatchObject({ verb: "start", why: "standing duty, no Turn yet" });
 
 		const turns = [...s.ledger.projections.turns.turns.values()].filter(
 			(t) => t.started.agent !== bram,
@@ -323,6 +327,110 @@ describe("the Scheduler on the scripted model", () => {
 		});
 	});
 
+	it("assigns to and starts a Turn for an Agent whose Turns and open Tasks the Mood table would call overloaded: its Mood is fresh", async () => {
+		fresh();
+		spent(s, rin, 110_000);
+		const capacity =
+			s.ledger.projections.org.agents.get(rin)?.definition.capacity ?? 0;
+		for (let i = 0; i <= capacity; i += 1) {
+			assign(s.ledger, { actor: operator, task_id: task(s), assignee: rin });
+		}
+		const { vitality } = sample(s.ledger, {
+			actor: operator,
+			agent: rin,
+			now: s.now(),
+			energyBudgetTokens: OPTIONS.energyBudgetTokens,
+		});
+		expect(vitality.fatigue, "110,000 tokens of a 125,000 share").toBe(0.88);
+		expect(vitality.load, "more open Tasks than capacity").toBeGreaterThan(1);
+		expect(moodOf(vitality, false, false), "the table, not in force").toBe(
+			"overloaded",
+		);
+		const shown = vitalityProjection(s.ledger.projections, {
+			now: s.now(),
+			energyBudgetTokens: OPTIONS.energyBudgetTokens,
+		}).get(rin);
+		expect(shown?.mood).toBe("fresh");
+		expect(shown?.policy.mayAcceptTasks).toBe(true);
+
+		const another = task(s);
+		assign(s.ledger, { actor: operator, task_id: another, assignee: rin });
+		expect(s.ledger.projections.tasks.tasks.get(another)?.state).toEqual({
+			tag: "Assigned",
+			assignee: rin,
+		});
+
+		const scheduler = openScheduler(s.ledger, {
+			home,
+			options: { ...OPTIONS, concurrency: 8 },
+			maxTurns: 5,
+			login: { tag: "Subscription" },
+			modelFor: () =>
+				scriptedModel({
+					calls: [],
+					usage_per_round: usage(1),
+					stop: { tag: "Completed" },
+				}),
+			say: () => {},
+		});
+		const report = scheduler.tick();
+		await scheduler.settled();
+
+		expect(report.decisions.find((d) => d.agent === rin)).toMatchObject({
+			verb: "start",
+		});
+		expect(
+			[...s.ledger.projections.turns.turns.values()]
+				.filter((t) => t.started.agent === rin)
+				.map((t) => [t.started.mood, t.finished?.payload.outcome.tag]),
+			"the Turn spent above, then the Scheduler's",
+		).toEqual([
+			["fresh", "Completed"],
+			["fresh", "Completed"],
+		]);
+	});
+
+	it("starts a Turn for a resting Agent and none for a paused one", async () => {
+		fresh();
+		orderRest(s.ledger, {
+			actor: operator,
+			agent_id: mabel,
+			action: "begin",
+			reason: "fatigue",
+		});
+		pause(s.ledger, {
+			actor: operator,
+			agent_id: thorne,
+			reason: "audit window",
+		});
+		const scheduler = openScheduler(s.ledger, {
+			home,
+			options: { ...OPTIONS, concurrency: 8 },
+			maxTurns: 5,
+			login: { tag: "Subscription" },
+			modelFor: () =>
+				scriptedModel({
+					calls: [],
+					usage_per_round: usage(1),
+					stop: { tag: "Completed" },
+				}),
+			say: () => {},
+		});
+
+		const report = scheduler.tick();
+		await scheduler.settled();
+
+		expect(report.decisions.map((d) => [d.agent, d.verb, d.why])).toEqual([
+			[thorne, "skip", "A-thorne is paused; standing duty, no Turn yet"],
+			[mabel, "start", "standing duty, no Turn yet"],
+		]);
+		expect(
+			[...s.ledger.projections.turns.turns.values()].map(
+				(t) => t.started.agent,
+			),
+		).toEqual([mabel]);
+	});
+
 	it("records a Turn the Ledger refuses to start as a skip of its Tick, and goes on", async () => {
 		fresh();
 		const scheduler = openScheduler(s.ledger, {
@@ -331,13 +439,12 @@ describe("the Scheduler on the scripted model", () => {
 			maxTurns: 5,
 			login: { tag: "Subscription" },
 			modelFor: (agent) => {
-				// Rest ordered after the plan and before the Turn starts.
+				// Paused after the plan and before the Turn starts.
 				if (agent === thorne) {
-					orderRest(s.ledger, {
+					pause(s.ledger, {
 						actor: operator,
 						agent_id: thorne,
-						action: "begin",
-						reason: "fatigue",
+						reason: "audit window",
 					});
 				}
 				return scriptedModel({
@@ -355,7 +462,7 @@ describe("the Scheduler on the scripted model", () => {
 		expect(report.decisions.map((d) => [d.agent, d.verb, d.why])).toEqual([
 			[mabel, "start", "standing duty, no Turn yet"],
 			[thorne, "start", "standing duty, no Turn yet"],
-			[thorne, "skip", "TurnStarted refused: A-thorne is resting"],
+			[thorne, "skip", "TurnStarted refused: A-thorne is paused"],
 		]);
 		expect(scheduler.report().last).toBe(report);
 		expect(

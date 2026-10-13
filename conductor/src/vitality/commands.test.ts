@@ -200,16 +200,25 @@ describe("aliquot vitality", () => {
 		expect(lastEvent()).not.toHaveProperty("causation_id");
 	});
 
-	it("show computes fatigue from Turns for an Agent never sampled", () => {
+	it("show computes fatigue from Turns for an Agent never sampled, and prints Mood fresh with the normal Policy for every live Agent, fatigued or resting", () => {
 		rinTurns({ hoursAgo: 1, tokens: 100_000 });
+		ok(vitality("rest", "A-ines", "--begin", "--reason", "fatigue 0.92"));
+
+		const lines = ok(vitality("show")).trimEnd().split("\n");
 
 		expect(
-			ok(vitality("show", "A-rin")),
-			"100,000 tokens of a 125,000-token share",
-		).toMatch(/^A-rin Rin load=0\.00 fatigue=0\.80 .* mood=overloaded /);
+			lines.find((l) => l.startsWith("A-rin ")),
+			"100,000 tokens of a 142,857-token share: 7 Agents not resting",
+		).toMatch(/^A-rin Rin load=0\.00 fatigue=0\.70 /);
+		expect(lines).toHaveLength(8);
+		expect(
+			lines.map((l) => /mood=(\S+) policy=(\S+)/.exec(l)?.slice(1)),
+		).toEqual(
+			lines.map(() => ["fresh", "mayAcceptTasks,mayOfferHelp,schedulable"]),
+		);
 	});
 
-	it("export --csv writes each sample with the Mood it had then, each Turn, and each Review, one table per call", () => {
+	it("export --csv writes each sample with Mood fresh, each Turn, and each Review, one table per call", () => {
 		rinTurns({ hoursAgo: 1, tokens: 900 });
 		ok(vitality("sample", "A-rin", "--budget", "8000"));
 		ok(vitality("sample", "A-rin", "--budget", "1000000"));
@@ -268,7 +277,7 @@ describe("aliquot vitality", () => {
 
 		expect(rows()).toEqual([
 			"seq,at,agent,load,fatigue,friction,confidence,morale,mood,causation_id",
-			"71,<at>,A-rin,0,0.9,0,1,0,overloaded,",
+			"71,<at>,A-rin,0,0.9,0,1,0,fresh,",
 			"72,<at>,A-rin,0,0.0072,0,1,0,fresh,",
 		]);
 		expect(rows("--turns")).toEqual([

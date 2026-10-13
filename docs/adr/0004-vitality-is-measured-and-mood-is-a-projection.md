@@ -14,3 +14,5 @@ The Operator wants Moods that change what Agents do. We compute Vitality from Le
 
 - Any Mood can be reproduced from the Ledger, so the Auditor can check that each Hand-off or Rest followed from the numbers.
 - The thresholds are guesses until slice 1 produces data. See `docs/design/vitality-and-merit.md`.
+
+Amended 2026-10-13 by #62: Mood is flat in the first edition; the projection records Vitality and reports `fresh`.
