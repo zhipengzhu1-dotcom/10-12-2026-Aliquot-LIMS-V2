@@ -34,7 +34,6 @@ describe("the stage table", () => {
 	});
 
 	it("has stage 2, Receipt: log_receipt from the SubmissionRecord and the carried LimsDatabase to a ReceivingLogRow and the next LimsDatabase, worked by Bram and reviewed by Pia", () => {
-		expect(STAGES).toHaveLength(2);
 		expect(STAGES[1]).toMatchObject({
 			number: 2,
 			name: "Receipt",
@@ -42,6 +41,20 @@ describe("the stage table", () => {
 			inputs: ["SubmissionRecord"],
 			carried: ["LimsDatabase"],
 			outputs: ["ReceivingLogRow", "LimsDatabase"],
+			worked_by: "A-bram",
+			reviewed_by: "A-pia",
+		});
+	});
+
+	it("has stage 3, Work Order: create_work_order from the ReceivingLogRow and the carried LimsDatabase to a WorkOrder and the next LimsDatabase, worked by Bram and reviewed by Pia, and no stage after it", () => {
+		expect(STAGES).toHaveLength(3);
+		expect(STAGES[2]).toMatchObject({
+			number: 3,
+			name: "Work Order",
+			script: "create_work_order",
+			inputs: ["ReceivingLogRow"],
+			carried: ["LimsDatabase"],
+			outputs: ["WorkOrder", "LimsDatabase"],
 			worked_by: "A-bram",
 			reviewed_by: "A-pia",
 		});
