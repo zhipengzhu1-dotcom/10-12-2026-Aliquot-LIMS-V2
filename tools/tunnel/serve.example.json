@@ -1,0 +1,5 @@
+{
+	"access_team": "aliquot-pilot",
+	"access_aud": "<the aud tag of the Access application Aliquot Conductor>",
+	"operator_email": "<the Operator's email, the one the Access policy Aliquot Operator allows>"
+}

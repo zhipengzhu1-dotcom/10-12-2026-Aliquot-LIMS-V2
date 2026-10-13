@@ -38,8 +38,11 @@ venv/
 .idea/
 .vscode/
 
-# Aliquot data directory (Ledger and blobs). See ALIQUOT_HOME.
+# Aliquot data directory (Ledger and blobs), and tools/serve.sh's serve.json. See ALIQUOT_HOME.
 .aliquot/
+
+# The cf CLI's state in the directory it runs from. See docs/ops/tunnel.md.
+.cloudflare/
 
 # Delegate worktrees
 .claude/worktrees/
