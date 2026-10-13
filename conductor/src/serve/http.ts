@@ -8,6 +8,7 @@ import type { AddressInfo } from "node:net";
 import { dirname, extname, resolve, sep } from "node:path";
 import type { Ledger } from "../ledger.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
+import type { SchedulerReport } from "../scheduler/scheduler.js";
 import type { Admit } from "./access.js";
 import { runAction } from "./actions.js";
 import {
@@ -30,6 +31,8 @@ export type ServeOptions = {
 	 * rebinding a hostname to 127.0.0.1.
 	 */
 	readonly admit?: Admit;
+	/** The Scheduler's last Tick, for `GET /api/scheduler`; absent under `--no-schedule`. */
+	readonly scheduler?: () => SchedulerReport;
 };
 
 export type Serving = {
@@ -168,6 +171,11 @@ export const serve = async (
 		}
 		if (path === "/api/ledger/verify")
 			return json(res, toJson(ledger.verify()));
+		if (path === "/api/scheduler") {
+			return options.scheduler === undefined
+				? text(res, 404, "the Scheduler is off: aliquot serve --no-schedule")
+				: json(res, toJson(options.scheduler()));
+		}
 		const name = /^\/api\/([^/]+)$/.exec(path)?.[1];
 		if (name !== undefined && isProjectionName(name)) {
 			return json(

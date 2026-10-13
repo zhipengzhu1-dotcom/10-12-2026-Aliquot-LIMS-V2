@@ -40,16 +40,25 @@ export const certsUrl = (team: string) =>
  * Admit a request only when its `Cf-Access-Jwt-Assertion` carries an RS256
  * signature by one of the team's published keys, an `aud` that includes the
  * policy's, the Operator's email, and an `exp` still ahead. The keys are
- * fetched on first use and kept for the lifetime their response gives.
+ * fetched on first use and kept for the lifetime their response gives. The
+ * first admitted request of each email says so in one line; later ones and
+ * refused ones say nothing.
  */
 export const cloudflareAccess = (
 	policy: AccessPolicy,
 	{
 		fetch: fetchCerts = fetch,
 		now = () => new Date(),
-	}: { fetch?: typeof fetch; now?: () => Date } = {},
+		say = () => {},
+	}: {
+		fetch?: typeof fetch;
+		now?: () => Date;
+		/** Where the line for an email's first admitted request goes, without its newline. */
+		say?: (line: string) => void;
+	} = {},
 ): Admit => {
 	const url = certsUrl(policy.team);
+	const seen = new Set<string>();
 	let cached: { keys: Map<string, KeyObject>; until: number } | undefined;
 	let loading: Promise<Map<string, KeyObject>> | undefined;
 
@@ -107,10 +116,14 @@ export const cloudflareAccess = (
 		const parsedClaims = Claims.safeParse(decoded(claims));
 		if (!parsedClaims.success) return false;
 		const { aud, email, exp } = parsedClaims.data;
-		return (
+		const admitted =
 			(Array.isArray(aud) ? aud : [aud]).includes(policy.aud) &&
 			email.toLowerCase() === policy.email.toLowerCase() &&
-			exp * 1000 > now().getTime()
-		);
+			exp * 1000 > now().getTime();
+		if (admitted && !seen.has(email.toLowerCase())) {
+			seen.add(email.toLowerCase());
+			say(`Admitted ${email}, verified by Cloudflare Access`);
+		}
+		return admitted;
 	};
 };

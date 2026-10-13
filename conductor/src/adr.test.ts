@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, Seq, TurnId } from "./ids.js";
+import { assign, propose } from "./task/lifecycle.js";
 import { type Scenario, scenario } from "./test-support/scenario.js";
 import { finishTurn, startTurn } from "./turn/lifecycle.js";
 import type { Actor, EventActor } from "./types/actor.js";
@@ -224,6 +225,68 @@ describe("ADR rules the slice-0 review found missing", () => {
 			).toThrow(
 				"RestOrdered refused: the Conductor authors only tier Revisions",
 			);
+		});
+
+		describe("the scheduler's assignment of a Proposed Task is the Conductor's act (#40)", () => {
+			const proposed = () =>
+				propose(s.ledger, {
+					actor: operator,
+					title: "Waiting for an assignee",
+					goal: "Do the work",
+					tat_class: "Regular",
+					priority: 1,
+				});
+
+			it("accepts the Conductor's assignment of a Proposed Task, naming its TaskProposed", () => {
+				const { task, seq } = proposed();
+
+				const assigned = assign(s.ledger, {
+					actor: conductor,
+					task_id: task.id,
+					assignee: rin,
+				});
+
+				expect(s.ledger.all().at(-1)).toMatchObject({
+					seq: assigned.seq,
+					kind: "TaskAssigned",
+					actor: conductor,
+					causation_id: seq,
+				});
+				expect(assigned.task.state).toEqual({ tag: "Assigned", assignee: rin });
+			});
+
+			it("refuses the Conductor's assignment of a Task that is no longer Proposed", () => {
+				const { task } = proposed();
+				assign(s.ledger, { actor: operator, task_id: task.id, assignee: rin });
+				const before = s.ledger.all().length;
+
+				expect(() =>
+					assign(s.ledger, {
+						actor: conductor,
+						task_id: task.id,
+						assignee: AgentId.parse("A-ines"),
+					}),
+				).toThrow(
+					`TaskAssigned refused: the Conductor assigns only a Proposed Task; ${task.id} is Assigned, expected Proposed`,
+				);
+				expect(s.ledger.all()).toHaveLength(before);
+			});
+
+			it("refuses a Conductor assignment that names another cause than the Task's previous Event", () => {
+				const { task, seq } = proposed();
+
+				expect(() =>
+					s.ledger.append({
+						actor: conductor,
+						task_id: task.id,
+						causation_id: Seq.parse(seq - 1),
+						kind: "TaskAssigned",
+						payload: { task_id: task.id, assignee: rin },
+					}),
+				).toThrow(
+					`TaskAssigned refused: the Conductor's assignment of ${task.id} names its previous Event, seq ${seq}, as its cause, not ${seq - 1}`,
+				);
+			});
 		});
 
 		describe("the end-of-Turn Vitality sample is the Conductor's act (#43)", () => {
