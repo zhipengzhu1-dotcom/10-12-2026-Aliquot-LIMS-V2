@@ -1075,10 +1075,10 @@ export const evaluateReport = ({ inputs, outputs }: RunArtifacts): Scored => {
 			const cell = cells.get(label);
 			const held = cell || "nothing";
 			if (receivingLog) {
-				const logs = stated(logged[receivingLog]);
+				const fromRow = stated(logged[receivingLog]);
 				check(
-					cell === logs,
-					`${name}: the report holds ${held}, not the Receiving Log row's ${receivingLog} ${logs ?? "(none)"}`,
+					cell === fromRow,
+					`${name}: the report holds ${held}, not the Receiving Log row's ${receivingLog} ${fromRow ?? "(none)"}`,
 				);
 			}
 			const stored = stated(before.sample?.[database]);

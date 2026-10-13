@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgentId, RoomId, Sha256 } from "../ids.js";
+import { AgentId, type ArtifactId, RoomId, Sha256 } from "../ids.js";
 import { open, say } from "../room/lifecycle.js";
 import { store } from "../sandbox/lifecycle.js";
 import { assign, escalate, propose } from "../task/lifecycle.js";
@@ -7,6 +7,7 @@ import { type Scenario, scenario } from "../test-support/scenario.js";
 import { messageArtifactId } from "../tools/message.js";
 import { giveCoaching } from "../training/lifecycle.js";
 import type { Actor } from "../types/actor.js";
+import type { ArtifactType } from "../types/artifact.js";
 import { finishTurn, startTurn } from "./lifecycle.js";
 import { NO_USAGE } from "./model.js";
 import { turnPrompt } from "./prompt.js";
@@ -14,6 +15,7 @@ import { turnPrompt } from "./prompt.js";
 const rin = AgentId.parse("A-rin");
 const odile = AgentId.parse("A-odile");
 const bram = AgentId.parse("A-bram");
+const ines = AgentId.parse("A-ines");
 const operator: Actor = { tag: "Operator" };
 const lab = RoomId.parse("RM-lab");
 
@@ -222,5 +224,106 @@ describe("the prompt of a Turn", () => {
 		expect(promptOf(bram)).toContain(
 			`Inputs: ${id} (the Operator's Message seq ${report.seq} in RM-lab, not stored yet: store it with store_message).`,
 		);
+	});
+
+	it("gives the Director a results Message as stage 4's work, naming every Script id of stages 4 to 6 and what an unreadable one lacks", () => {
+		const results = say(s.ledger, {
+			actor: operator,
+			room_id: lab,
+			body: "Lab Ref 26-0412, notebook NB-07 p.31. Container 1: 10.246 g for 20 capsules, 10.246 g taken.",
+		});
+
+		const director = promptOf(odile);
+
+		const section = director.slice(
+			director.indexOf("## The Operator's Messages in RM-lab"),
+		);
+		expect(section).toContain(
+			"A Message in RM-lab that reports results is work too.",
+		);
+		expect(
+			section,
+			"the goals name every Script id, which no Specialist has a Tool to look up",
+		).toMatch(
+			/S-parse_results_message.*S-compute_results \(stage 4 Results\).*S-verify_results \(stage 5 Verification\).*S-render_roa \(stage 6 Report\)/,
+		);
+		expect(section).toContain(
+			'titled "Stage 5 Verification: <the Work Order>" whose inputs are the Result Worksheet and the weighings',
+		);
+		expect(section).toContain("and assign it to A-bram, who works stage 5");
+		expect(section).toContain("and assign it to A-ines, who works stage 6");
+		expect(section).toContain("Then assign it to A-rin, who works stage 4.");
+		expect(section).toContain(
+			"asking for the Lab Reference, the notebook reference and the weighings it lacks, and propose no Task.",
+		);
+		expect(section).toContain(
+			`- seq ${results.seq}, Artifact ${messageArtifactId(results)}: Lab Ref 26-0412`,
+		);
+	});
+
+	it("tells the holder of a stage 6 Task to request the ExternalMessage Gate and answer the results Message its inputs came from, naming the stage's reviewer", () => {
+		const receipt = say(s.ledger, {
+			actor: operator,
+			room_id: lab,
+			body: "Received 3 bottles, Lot 2403A, Product Code VC500",
+		});
+		const results = say(s.ledger, {
+			actor: operator,
+			room_id: lab,
+			body: "Lab Ref 26-0412, notebook NB-07 p.31.",
+		});
+		const stored = (
+			artifact_type: ArtifactType,
+			sha256: string,
+			lineage: ArtifactId[] = [],
+		) =>
+			store(
+				s.ledger,
+				{ actor: operator },
+				{
+					sha256: Sha256.parse(sha256),
+					media_type: "application/octet-stream",
+					artifact_type,
+					produced_by: operator,
+					lineage,
+				},
+			).artifact.id;
+		const n = (i: number) => i.toString(16).padStart(64, "0");
+		const received = stored("Other", messageArtifactId(receipt));
+		const message = stored("Other", messageArtifactId(results));
+		const report = [
+			stored("VerificationRecord", n(2)),
+			stored("ReceivingLogRow", n(3), [received]),
+			stored("Other", n(1), [message]),
+			stored("LimsDatabase", n(4), [received]),
+		];
+		const receiving = [
+			stored("ReceivingLogRow", n(5)),
+			stored("LimsDatabase", n(6)),
+		];
+		for (const inputs of [report, receiving]) {
+			const { task } = propose(s.ledger, {
+				actor: operator,
+				title: "Stage work",
+				goal: "Work it",
+				tat_class: "Regular",
+				priority: 1,
+				inputs,
+			});
+			assign(s.ledger, { actor: operator, task_id: task.id, assignee: ines });
+		}
+
+		const [, t1, t2] = promptOf(ines)
+			.split(/\n- (?=T-\d)/)
+			.map((part) => part.split("\n\n")[0]);
+
+		expect(t1).toContain(
+			`After run S-render_roa (stage 6 Report), request an ExternalMessage Gate with request_gate, naming no Task, whose payload is {"artifact_id": <the PDF Report of Analysis>, "lab_reference": <its Lab Reference>}; then reply to the Operator's Message seq ${results.seq} in RM-lab with send_message, naming the Gate id and the two Report of Analysis Artifact ids.`,
+		);
+		expect(t1, "stage 6's reviewer").toContain(
+			"complete it with complete_task naming a reviewer, such as A-anselm.",
+		);
+		expect(t2, "a stage 3 Task asks for no Gate").not.toContain("Gate");
+		expect(t2, "stage 3's reviewer").toContain("such as A-pia.");
 	});
 });

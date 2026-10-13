@@ -52,10 +52,12 @@ const plain = (action: Action): ActionRule => ({
 });
 
 /**
- * The first stage whose input types the Artifacts cover: the stage a Task on
- * them works.
+ * The last stage whose input types the Artifacts cover: the stage a Task on
+ * them works. Each stage takes an output of an earlier one, so no earlier
+ * stage's Task covers a later stage's inputs, while stage 6's covers stage
+ * 3's (#59).
  */
-const stageOfInputs = (
+export const stageOfInputs = (
 	stages: readonly Stage[],
 	projections: Projections,
 	inputs: readonly ArtifactId[],
@@ -63,9 +65,9 @@ const stageOfInputs = (
 	const types = new Set(
 		inputs.map((id) => projections.artifacts.artifacts.get(id)?.artifact_type),
 	);
-	return stages.find(
-		(s) => s.inputs.length > 0 && s.inputs.every((t) => types.has(t)),
-	);
+	return stages
+		.filter((s) => s.inputs.length > 0 && s.inputs.every((t) => types.has(t)))
+		.at(-1);
 };
 
 /** The stage a call works on: its Script's, its Task's, or its proposal's inputs'. */

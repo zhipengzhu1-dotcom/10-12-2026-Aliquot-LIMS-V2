@@ -23,8 +23,12 @@ import { Action } from "../types/action.js";
 import type { Actor } from "../types/actor.js";
 import type { ArtifactType } from "../types/artifact.js";
 import { sample } from "../vitality/lifecycle.js";
-import { checkStages, type Stage } from "../workflow/stages.js";
-import type { ToolCall } from "./actions.js";
+import {
+	checkStages,
+	type Stage,
+	STAGES as WORKFLOW,
+} from "../workflow/stages.js";
+import { stageOfInputs, type ToolCall } from "./actions.js";
 import { callTool, refusalOf } from "./hook.js";
 import { toolContext } from "./tool.js";
 
@@ -270,6 +274,26 @@ describe("the relational Actions", () => {
 		expect((await call("thorne", "complete_task", { task_id: lab })).text).toBe(
 			"complete_task refused: A-thorne's Charter forbids DoLabWork: complete_task works stage 1 Submission",
 		);
+	});
+
+	it("reads a Task on stage 6's inputs as stage 6 of the workflow's table, though they cover stage 3's (#59)", () => {
+		const stageOf = (types: ArtifactType[]) => {
+			const inputs = types.map((type) => artifact(type));
+			return stageOfInputs(WORKFLOW, s.ledger.projections, inputs)?.number;
+		};
+
+		expect(
+			stageOf([
+				"VerificationRecord",
+				"ReceivingLogRow",
+				"Other",
+				"LimsDatabase",
+			]),
+		).toBe(6);
+		expect(stageOf(["ReceivingLogRow", "LimsDatabase"])).toBe(3);
+		expect(stageOf(["ResultWorksheet", "Other"])).toBe(5);
+		expect(stageOf(["WorkOrder", "Other", "LimsDatabase"])).toBe(4);
+		expect(stageOf(["Other"])).toBeUndefined();
 	});
 
 	it("TouchResults refuses stages 4 to 6 and passes stages 1 to 3", async () => {
