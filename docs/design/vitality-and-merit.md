@@ -94,7 +94,7 @@ The Scheduler in `aliquot serve` does this as built (`conductor/src/scheduler/pl
 - The pick is the first 32 bits of the SHA-256 of the Task id, as the Review sample reads them, mod the total weight. The candidates lie in id order, and the pick falls in one of them. The same Ledger gives the same assignee.
 - A Task no candidate may take waits for the next Tick, and the Scheduler's line names each candidate and why it was passed over.
 
-The Energy budget's 80 percent line holds when the Scheduler starts Turns: while the society's tokens in the trailing 5 hours, as the Turn Projection counts them, are above 80 percent of `--budget`, only an Agent that holds a Task with a rush TAT class, or reviews one `UnderReview`, starts a Turn, so rush work does not stall at its Review.
+The Energy budget's 80 percent line holds when the Scheduler starts Turns: while the society's tokens in the trailing 5 hours, as the Turn Projection counts them, are above 80 percent of `--budget`, only an Agent that holds a Task with a rush TAT class starts a Turn.
 
 ## Promotion is the reward
 

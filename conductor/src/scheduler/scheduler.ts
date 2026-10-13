@@ -1,12 +1,9 @@
 import { AppendRefused } from "../append-guard.js";
 import type { AgentId, TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
-import { liveAgent } from "../org/projection.js";
-import { Refusal } from "../reduce.js";
 import { assign } from "../task/lifecycle.js";
 import type { Login } from "../turn/auth.js";
-import { finishTurn, sampleAfterTurn } from "../turn/lifecycle.js";
-import { NO_USAGE, type RunModel } from "../turn/model.js";
+import type { RunModel } from "../turn/model.js";
 import { countedTokens } from "../turn/projection.js";
 import { runTurn } from "../turn/run.js";
 import { type Decision, plan, type SchedulerOptions } from "./plan.js";
@@ -48,7 +45,7 @@ export type Scheduler = {
 	/** Plan one Tick from the Ledger and apply it. Its Turns run on after it returns. */
 	tick(): TickReport;
 	report(): SchedulerReport;
-	/** Close the Turns a stopped Conductor left open, then Tick now and every `tickMs`. */
+	/** Tick now and every `tickMs`. */
 	start(): void;
 	/** Stop ticking and wait for the Turns still open. */
 	stop(): Promise<void>;
@@ -115,7 +112,7 @@ export const openScheduler = (
 		return at;
 	};
 
-	const startTurnOf = (agent: AgentId) => {
+	const startTurnOf = (agent: AgentId, into: Said[]) => {
 		const running = runTurn(ledger, {
 			home: setup.home,
 			agent,
@@ -135,12 +132,12 @@ export const openScheduler = (
 					`${turn.started.turn_id} ${outcome.tag === "Error" ? `Error: ${outcome.message}` : outcome.tag}: ${tool_calls} Tool call${tool_calls === 1 ? "" : "s"}, ${countedTokens(usage)} tokens; Mood ${mood}`,
 				);
 			})
+			// A Turn the Ledger refuses to start is a skip of the Tick that
+			// started it, which `into` still holds.
 			.catch((error: unknown) =>
-				said(
-					agent,
-					error instanceof AppendRefused ? "refused" : "failed",
-					messageOf(error),
-				),
+				error instanceof AppendRefused
+					? said(agent, "skip", error.message, into)
+					: said(agent, "failed", messageOf(error)),
 			)
 			.finally(() => open.delete(running));
 		open.add(running);
@@ -166,7 +163,7 @@ export const openScheduler = (
 				return said("nobody", "assign", decision.why, into);
 			case "Start":
 				said(decision.agent, "start", decision.why, into);
-				return startTurnOf(decision.agent);
+				return startTurnOf(decision.agent, into);
 			case "Skip":
 				return said(decision.agent, "skip", decision.why, into);
 			case "Idle":
@@ -189,39 +186,6 @@ export const openScheduler = (
 		return last;
 	};
 
-	/** A Turn open in the Ledger while no Turn runs was left by a Conductor that stopped during it. */
-	const closeLeftOpen = () => {
-		for (const [agent, turn_id] of [...ledger.projections.turns.open]) {
-			try {
-				const finished = finishTurn(ledger, {
-					turn_id,
-					usage: NO_USAGE,
-					outcome: {
-						tag: "Error",
-						message: `the Conductor stopped during ${turn_id}; recorded late, at ${ledger.now().toISOString()} when the Scheduler started, with its usage and Tool calls unknown`,
-					},
-					tool_calls: 0,
-				});
-				// A retired Agent takes no sample; its Turn still finishes.
-				if (!(liveAgent(ledger.projections.org, agent) instanceof Refusal)) {
-					sampleAfterTurn(ledger, {
-						agent,
-						finished: finished.seq,
-						now: ledger.now(),
-						energyBudgetTokens: options.energyBudgetTokens,
-					});
-				}
-				said(
-					agent,
-					"finished",
-					`${turn_id} late: the Conductor stopped during it`,
-				);
-			} catch (error) {
-				said(agent, "failed", messageOf(error));
-			}
-		}
-	};
-
 	const safeTick = () => {
 		try {
 			tick();
@@ -238,7 +202,6 @@ export const openScheduler = (
 		tick,
 		report: () => ({ options, last }),
 		start: () => {
-			closeLeftOpen();
 			safeTick();
 			timer = setInterval(safeTick, options.tickMs);
 		},

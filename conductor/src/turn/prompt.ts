@@ -152,18 +152,6 @@ const reviewNote = (task: Task, projections: Projections): string => {
 	return `\n  Sampled for Review at ${tier}: complete it with complete_task naming a reviewer${reviewer === undefined ? "" : `, such as ${actorText(reviewer)}`}.`;
 };
 
-/** The Tasks UnderReview whose reviewer is the Agent. */
-const reviewing = (projections: Projections, agent: AgentId): string[] =>
-	[...projections.tasks.tasks.values()].flatMap((task) =>
-		task.state.tag === "UnderReview" &&
-		task.state.reviewer.tag === "Agent" &&
-		task.state.reviewer.id === agent
-			? [
-					`${taskLine(task, projections)}\n  Completed by ${task.state.assignee}, outputs ${task.outputs.length === 0 ? "none" : task.outputs.join(", ")}: record your Review with review_task, then complete it with complete_task.`,
-				]
-			: [],
-	);
-
 /** The Tasks assigned to the Agent and the ones it proposed, by live state. */
 const tasksByState = (projections: Projections, agent: AgentId): string => {
 	const { tasks } = projections.tasks;
@@ -222,10 +210,6 @@ const work = (
 		);
 	const parts = [
 		section("Your Tasks", tasksByState(projections, agent)),
-		section(
-			"Tasks UnderReview that you review",
-			list(reviewing(projections, agent)),
-		),
 		section("Messages in your Rooms since your last Turn", list(messages)),
 		section("Help requests addressed to you", list(help)),
 		section("Gates you requested", list(gates)),

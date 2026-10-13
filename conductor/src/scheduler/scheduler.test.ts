@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, RoomId, TaskId } from "../ids.js";
 import { intake } from "../intake/command.js";
 import { open, say } from "../room/lifecycle.js";
-import { assign, complete, propose, start } from "../task/lifecycle.js";
+import { assign, propose } from "../task/lifecycle.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import {
@@ -28,7 +28,6 @@ const ines = id("A-ines");
 const bram = id("A-bram");
 const mabel = id("A-mabel");
 const thorne = id("A-thorne");
-const pia = id("A-pia");
 const operator = { tag: "Operator" } as const;
 const lab = RoomId.parse("RM-lab");
 
@@ -273,7 +272,7 @@ describe("the Scheduler on the scripted model", () => {
 		expect(s.ledger.verify().ok).toBe(true);
 	});
 
-	it("tells a Specialist on Probation whom its completion names, so it completes its Task, and then gives the reviewer a Turn", async () => {
+	it("tells a Specialist on Probation whom its completion names, so it completes its Task", async () => {
 		fresh();
 		const held = task(s);
 		assign(s.ledger, { actor: operator, task_id: held, assignee: rin });
@@ -322,113 +321,49 @@ describe("the Scheduler on the scripted model", () => {
 			assignee: rin,
 			reviewer: { tag: "Agent", id: id("A-pia") },
 		});
+	});
 
-		s.at(later(20));
-		const next = scheduler.tick();
+	it("records a Turn the Ledger refuses to start as a skip of its Tick, and goes on", async () => {
+		fresh();
+		const scheduler = openScheduler(s.ledger, {
+			home,
+			options: OPTIONS,
+			maxTurns: 5,
+			login: { tag: "Subscription" },
+			modelFor: (agent) => {
+				// Rest ordered after the plan and before the Turn starts.
+				if (agent === thorne) {
+					orderRest(s.ledger, {
+						actor: operator,
+						agent_id: thorne,
+						action: "begin",
+						reason: "fatigue",
+					});
+				}
+				return scriptedModel({
+					calls: [],
+					usage_per_round: usage(1),
+					stop: { tag: "Completed" },
+				});
+			},
+			say: () => {},
+		});
+
+		const report = scheduler.tick();
 		await scheduler.settled();
 
-		expect(next.decisions).toContainEqual(
-			expect.objectContaining({
-				agent: "A-pia",
-				verb: "start",
-				why: `reviews ${held}`,
-			}),
-		);
-		expect(prompts.get(id("A-pia"))).toContain(
-			`## Tasks UnderReview that you review\n\n- ${held} Task 1`,
-		);
-	});
-
-	it("finishes, late and as an Error, a Turn a stopped Conductor left open, before its first Tick", async () => {
-		fresh();
-		const { turn } = startTurn(s.ledger, {
-			agent: rin,
-			model: "claude-sonnet-5-5",
-			energyBudgetTokens: OPTIONS.energyBudgetTokens,
-		});
-		s.at(later(60));
-		const lines: string[] = [];
-		const scheduler = openScheduler(s.ledger, {
-			home,
-			options: OPTIONS,
-			maxTurns: 5,
-			login: { tag: "Subscription" },
-			modelFor: () =>
-				scriptedModel({
-					calls: [],
-					usage_per_round: usage(1),
-					stop: { tag: "Completed" },
-				}),
-			say: (line) => lines.push(line),
-		});
-
-		scheduler.start();
-		await scheduler.stop();
-
-		const [finished, sampled] = s
-			.events()
-			.filter((e) => e.seq > turn.seq)
-			.slice(0, 2);
-		expect(finished).toMatchObject({
-			kind: "TurnFinished",
-			actor: { tag: "Conductor" },
-			causation_id: turn.seq,
-			payload: {
-				turn_id: turn.started.turn_id,
-				outcome: {
-					tag: "Error",
-					message: `the Conductor stopped during ${turn.started.turn_id}; recorded late, at ${later(60)} when the Scheduler started, with its usage and Tool calls unknown`,
-				},
-			},
-		});
-		expect(sampled).toMatchObject({
-			kind: "VitalitySampled",
-			causation_id: finished?.seq,
-		});
-		expect(lines[0]).toBe(
-			`scheduler ${later(60)} A-rin finished ${turn.started.turn_id} late: the Conductor stopped during it`,
-		);
-		expect(s.ledger.projections.turns.open.size).toBe(0);
-	});
-
-	it("finishes a left-open Turn of an Agent retired since, without a sample, and keeps ticking", async () => {
-		fresh();
-		const { turn } = startTurn(s.ledger, {
-			agent: rin,
-			model: "claude-sonnet-5-5",
-			energyBudgetTokens: OPTIONS.energyBudgetTokens,
-		});
-		s.retire(rin, "Replaced");
-		const lines: string[] = [];
-		const scheduler = openScheduler(s.ledger, {
-			home,
-			options: OPTIONS,
-			maxTurns: 5,
-			login: { tag: "Subscription" },
-			modelFor: () =>
-				scriptedModel({
-					calls: [],
-					usage_per_round: usage(1),
-					stop: { tag: "Completed" },
-				}),
-			say: (line) => lines.push(line),
-		});
-
-		scheduler.start();
-		await scheduler.stop();
-
+		expect(report.decisions.map((d) => [d.agent, d.verb, d.why])).toEqual([
+			[mabel, "start", "standing duty, no Turn yet"],
+			[thorne, "start", "standing duty, no Turn yet"],
+			[thorne, "skip", "TurnStarted refused: A-thorne is resting"],
+		]);
+		expect(scheduler.report().last).toBe(report);
 		expect(
-			s.ledger.projections.turns.turns.get(turn.started.turn_id)?.finished
-				?.payload.outcome.tag,
-		).toBe("Error");
-		expect(
-			s
-				.events()
-				.filter((e) => e.kind === "VitalitySampled" && e.payload.agent === rin),
-			"a retired Agent takes no sample",
-		).toEqual([]);
-		expect(lines[0]).toMatch(/ A-rin finished TN-1 late: /);
-		expect(scheduler.report().last, "the first Tick ran").not.toBeNull();
+			[...s.ledger.projections.turns.turns.values()].map((t) => [
+				t.started.agent,
+				t.finished?.payload.outcome.tag,
+			]),
+		).toEqual([[mabel, "Completed"]]);
 	});
 });
 
@@ -461,7 +396,7 @@ describe("the plan", () => {
 			rin,
 		]);
 		expect(over.find((d) => d.tag === "Skip")?.why).toContain(
-			"the society used 810000 of 1000000 tokens in 5 hours, over 80 percent, and A-mabel holds or reviews no rush Task",
+			"the society used 810000 of 1000000 tokens in 5 hours, over 80 percent, and A-mabel holds no rush Task",
 		);
 
 		const under = decide(790_000);
@@ -469,27 +404,6 @@ describe("the plan", () => {
 			under.filter((d) => d.tag === "Start").map((d) => d.agent),
 			"under the line every Agent with work starts",
 		).toEqual([ines, mabel, rin]);
-	});
-
-	it("over 80 percent still starts the reviewer of a rush Task UnderReview", () => {
-		fresh();
-		spent(s, thorne, 810_000);
-		const rush = task(s, "Rush1to2Days");
-		assign(s.ledger, { actor: operator, task_id: rush, assignee: rin });
-		start(s.ledger, { actor: { tag: "Agent", id: rin }, task_id: rush });
-		complete(s.ledger, {
-			actor: { tag: "Agent", id: rin },
-			task_id: rush,
-			reviewer: { tag: "Agent", id: pia },
-		});
-
-		const decisions = plan(s.ledger.projections, s.now(), OPTIONS, new Map());
-
-		expect(decisions).toContainEqual({
-			tag: "Start",
-			agent: pia,
-			why: `reviews ${rush}; rush ${rush}`,
-		});
 	});
 
 	it("wakes an Agent for a Message sent while its last Turn ran", () => {

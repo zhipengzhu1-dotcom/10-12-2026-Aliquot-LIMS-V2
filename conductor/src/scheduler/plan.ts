@@ -212,17 +212,6 @@ const lastTurnOf = (
 		.filter((t) => t.started.agent === agent)
 		.at(-1);
 
-/** The Tasks UnderReview whose reviewer is `agent`. */
-const reviewedBy = (projections: Projections, agent: AgentId): TaskId[] =>
-	[...projections.tasks.tasks.values()]
-		.filter(
-			(t) =>
-				t.state.tag === "UnderReview" &&
-				t.state.reviewer.tag === "Agent" &&
-				t.state.reviewer.id === agent,
-		)
-		.map((t) => t.id);
-
 /** Why an Agent has something to do this Tick, or nothing when it has not. */
 const workFor = (
 	projections: Projections,
@@ -243,9 +232,6 @@ const workFor = (
 		(id) => tasks.tasks.get(id)?.state.tag !== "Blocked",
 	);
 	if (working.length > 0) reasons.push(`holds ${working.join(", ")}`);
-
-	const reviewing = reviewedBy(projections, agent.id);
-	if (reviewing.length > 0) reasons.push(`reviews ${reviewing.join(", ")}`);
 
 	const self = { tag: "Agent", id: agent.id } as const;
 	const myRooms = new Set(
@@ -353,12 +339,7 @@ const turnDecisions = (
 	const rushOnly = used > RUSH_ONLY_SHARE * options.energyBudgetTokens;
 	let open = projections.turns.open.size;
 	for (const { agent, why } of ready) {
-		// A rush Task UnderReview counts for its reviewer, or rush work would
-		// stall at its Review exactly when the rule protects it.
-		const rush = [
-			...(held.get(agent.id) ?? []),
-			...reviewedBy(projections, agent.id),
-		].filter(
+		const rush = (held.get(agent.id) ?? []).filter(
 			(id) =>
 				(projections.tasks.tasks.get(id)?.tat_class ?? "Regular") !== "Regular",
 		);
@@ -366,7 +347,7 @@ const turnDecisions = (
 			decisions.push({
 				tag: "Skip",
 				agent: agent.id,
-				why: `the society used ${used} of ${options.energyBudgetTokens} tokens in 5 hours, over ${RUSH_ONLY_SHARE * 100} percent, and ${agent.id} holds or reviews no rush Task; ${why}`,
+				why: `the society used ${used} of ${options.energyBudgetTokens} tokens in 5 hours, over ${RUSH_ONLY_SHARE * 100} percent, and ${agent.id} holds no rush Task; ${why}`,
 			});
 		} else if (open >= options.concurrency) {
 			decisions.push({
