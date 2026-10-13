@@ -13,6 +13,7 @@ import {
 	TaskId,
 	TurnId,
 } from "./ids.js";
+import { Action } from "./types/action.js";
 import { Actor, EventActor } from "./types/actor.js";
 import { AgentDefinition } from "./types/agent-definition.js";
 import { StoredArtifact } from "./types/artifact.js";
@@ -180,6 +181,16 @@ const BODIES = [
 			usage: TurnUsage,
 			outcome: TurnOutcome,
 			tool_calls: z.number().int().nonnegative(),
+		}),
+	),
+	body(
+		"ActionRefused",
+		z.strictObject({
+			agent: AgentId,
+			tool: z.string().min(1),
+			action: z.union([Action, z.literal("Policy")]),
+			reason: z.string().min(1),
+			task_id: TaskId.optional(),
 		}),
 	),
 ] as const;

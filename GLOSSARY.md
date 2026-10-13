@@ -27,7 +27,7 @@ The versioned document that says who an Agent is: its role, Charter, Persona, to
 _Avoid_: config, profile, agent file
 
 **Charter**:
-The part of an Agent definition that states the Agent's purpose, responsibilities, forbidden actions, and escalation rule.
+The part of an Agent definition that states the Agent's purpose, responsibilities, forbidden Actions, and escalation rule.
 _Avoid_: system prompt, instructions, job description
 
 **Persona**:
@@ -141,7 +141,7 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns.
+The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns and the Tool calls its hook refuses.
 _Avoid_: orchestrator, server, backend, scheduler
 
 **Interface**:
@@ -152,9 +152,17 @@ _Avoid_: dashboard, frontend, portal
 The Server-Sent Events at `/api/events`: one for each Event the Ledger appends, with the Event's seq as its id, so a client that reconnects resumes from the Ledger.
 _Avoid_: feed, websocket
 
-**Action**:
+**Operator action**:
 A lifecycle verb the Operator runs through the Interface, as `POST /api/actions/<verb>`, which appends the same Event the matching command appends, always as the Operator.
 _Avoid_: RPC, endpoint
+
+**Tool**:
+A Ledger-backed verb that an Agent calls during a Turn, such as `run_script` or `send_message`, always as itself. The Conductor serves each Agent its Tools from one in-process MCP server, and runs every call through the hook first.
+_Avoid_: plugin, capability
+
+**Action**:
+One entry of the closed vocabulary a Charter forbids, such as `RunScript` or `VerifyOwnTeamRun`. Each Action is one predicate over a Tool call and the Projections. The hook refuses a call that performs an Action the Agent's Charter forbids, and the Conductor records the refusal as an `ActionRefused` Event.
+_Avoid_: restriction, prohibition
 
 **Sandbox**:
 The isolated environment, with no network access, where every Script and every piece of agent-written code runs.
@@ -162,7 +170,7 @@ _Avoid_: container, VM, jail
 
 **Script**:
 A versioned Python program with declared input and output Artifact types, owned by one Agent and run only in the Sandbox.
-_Avoid_: tool, program, macro, job
+_Avoid_: tool (a Tool is a verb an Agent calls), program, macro, job
 
 **Run**:
 One execution of one Script version on specific input Artifacts.

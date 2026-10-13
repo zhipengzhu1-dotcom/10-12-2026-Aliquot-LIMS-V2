@@ -81,11 +81,11 @@ Off CI, a test that needs a missing prerequisite skips with a notice: the Docker
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
-No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `training`, `room`, `gate`, `sandbox`, `vitality`, `workflow`) and the actions of `aliquot serve` (see [Serve](#serve)), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
+No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `training`, `room`, `gate`, `sandbox`, `tools`, `vitality`, `workflow`) and the actions of `aliquot serve` (see [Serve](#serve)), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
-The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, Turns, and Training) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
+The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, Turns, Training, and who proposed each Task) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
 
 Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`. It reads only the chain, so it also works on a Ledger too corrupt to open.
 
@@ -132,7 +132,7 @@ pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
 pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
 ```
 
-These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)). Granting a Skill is a Revision that adds its id to `skills`. The Ledger refuses a definition whose `skills` names an id that no `training skill publish` has published, and the refusal names the id (see [Training](#training)).
+These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)). Granting a Skill is a Revision that adds its id to `skills`. The Ledger refuses a definition whose `skills` names an id that no `training skill publish` has published, and the refusal names the id (see [Training](#training)). A Charter's `forbidden` list holds Actions, such as `RunScript` (see [Tools](#tools)). The Ledger refuses a definition that forbids anything else, from `org seed` or `org revise`, and the refusal names it: `AgentDefinitionRevised refused: A-rin's Charter forbids "FlyDrones", which is not an Action; the Actions are RunScript, ...`. A Ledger seeded before the Action vocabulary keeps the roster's phrases, such as `Run Scripts`; its Revisions may carry them over, and the hook reads each one as its Action.
 
 Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
 
@@ -309,6 +309,59 @@ Print every Turn, or one Agent's, in the order they started. An open Turn prints
 pnpm -C conductor cli --home /tmp/aliquot turn list
 pnpm -C conductor cli --home /tmp/aliquot turn list --agent A-rin
 # TN-1 A-rin model=claude-opus-5-5 started=2026-10-12T09:00:00.000Z finished=2026-10-12T09:02:00.000Z input=1200 output=300 cache_creation=40 cache_read=9000 cost_usd=0.021 tool_calls=3 outcome=Completed
+```
+
+## Tools
+
+An Agent acts through its Tools: Ledger-backed verbs it calls during a Turn, always as itself. The Tool table, `conductor/src/tools/table.ts`, has one row per Tool: its name, its input shape, the lifecycle verb it calls with the Agent as actor, and the Action it performs, if any. The Conductor serves one Agent's Tools from an in-process MCP server built from the table (`conductor/src/tools/sdk.ts`, the only module that loads `@anthropic-ai/claude-agent-sdk`), so a Tool cannot act as another Agent. A Tool returns the Event its verb appended, or the Projection it read, as JSON. A refusal by the Ledger comes back as its text.
+
+| Tool | Verb |
+|---|---|
+| `read_tasks` | Reads the Task Projection, by assignee or state |
+| `propose_task`, `assign_task`, `start_task`, `complete_task`, `fail_task`, `escalate_task`, `hand_off`, `review_task`, `request_help` | The Task lifecycle |
+| `run_script` | Runs a Script in the Sandbox; on a stage Script, also records the stage's Evaluation, so it needs the Task |
+| `read_artifact`, `list_artifacts`, `lineage` | Read the Artifact Projection and the blob store |
+| `send_message`, `read_room`, `open_room` | The Room lifecycle, under the membership rule |
+| `note_memory`, `publish_skill` | The Training lifecycle |
+| `propose_revision` | Revises an Agent definition |
+| `request_gate` | Requests a Gate; with a Task, blocks it |
+| `order_rest`, `end_rest` | The Vitality lifecycle |
+| `verify_ledger` | Walks the hash chain |
+
+A hook runs before every Tool call. It refuses the call when the Agent's Charter forbids an Action the call performs, and then when the Agent's Policy forbids the call: a `resting` Agent may call nothing, and an Agent whose Policy accepts no Task (`strained` or worse) may not start a Task or assign one to itself. The Conductor records each refusal as an `ActionRefused` Event (ADR-0013) with the Agent, the Tool, the Action (or `Policy`), the reason, and the Task when the call named one. Its cause is the Agent's open Turn. A call that the hook allows and the Ledger then refuses is not an `ActionRefused`.
+
+Each Action is one predicate, in `conductor/src/tools/actions.ts`:
+
+| Action | Refuses |
+|---|---|
+| `RunScript` | `run_script` |
+| `TouchArtifact` | `read_artifact` |
+| `DecideGate`, `RunOutsideSandbox`, `WriteSystemOfRecord` | Nothing yet: no Tool decides a Gate, runs code outside the Sandbox, or writes a System of record |
+| `AssignLabWork` | `propose_task` or `assign_task` of a workflow stage's Task |
+| `AcceptOwnProposal` | `assign_task` or `start_task` on a Task the caller proposed |
+| `DoLabWork` | `run_script` of a stage Script, or `complete_task` on a stage's Task |
+| `TouchResults` | The same, for stages 4 to 6 |
+| `VerifyOwnTeamRun` | `run_script` of stage 5 on an Artifact from a Run whose Task's assignee is on the caller's team: the caller, an Agent that reports to it, or one that reports to a Supervisor it reports to. The Specialists report to every Supervisor. |
+
+A Task is a stage's Task when its inputs hold an Artifact of each of the stage's input types.
+
+Print the Tools an Agent may use given its Charter. A Tool whose plain Action the Charter forbids prints the Action; a Tool that a relational Action refuses only for some calls says so.
+
+```sh
+tools/aliquot --home /tmp/aliquot tools list A-odile
+# A-odile's Charter forbids RunScript, TouchArtifact, DecideGate
+# read_tasks        List Tasks with their state, inputs, outputs and Help requests, filtered by assignee or state
+# ...
+# run_script        refused: RunScript
+```
+
+Call one Tool as an Agent through the hook, with its input as JSON. It prints the result and exits 0, prints a refusal to stderr and exits 1, and exits 2 for input that is not the Tool's.
+
+```sh
+tools/aliquot --home /tmp/aliquot tools call A-odile run_script '{"script":"S-parse_submission","inputs":[]}'
+# run_script refused: A-odile's Charter forbids RunScript: run_script performs it
+tools/aliquot --home /tmp/aliquot tools call A-rin run_script '{"script":"S-parse_submission","inputs":["<form id>"],"task_id":"T-2"}'
+# {"run": {...}, "evaluation": {"stage": 1, "score": 1, "passed": true, ...}, "seq": ...}
 ```
 
 ## Vitality and Merit

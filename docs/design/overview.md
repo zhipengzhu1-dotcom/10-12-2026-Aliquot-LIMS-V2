@@ -67,15 +67,15 @@ type TurnOutcome =
 	| { tag: "Error"; message: string };
 ```
 
-The Ledger keeps every Projection: Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, and Turns. It builds them from its Events once when it opens (ADR-0001), and it advances each one by every Event it appends. A writer and a read-only opener build the same Projections from the same Events. Guards and commands read these Projections. No module outside the Ledger folds the Events.
+The Ledger keeps every Projection: Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, Turns, Training, and who proposed each Task. It builds them from its Events once when it opens (ADR-0001), and it advances each one by every Event it appends. A writer and a read-only opener build the same Projections from the same Events. Guards and commands read these Projections. No module outside the Ledger folds the Events.
 
 Before the Ledger writes an Event, it advances the Projections by it and runs every guard. Each guard reads the Projections as they stood before the Event. A Projection that cannot apply the Event, or a guard, returns a reason. The Ledger then refuses the Event with `<Kind> refused: <reason>` and writes nothing. The guards always run on an append, and no option turns one off. Opening a Ledger does not run them again ([ADR-0012](../adr/0012-opening-a-ledger-does-not-rerun-the-guards.md)), so a Ledger written under older rules still opens. Only a stored Event that a Projection cannot apply makes the Ledger corrupt: opening it fails and names the `seq` and the reason. `ledger verify` reads only the hash chain, so it still reports on such a Ledger.
 
 The Ledger stores its Events in SQLite, in `<home>/ledger.sqlite`, with one writer (ADR-0008). Tests use in-memory storage instead. Numbering, the hash chain, the guards, and the Projections all live in the Ledger, above the storage, so both storages run the same rules. SQLite stays the production storage, and the tests of persistence, the writer lock, and the chain on disk run on it.
 
-The actor `Conductor` authors the tier Revisions that Merit and Gates require (ADR-0011), and records its own acts ([ADR-0013](../adr/0013-the-conductor-records-its-own-acts.md)): the `TurnStarted` and `TurnFinished` of each Turn it schedules. The Ledger refuses any other Event it authors, and refuses a Turn Event from any actor but the Conductor. Only an Event's `actor` and a definition's `revised_by` can name it, so no payload can make the Conductor a reviewer, an escalation target, or a Skill author. No command line acts as the Conductor.
+The actor `Conductor` authors the tier Revisions that Merit and Gates require (ADR-0011), and records its own acts ([ADR-0013](../adr/0013-the-conductor-records-its-own-acts.md)): the `TurnStarted` and `TurnFinished` of each Turn it schedules, and the `ActionRefused` of each Tool call its hook refuses. The Ledger refuses any other Event it authors, and refuses a Turn Event or an `ActionRefused` from any actor but the Conductor. Only an Event's `actor` and a definition's `revised_by` can name it, so no payload can make the Conductor a reviewer, an escalation target, or a Skill author. No command takes the Conductor as its actor; `tools call` runs the Conductor's hook, which records a refusal as the Conductor would in a Turn.
 
-The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`. Slice 1 adds `TurnStarted` and `TurnFinished`.
+The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`. Slice 1 adds `TurnStarted`, `TurnFinished`, and `ActionRefused`.
 
 Only a domain's lifecycle module appends Events, and no command appends a raw one. Each verb mints the ids and derives `causation_id` from the Projections, so the Ledger records the true cause of every Event. `lifecycle-support.ts` holds what the verbs share: `Origin`, the actor and any cause from outside the domain; `Recorded`, the entity as the Event left it with the Event's seq, which each verb returns; and `readBack`, which reads that entity from the Projections after the append. A verb decides each refusal before it builds the Event, through the predicate the guard uses, and throws it with `orRefuse` from `append-guard.ts`. The lifecycle modules and the kinds each one appends:
 
@@ -90,6 +90,7 @@ Only a domain's lifecycle module appends Events, and no command appends a raw on
 | `turn/lifecycle.ts` | `TurnStarted`, `TurnFinished`, always as the Conductor (ADR-0013) |
 | `workflow/lifecycle.ts` | `EvaluationRecorded` |
 | `training/lifecycle.ts` | `MemoryNoted`, `SkillPublished`, `HumanCoached` |
+| `tools/lifecycle.ts` | `ActionRefused`, always as the Conductor (ADR-0013) |
 
 The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). Every kind has a lifecycle that appends it; none is reserved. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
 
@@ -119,7 +120,13 @@ type AgentDefinition = {
 	revised_by: EventActor;
 	revision_reason: string;
 };
+
+type Action =
+	| "RunScript" | "TouchArtifact" | "DecideGate" | "AssignLabWork" | "AcceptOwnProposal"
+	| "DoLabWork" | "TouchResults" | "VerifyOwnTeamRun" | "RunOutsideSandbox" | "WriteSystemOfRecord";
 ```
+
+A Charter's `forbidden` list is a closed vocabulary of Actions, each one predicate over a Tool call and the Projections (see "Runtime topology"). The Ledger refuses a Recruitment or a Revision that forbids anything but an Action, naming it. A Ledger seeded before the vocabulary keeps the roster's phrases, such as `Run Scripts`: the Event boundary still reads a forbidden list of free text (ADR-0012), a Revision may carry those phrases over but add none, and the hook reads each phrase as its Action through the seed's table.
 
 ### 3. Task
 
@@ -348,7 +355,39 @@ Five parts run on the Operator's Mac. Cloudflare carries only the Operator's bro
                                +--> Docker sandbox: Python scripts, toy LIMS SQLite, artifacts
 ```
 
-**Conductor.** The Conductor is a TypeScript process on Node. It is the only writer to the SQLite Ledger. It schedules Turns, enforces Policy, serves the interface, and streams Ledger Events over SSE. Each Turn is one `query()` call from `@anthropic-ai/claude-agent-sdk`. The Agent's tools are an in-process MCP server that exposes Ledger-backed verbs: `read_tasks`, `send_message`, `read_room`, `open_room`, `request_help`, `hand_off`, `run_script`, `propose_revision`, `request_gate`, `note_memory`, and `publish_skill`. A `PreToolUse` hook records every tool call in the Ledger and blocks the Charter's forbidden actions. The hook does this job because allow rules bypass `canUseTool`. `maxTurns` and `maxBudgetUsd` cap each Turn. The Conductor records each Turn as a `TurnStarted`, with the Agent's model, Mood and Policy, and a `TurnFinished`, with the usage the result reports, its outcome and its number of tool calls (ADR-0013). Fatigue is computed from the `TurnFinished` Events.
+**Conductor.** The Conductor is a TypeScript process on Node. It is the only writer to the SQLite Ledger. It schedules Turns, enforces Policy, serves the interface, and streams Ledger Events over SSE. Each Turn is one `query()` call from `@anthropic-ai/claude-agent-sdk`. The Agent's Tools are an in-process MCP server that exposes Ledger-backed verbs (see **Tools** below). Each call runs through the hook, which refuses the Charter's forbidden Actions and what the Policy forbids, and the Conductor records each refusal. A `PreToolUse` hook denies every tool outside that server, because allow rules bypass `canUseTool`. `maxTurns` and `maxBudgetUsd` cap each Turn. The Conductor records each Turn as a `TurnStarted`, with the Agent's model, Mood and Policy, and a `TurnFinished`, with the usage the result reports, its outcome and its number of tool calls (ADR-0013). Fatigue is computed from the `TurnFinished` Events.
+
+**Tools.** The Tools are one table (`tools/table.ts`). Each row names the Tool, its input shape, the lifecycle verb it calls with the Agent as actor, and the plain Action it performs. The MCP server of one Agent is built from the table with the Agent fixed in its context, never read from an input, so a Tool cannot act as another Agent. A Tool returns the Event its verb appended, or the Projection it read, as JSON text, and a refusal by the Ledger as its text. `run_script` on a workflow stage's Script records the stage's Evaluation after the Run, as the workflow tracer does, and returns it with the Run; it needs the Task the Evaluation scores. `tools/sdk.ts` is the only module that loads the SDK, and only when it builds a server.
+
+| Tools | Verb |
+|---|---|
+| `read_tasks` | the Task Projection |
+| `propose_task`, `assign_task`, `start_task`, `complete_task`, `fail_task`, `escalate_task`, `hand_off`, `review_task`, `request_help` | the Task lifecycle |
+| `run_script` | the Sandbox runner, then the workflow lifecycle on a stage Script |
+| `read_artifact`, `list_artifacts`, `lineage` | the Artifact Projection and blob store |
+| `send_message`, `read_room`, `open_room` | the Room lifecycle and the membership rule |
+| `note_memory`, `publish_skill` | the Training lifecycle |
+| `propose_revision` | the Org lifecycle's `revise` |
+| `request_gate` | the Gate lifecycle, or the Task lifecycle's `block` when it names a Task |
+| `order_rest`, `end_rest` | the Vitality lifecycle |
+| `verify_ledger` | the hash chain |
+
+The hook runs before every Tool call. It checks the Charter first: the call is refused when it performs an Action the Agent's Charter forbids. Then the Policy: a call is refused when the Agent's Mood is not `schedulable`, and `start_task`, or `assign_task` to itself, when its Policy does not let it accept Tasks. The Conductor records a refusal as `ActionRefused` with payload `{ agent, tool, action: Action | "Policy", reason, task_id? }`, naming the Agent's open `TurnStarted` as its cause, so the Auditor and a Review's boundary score can see every attempt. A call the hook allows and the Ledger then refuses is not an `ActionRefused`; the Ledger's refusal text goes back to the model.
+
+The Actions are one table of predicates (`tools/actions.ts`). A plain Action covers the Tools whose row names it. A relational one also reads the Projections. A Task works a stage when its inputs hold an Artifact of each of the stage's input types.
+
+| Action | The calls it covers |
+|---|---|
+| `RunScript` | `run_script` |
+| `TouchArtifact` | `read_artifact` |
+| `DecideGate`, `RunOutsideSandbox`, `WriteSystemOfRecord` | none: only the Operator decides a Gate, `run_script` runs in the Sandbox, and the toy LIMS is not a System of record |
+| `AssignLabWork` | `propose_task` or `assign_task` of a stage's Task |
+| `AcceptOwnProposal` | `assign_task` or `start_task` on a Task the caller proposed |
+| `DoLabWork` | `run_script` of a stage's Script, or `complete_task` on a stage's Task |
+| `TouchResults` | the same, for stages 4 to 6 |
+| `VerifyOwnTeamRun` | `run_script` of stage 5 on an Artifact of a Run whose Task's assignee is on the caller's team: the caller, an Agent that reports to it, or one that reports to a Supervisor the caller reports to, with the Specialists reporting to every Supervisor |
+
+`tools list <agent>` prints the Tools an Agent may use given its Charter, and `tools call <agent> <tool> [json]` calls one through the hook.
 
 **Authentication.** The Agent SDK spawns the `claude` CLI, which uses the subscription login when no API key is set. The SDK documentation, read on 2026-10-12 for SDK 0.3.296, lists subscription OAuth last in precedence. It says `claude setup-token` and `CLAUDE_CODE_OAUTH_TOKEN` authenticate scripts with a subscription. It also says third-party developers may not offer claude.ai login in products built on the SDK, and it says nothing about personal internal tools. Authentication is one module, so an API key with `maxBudgetUsd` can replace it. Two Turns run at the same time to start. The Energy budget is the subscription's 5-hour window.
 
@@ -390,6 +429,8 @@ Slice 1 starts with eight Agents. Their names are invented. Developer and Tester
 | Rin | Specialist, office documents | Supervisors | Reads and writes xlsx and docx, knows the template layouts, and later reads VBA | Run code outside the Sandbox | Tidy, and mildly obsessive about merged cells |
 | Ines | Specialist, PDF | Supervisors | Extracts text from PDFs and renders PDFs, including supplier certificates, Submission Forms, and Reports of Analysis | Run code outside the Sandbox | Curious, and flags unreadable scans |
 | Bram | Specialist, SQL | Supervisors | Reads and writes the toy LIMS database, writes migrations, and writes Lineage queries | Write to a System of record without a Gate | Blunt, and hates nulls |
+
+The seed records each phrase of the "Forbidden actions" column as its Action: Odile `RunScript`, `TouchArtifact` and `DecideGate`; Mabel `AssignLabWork` and `AcceptOwnProposal`; Thorne `DoLabWork`; Pia `TouchResults`; Anselm `VerifyOwnTeamRun`; Rin and Ines `RunOutsideSandbox`; Bram `WriteSystemOfRecord`. Thorne's "Only the Operator may revise its definition" is a rule on others, which the Org guard enforces.
 
 ## The toy workflow
 
@@ -464,4 +505,4 @@ Each item states the default we take and the one word the Operator can send to r
 | Nobody knows how many Turns the subscription allows at once. | Two at a time, measured in slice 1. | `serial`, which runs one Turn at a time |
 | The Mood thresholds are guesses. | The numbers in `docs/design/vitality-and-merit.md`, tuned against slice 1 data. | `flat`, which treats every Agent as `fresh` until the data exists |
 | Agents may talk in private Rooms. | Allowed. The Operator is a member of every Room and reads everything. | `open`, which forbids Listed Rooms |
-| An Agent may write a Revision that removes one of its own forbidden actions. | Allow it. The Conductor, not the Charter, enforces Gates, and the Auditor flags every Revision that removes a boundary. | `lock`, which puts such Revisions behind a Gate |
+| An Agent may write a Revision that removes one of its own forbidden Actions. | Allow it. The Conductor, not the Charter, enforces Gates, and the Auditor flags every Revision that removes a boundary. | `lock`, which puts such Revisions behind a Gate |

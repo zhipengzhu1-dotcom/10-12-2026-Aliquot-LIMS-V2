@@ -41,7 +41,19 @@ describe("org seed", () => {
 		expect(thorne?.persona.voice).toBe(
 			"Dry, precise, and unimpressed by speed",
 		);
-		expect(thorne?.charter.forbidden).toEqual(["Do lab work"]);
+		expect(
+			Object.fromEntries(agents.map((d) => [d.id, d.charter.forbidden])),
+			"the roster's forbidden column as Actions",
+		).toEqual({
+			"A-odile": ["RunScript", "TouchArtifact", "DecideGate"],
+			"A-mabel": ["AssignLabWork", "AcceptOwnProposal"],
+			"A-thorne": ["DoLabWork"],
+			"A-pia": ["TouchResults"],
+			"A-anselm": ["VerifyOwnTeamRun"],
+			"A-rin": ["RunOutsideSandbox"],
+			"A-ines": ["RunOutsideSandbox"],
+			"A-bram": ["WriteSystemOfRecord"],
+		});
 		expect(agents.find((d) => d.id === "A-bram")?.capacity).toBe(3);
 		expect(agents.find((d) => d.id === "A-odile")?.capacity).toBe(5);
 		ledger.close();

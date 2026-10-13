@@ -4,6 +4,7 @@ import { orgGuards } from "./org/guards.js";
 import { roomGuards } from "./room/guards.js";
 import { sandboxGuards } from "./sandbox/guards.js";
 import { taskGuards } from "./task/guards.js";
+import { toolGuards } from "./tools/guards.js";
 import { trainingGuards } from "./training/guards.js";
 import { turnGuards } from "./turn/guards.js";
 import { vitalityGuards } from "./vitality/guards.js";
@@ -25,6 +26,7 @@ export const appendGuards: readonly AppendGuard[] = [
 	...trainingGuards,
 	...roomGuards,
 	...turnGuards,
+	...toolGuards,
 	...gateGuards,
 	...sandboxGuards,
 	...vitalityGuards,
