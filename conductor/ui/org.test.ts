@@ -103,7 +103,7 @@ const outline = (page: string) => {
 	return lines;
 };
 
-/** Each Agent's Mood, Trust tier, load bar value and paused badge. */
+/** Each Agent's badges by class, Trust tier and load bar value. */
 const badges = (page: string) =>
 	Object.fromEntries(
 		[
@@ -113,16 +113,15 @@ const badges = (page: string) =>
 		].map(([, id, line = ""]) => [
 			id,
 			{
-				mood: /class="badge mood-[^"]+">([^<]+)/.exec(line)?.[1],
+				badges: [...line.matchAll(/class="badge ([^"]+)"/g)].map((m) => m[1]),
 				tier: /class="badge tier">([^<]+)/.exec(line)?.[1],
 				load: /<meter[^>]* value="([^"]+)"/.exec(line)?.[1],
-				paused: line.includes('class="badge paused"'),
 			},
 		]),
 	);
 
 describe("the Org view", () => {
-	it("draws the tree in `org tree`'s order with each Agent's Mood, Trust tier and load", async () => {
+	it("draws the tree in `org tree`'s order with each Agent's Trust tier and load, and no Mood, which /api/vitality gives as fresh for every Agent", async () => {
 		sampled("A-pia", { load: 0.75 });
 		sampled("A-ines", { load: 1.2 });
 		sampled("A-bram", { load: 0.3, morale: -0.5, confidence: 0.5 });
@@ -147,17 +146,25 @@ describe("the Org view", () => {
 			"  Mabel",
 			"  Thorne",
 		]);
-		const probation = { tier: "Probation", paused: false };
+		const probation = { badges: ["tier"], tier: "Probation" };
 		expect(badges(page)).toEqual({
-			"A-odile": { ...probation, mood: "fresh", load: "0" },
-			"A-pia": { ...probation, mood: "strained", load: "0.75" },
-			"A-anselm": { ...probation, mood: "fresh", load: "0" },
-			"A-rin": { ...probation, mood: "fresh", load: "0.45" },
-			"A-ines": { ...probation, mood: "overloaded", load: "1.2" },
-			"A-bram": { ...probation, mood: "discouraged", load: "0.3" },
-			"A-mabel": { ...probation, mood: "fresh", load: "0" },
-			"A-thorne": { tier: "Probation", paused: true, mood: "fresh", load: "0" },
+			"A-odile": { ...probation, load: "0" },
+			"A-pia": { ...probation, load: "0.75" },
+			"A-anselm": { ...probation, load: "0" },
+			"A-rin": { ...probation, load: "0.45" },
+			"A-ines": { ...probation, load: "1.2" },
+			"A-bram": { ...probation, load: "0.3" },
+			"A-mabel": { ...probation, load: "0" },
+			"A-thorne": { badges: ["tier", "paused"], tier: "Probation", load: "0" },
 		});
+		const vitality: Record<string, { mood: string }> = await (
+			await fetch("/api/vitality")
+		).json();
+		expect(Object.keys(vitality)).toHaveLength(8);
+		expect(
+			Object.values(vitality).map((v) => v.mood),
+			"Pia, Ines and Bram's samples cross the Mood table's thresholds, which are not in force",
+		).toEqual(Array(8).fill("fresh"));
 	});
 
 	it("offers resume for a paused Agent, pause for a running one, and no supervisor that reports to the Agent", async () => {

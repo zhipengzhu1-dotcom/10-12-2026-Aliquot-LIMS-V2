@@ -98,8 +98,22 @@ describe("one Turn on the scripted model", () => {
 			outcome: { tag: "Completed" },
 			tool_calls: 2,
 		});
-		expect(mood).toBe("focused");
+		expect(mood, "flat, though a Task is InProgress").toBe("fresh");
 		expect(s.ledger.verify().ok).toBe(true);
+	});
+
+	it("runs for a resting Agent, since Rest no longer stops a Turn", async () => {
+		orderRest(s.ledger, {
+			actor: { tag: "Operator" },
+			agent_id: rin,
+			action: "begin",
+			reason: "fatigue",
+		});
+
+		const { turn, mood } = await run(rin, scripted([]));
+
+		expect(turn.finished?.payload.outcome).toEqual({ tag: "Completed" });
+		expect(mood).toBe("fresh");
 	});
 
 	it("records ActionRefused for a forbidden Tool and still finishes Completed", async () => {
@@ -210,16 +224,6 @@ describe("a Turn that may not start", () => {
 		expect(s.events().length, "no Event is appended").toBe(before);
 		expect(called, "the model is never called").toBe(false);
 	};
-
-	it("is refused for a resting Agent", async () => {
-		orderRest(s.ledger, {
-			actor: { tag: "Operator" },
-			agent_id: rin,
-			action: "begin",
-			reason: "fatigue",
-		});
-		await refusedBeforeAnyEvent(rin, "A-rin is resting");
-	});
 
 	it("is refused for a paused Agent", async () => {
 		pause(s.ledger, {

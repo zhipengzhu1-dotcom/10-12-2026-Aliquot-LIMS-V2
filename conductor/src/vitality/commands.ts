@@ -105,9 +105,8 @@ type Export = "samples" | "turns" | "reviews";
 
 /**
  * The tables `vitality export --csv` writes, from one replay of `events`.
- * A sample's Mood is the Agent's Mood just after it, with Rest and its
- * Tasks InProgress as they stood then; a Review's assignee is the Task's as
- * it stood when the Review was recorded.
+ * A sample's Mood is `fresh`, as every Mood is (#62); a Review's assignee is
+ * the Task's as it stood when the Review was recorded.
  */
 export const exportTables = (
 	events: Iterable<Event>,
@@ -133,7 +132,7 @@ export const exportTables = (
 				v.friction,
 				v.confidence,
 				v.morale,
-				currentMood(after, v.agent),
+				currentMood(),
 				event.causation_id ?? "",
 			]);
 		}

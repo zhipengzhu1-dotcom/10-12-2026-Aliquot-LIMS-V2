@@ -4,9 +4,11 @@ import { liveAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
 import { actorText } from "../types/actor.js";
-import { restInEffect } from "../vitality/vitality.js";
 
-/** A Turn starts for a live Agent that is not paused, not resting, and has no open Turn. */
+/**
+ * A Turn starts for a live Agent that is not paused and has no open Turn.
+ * Rest does not stop it (#62): the Operator pauses an Agent to stop its Turns.
+ */
 export const startRefusal = (
 	projections: Projections,
 	agent: AgentId,
@@ -14,9 +16,6 @@ export const startRefusal = (
 	const live = liveAgent(projections.org, agent);
 	if (live instanceof Refusal) return live;
 	if (live.paused) return new Refusal(`${agent} is paused`);
-	if (restInEffect(projections.work, agent)) {
-		return new Refusal(`${agent} is resting`);
-	}
 	const open = projections.turns.open.get(agent);
 	return open === undefined
 		? undefined

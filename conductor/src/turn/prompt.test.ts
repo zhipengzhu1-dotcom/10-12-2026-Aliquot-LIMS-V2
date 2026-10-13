@@ -46,7 +46,7 @@ const promptOf = (agent: AgentId) => {
 const count = (text: string, part: string) => text.split(part).length - 1;
 
 describe("the prompt of a Turn", () => {
-	it("renders a seeded Agent's Task, Message and Coaching once each, in that order, after its Charter and Mood", () => {
+	it("renders a seeded Agent's Task, Message and Coaching once each, in that order, after its Charter", () => {
 		const task_id = s.task(rin);
 		say(s.ledger, {
 			actor: operator,
@@ -64,8 +64,6 @@ describe("the prompt of a Turn", () => {
 		const parts = [
 			"You are Rin (A-rin), the Specialist",
 			"## Charter",
-			"Your Mood is focused.",
-			"You may accept new Tasks.",
 			`${task_id} Task 1: Do the work`,
 			"RM-lab, Operator: The balance on bench 2 is calibrated.",
 			"Name the Lot in every Message.",
@@ -100,12 +98,19 @@ describe("the prompt of a Turn", () => {
 		expect(prompt).not.toContain("- Old.");
 	});
 
-	it("names the Policy the Mood gives in words, from the Turn's TurnStarted", () => {
+	it("carries no Mood or Policy line, even for a resting Agent with a Task InProgress", () => {
+		s.task(rin);
+		s.ledger.append({
+			actor: { tag: "Agent", id: AgentId.parse("A-mabel") },
+			kind: "RestOrdered",
+			payload: { agent_id: rin, action: "begin", reason: "Long week" },
+		});
+
 		const prompt = promptOf(rin);
 
-		expect(prompt).toContain("Your Mood is fresh.");
-		expect(prompt).toContain("You may offer help to other Agents.");
-		expect(prompt).not.toContain("You must");
+		expect(prompt).toContain("## Persona");
+		expect(prompt).toContain("## Skills");
+		expect(prompt.split("\n").filter((l) => /Mood|Policy/.test(l))).toEqual([]);
 	});
 
 	it("lists for the Director the Submission Forms no Task has been proposed for, and its refused Tools", () => {

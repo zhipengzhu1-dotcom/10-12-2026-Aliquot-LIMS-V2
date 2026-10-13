@@ -54,10 +54,10 @@ const refused = (...args: string[]) => {
 /**
  * A-ines spends 80,000 tokens in a Turn six hours ago and is sampled then:
  * 80,000 of the 125,000 tokens each of 8 Agents gets under the default
- * Energy budget puts fatigue at 0.64, so its latest sample is strained. A
- * sample taken now leaves that Turn outside the 5-hour window.
+ * Energy budget puts fatigue at 0.64, over the 0.6 the Mood table, not in
+ * force (#62), reads as strained.
  */
-const strainedSixHoursAgo = (s: Scenario) => {
+const fatiguedSixHoursAgo = (s: Scenario) => {
 	const energyBudgetTokens = 1_000_000;
 	s.at(new Date(Date.now() - 6 * 3_600_000).toISOString());
 	const { turn } = startTurn(s.ledger, {
@@ -173,29 +173,20 @@ describe("aliquot task", () => {
 		});
 	});
 
-	it("assign assigns a Proposed Task, and is refused to an Agent strained or worse until Rest ends or a fresh sample", () => {
+	it("assign assigns a Proposed Task to a live Agent whatever its Vitality or Rest, since Mood is flat", () => {
 		seeded((s) => {
 			s.task(rin, { start: false });
-			strainedSixHoursAgo(s);
+			fatiguedSixHoursAgo(s);
 		});
 
 		expect(ok("task", "assign", "T-1", "A-odile")).toBe(
 			"T-1 Assigned (assignee A-odile)\n",
 		);
-
-		expect(refused("task", "assign", "T-1", "A-ines")).toBe(
-			"TaskAssigned refused: A-ines is strained and may not accept a Task",
-		);
-		expect(ok("vitality", "sample", "A-ines")).toMatch(/ fatigue=0\.00 /);
 		expect(ok("task", "assign", "T-1", "A-ines")).toBe(
 			"T-1 Assigned (assignee A-ines)\n",
 		);
 
 		ok("vitality", "rest", "A-bram", "--begin", "--reason", "fatigue 0.92");
-		expect(refused("task", "assign", "T-1", "A-bram")).toBe(
-			"TaskAssigned refused: A-bram is resting and may not accept a Task",
-		);
-		ok("vitality", "rest", "A-bram", "--end", "--reason", "fatigue 0.41");
 		expect(ok("task", "assign", "T-1", "A-bram")).toBe(
 			"T-1 Assigned (assignee A-bram)\n",
 		);
@@ -209,18 +200,12 @@ describe("aliquot task", () => {
 		);
 	});
 
-	it("handoff hands an InProgress Task to another Agent, and is refused to an Agent strained or worse", () => {
+	it("handoff hands an InProgress Task to another Agent whatever its Vitality", () => {
 		seeded((s) => {
 			s.task(rin);
-			strainedSixHoursAgo(s);
+			fatiguedSixHoursAgo(s);
 		});
 
-		expect(
-			refused("task", "handoff", "T-1", "A-ines", "--reason", "too much"),
-		).toBe(
-			"TaskHandedOff refused: A-ines is strained and may not accept a Task",
-		);
-		expect(ok("vitality", "sample", "A-ines")).toMatch(/ fatigue=0\.00 /);
 		expect(
 			ok("task", "handoff", "T-1", "A-ines", "--reason", "second opinion"),
 		).toBe("T-1 Assigned (assignee A-ines)\n");
