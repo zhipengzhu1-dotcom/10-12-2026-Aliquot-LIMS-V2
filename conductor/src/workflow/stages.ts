@@ -2,6 +2,7 @@ import { AgentId, type ArtifactId } from "../ids.js";
 import type { ArtifactType } from "../types/artifact.js";
 import {
 	evaluateReceipt,
+	evaluateReport,
 	evaluateResults,
 	evaluateSubmissionRecord,
 	evaluateVerification,
@@ -30,8 +31,9 @@ export type Stage = {
 	/** The Script's name, its directory under `sandbox/scripts/`. */
 	readonly script: string;
 	/**
-	 * Types taken from the previous stage's outputs; stage 1 takes the
-	 * Fixture. `Other` is the weighings the Operator keeps beside the Fixture.
+	 * Types taken, each, from the outputs of the latest earlier stage that
+	 * wrote one, in the same workflow run; stage 1 takes the Fixture.
+	 * `Other` is the weighings the Operator keeps beside the Fixture.
 	 */
 	readonly inputs: readonly ArtifactType[];
 	/** Types taken from the latest Artifact of that type a Done Task's Run wrote, when there is one. */
@@ -123,5 +125,16 @@ export const STAGES: readonly Stage[] = checkStages([
 		worked_by: AgentId.parse("A-bram"),
 		reviewed_by: AgentId.parse("A-anselm"),
 		evaluate: evaluateVerification,
+	},
+	{
+		number: 6,
+		name: "Report",
+		script: "render_roa",
+		inputs: ["VerificationRecord", "ReceivingLogRow"],
+		carried: ["LimsDatabase"],
+		outputs: ["ReportOfAnalysis", "ReportOfAnalysis", "LimsDatabase"],
+		worked_by: AgentId.parse("A-ines"),
+		reviewed_by: AgentId.parse("A-anselm"),
+		evaluate: evaluateReport,
 	},
 ]);

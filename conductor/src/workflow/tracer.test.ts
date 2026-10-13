@@ -23,11 +23,12 @@ import {
 import type { Event } from "../events.js";
 import { sha256Hex } from "../hash.js";
 import { AgentId, ArtifactId, Sha256 } from "../ids.js";
-import { lineageOf, openArtifacts } from "../sandbox/artifacts.js";
+import { lineageOf, openArtifacts, walkLineage } from "../sandbox/artifacts.js";
 import { buildImage, scriptsRoot } from "../sandbox/image.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import type { ArtifactType } from "../types/artifact.js";
+import { pdfText } from "./evaluate.js";
 import { STAGES, type Stage, type StageArtifact } from "./stages.js";
 import { ensureScript, runWorkflow } from "./tracer.js";
 
@@ -38,6 +39,7 @@ const IMAGE = `aliquot-sandbox:tracer-${process.pid}`;
 
 const rin = AgentId.parse("A-rin");
 const bram = AgentId.parse("A-bram");
+const ines = AgentId.parse("A-ines");
 const pia = { tag: "Agent", id: "A-pia" } as const;
 
 const [submission] = STAGES;
@@ -282,6 +284,33 @@ const resultsOneMilligramHigh = resultsCopy("results_one_milligram_high", [
 	"    lambda w: w.weight_of_20_g / 20 + 0.001",
 	")",
 ]);
+
+/** A copy of render_roa that types the Product Type by hand instead of reading the Receiving Log row. */
+const handTypedProductType = (stage: Stage) => {
+	if (stage.script !== "render_roa") return scriptOf(stage);
+	const dir = join(home, "hand_typed_product_type");
+	mkdirSync(dir, { recursive: true });
+	copyFileSync(
+		join(scriptsRoot, "render_roa", "main.py"),
+		join(dir, "original.py"),
+	);
+	writeFileSync(
+		join(dir, "main.py"),
+		[
+			"import sys",
+			"",
+			"import original",
+			"",
+			"original.METADATA = tuple(",
+			"    (label, original.Form('90 ct HDPE bottle') if label == 'Product Type' else source)",
+			"    for label, source in original.METADATA",
+			")",
+			"sys.exit(original.main())",
+			"",
+		].join("\n"),
+	);
+	return dir;
+};
 
 const secondFixture = fileURLToPath(
 	new URL("../../../fixtures/submission-form-seed2.docx", import.meta.url),
@@ -877,7 +906,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 	}, 600_000);
 
 	it("runs stage 5 on stage 4's Result Worksheet and the weighings to a Done Task worked by Bram, whose Verification Record passes and has a Lineage of both", async () => {
-		const { stages } = await trace();
+		const { stages } = await trace({ stages: STAGES.slice(0, 5) });
 
 		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
 			[1, "Done"],
@@ -956,6 +985,93 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(s.events().at(-1)).toMatchObject({
 			kind: "TaskFailed",
 			task_id: verification?.task_id,
+		});
+	}, 600_000);
+
+	it("runs stage 6 on stage 5's Verification Record, stage 2's Receiving Log row and stage 4's database to a Done Task worked by Ines, whose PDF shows the Sample, names it in the reports row and traces back to the Fixture", async () => {
+		const { stages } = await trace();
+
+		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
+			[1, "Done"],
+			[2, "Done"],
+			[3, "Done"],
+			[4, "Done"],
+			[5, "Done"],
+			[6, "Done"],
+		]);
+		const [, receipt, , results, verification, report] = stages;
+		if (!receipt || !results || !verification || !report) {
+			throw new Error("a stage did not run");
+		}
+		expect(report.state).toEqual({ tag: "Done", assignee: ines });
+		expect(report.evaluation).toEqual({ score: 1, passed: true, findings: [] });
+		const record = ofType(verification.outputs, "VerificationRecord");
+		const row = ofType(receipt.outputs, "ReceivingLogRow");
+		const carried = ofType(results.outputs, "LimsDatabase");
+		expect(
+			report.run.inputs,
+			"the record from stage 5, the Receiving Log row from stage 2, and stage 4's database",
+		).toEqual([record.id, row.id, carried.id]);
+		const reports = report.outputs.filter(
+			(o) => o.artifact_type === "ReportOfAnalysis",
+		);
+		expect(reports.map((o) => o.filename)).toEqual([
+			"report_of_analysis.pdf",
+			"report_of_analysis.xlsx",
+		]);
+		const [pdf] = reports;
+		if (!pdf) throw new Error("no PDF");
+		expect(pdfText(pdf.bytes).split("\n")).toEqual(
+			expect.arrayContaining([
+				"LR-2026-0001",
+				"LT-268123",
+				"TLB-1475",
+				((7.0886 / 20 + 7.2103 / 20) / 2).toFixed(4),
+			]),
+		);
+		expect(
+			query(
+				ofType(report.outputs, "LimsDatabase"),
+				"SELECT lab_reference, document_revision, source_artifact FROM reports",
+			),
+		).toEqual([["LR-2026-0001", "Rev. 03", pdf.id]]);
+		const weighings = ArtifactId.parse(
+			sha256Hex(readFileSync(fixture.replace(/\.docx$/, ".weighings.json"))),
+		);
+		const origins = walkLineage(s.ledger.projections.artifacts, pdf.id)
+			.filter(({ production }) => production.record.lineage.length === 0)
+			.map(({ production }) => production.record.id);
+		expect(
+			new Set(origins),
+			"every path back from the PDF ends at the Fixture or the weighings",
+		).toEqual(new Set([fixtureId, weighings]));
+		expect(
+			s
+				.events()
+				.find(
+					(e) => e.kind === "ReviewRecorded" && e.task_id === report.task_id,
+				)?.actor,
+		).toEqual({ tag: "Agent", id: "A-anselm" });
+	}, 600_000);
+
+	it("fails stage 6's Evaluation and Task when a copy of render_roa types the Product Type by hand", async () => {
+		const { stages } = await trace({ source: handTypedProductType });
+
+		const report = stages[5];
+		expect(report?.evaluation).toMatchObject({
+			passed: false,
+			findings: [
+				"Product Type: the report holds 90 ct HDPE bottle, not the Receiving Log row's TYPE 60 ct amber glass bottle",
+				"Product Type: the report holds 90 ct HDPE bottle, not 60 ct amber glass bottle, the carried database's product_type for LR-2026-0001",
+			],
+		});
+		expect(report?.state).toMatchObject({
+			tag: "Failed",
+			reason: expect.stringContaining("Product Type"),
+		});
+		expect(s.events().at(-1)).toMatchObject({
+			kind: "TaskFailed",
+			task_id: report?.task_id,
 		});
 	}, 600_000);
 });

@@ -72,8 +72,7 @@ describe("the stage table", () => {
 		});
 	});
 
-	it("has stage 5, Verification: verify_results from the ResultWorksheet and the weighings to a VerificationRecord, worked by Bram and reviewed by Anselm, and no stage after it", () => {
-		expect(STAGES).toHaveLength(5);
+	it("has stage 5, Verification: verify_results from the ResultWorksheet and the weighings to a VerificationRecord, worked by Bram and reviewed by Anselm", () => {
 		expect(STAGES[4]).toMatchObject({
 			number: 5,
 			name: "Verification",
@@ -82,6 +81,20 @@ describe("the stage table", () => {
 			carried: [],
 			outputs: ["VerificationRecord"],
 			worked_by: "A-bram",
+			reviewed_by: "A-anselm",
+		});
+	});
+
+	it("has stage 6, Report: render_roa from the VerificationRecord, the ReceivingLogRow and the carried LimsDatabase to two Reports of Analysis and the next LimsDatabase, worked by Ines and reviewed by Anselm, and no stage after it", () => {
+		expect(STAGES).toHaveLength(6);
+		expect(STAGES[5]).toMatchObject({
+			number: 6,
+			name: "Report",
+			script: "render_roa",
+			inputs: ["VerificationRecord", "ReceivingLogRow"],
+			carried: ["LimsDatabase"],
+			outputs: ["ReportOfAnalysis", "ReportOfAnalysis", "LimsDatabase"],
+			worked_by: "A-ines",
 			reviewed_by: "A-anselm",
 		});
 	});
