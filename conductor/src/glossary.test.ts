@@ -46,6 +46,18 @@ const ALLOWED: readonly Exemption[] = [
 	{ phrase: "Memory note", reason: "a glossary term" },
 	{ phrase: "Receiving Log", reason: "a lab term" },
 	{ phrase: "of Analysis", reason: "Report of Analysis, a lab term" },
+	// Scoped to where the type is named, since its words also match the
+	// prose "toy LIMS database".
+	...["types/artifact.ts", "workflow/"].map((file) => ({
+		phrase: "LimsDatabase",
+		in: file,
+		reason: "the Artifact type of the toy LIMS database",
+	})),
+	{ phrase: "lims.sqlite", reason: "the toy LIMS database's filename" },
+	{
+		phrase: "log_receipt",
+		reason: "the stage 2 Script, which writes Receiving Log rows",
+	},
 	{
 		phrase: "toy LIMS",
 		reason: "the glossary's own name for the practice database",

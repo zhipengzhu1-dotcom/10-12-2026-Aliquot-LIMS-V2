@@ -405,7 +405,10 @@ pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --budget 1000000
 
 ## Workflow tracer
 
-The toy workflow is one table of stages, `conductor/src/workflow/stages.ts`. Each row names the stage number and name, the Script, the input Artifact types it takes from the previous stage, the types it carries from the Ledger instead, its output types, the Agent that works it, the Agent that reviews it, and its Evaluation, which scores the Run's outputs from 0 to 1 with a list of findings. Adding a stage is adding a row, a Script directory under `sandbox/scripts/`, and an Evaluation. The table is refused when its rows are not stages 1, 2, 3 in order, or when stage 5 (Verification) is worked by the Agent that works stage 4 (Results). Today the table has stage 1, which turns a Submission Form into a `SubmissionRecord`.
+The toy workflow is one table of stages, `conductor/src/workflow/stages.ts`. Each row names the stage number and name, the Script, the input Artifact types it takes from the previous stage, the types it carries from the Ledger instead, its output types, the Agent that works it, the Agent that reviews it, and its Evaluation, which reads the Run's inputs and outputs and scores the Run from 0 to 1 with a list of findings. Adding a stage is adding a row, a Script directory under `sandbox/scripts/`, and an Evaluation. The table is refused when its rows are not stages 1, 2, 3 in order, or when stage 5 (Verification) is worked by the Agent that works stage 4 (Results). Today the table has two stages:
+
+- Stage 1, Submission, turns a Submission Form into a `SubmissionRecord`.
+- Stage 2, Receipt, turns the record into Receiving Log rows (`ReceivingLogRow`, one sheet, one row per container, the container's Lab Reference in `#`) and the next version of the toy LIMS database (`LimsDatabase`, `lims.sqlite`). It carries the latest `LimsDatabase` in the Ledger, or creates the database when there is none. `docs/design/overview.md`, "Toy System of record", documents the five tables and the Lab Reference numbering.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot workflow stages
@@ -415,6 +418,7 @@ pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.
 
 ```text
 1 Submission  script parse_submission  inputs SubmissionForm  carried none  outputs SubmissionRecord  worked by A-rin  reviewed by A-pia
+2 Receipt  script log_receipt  inputs SubmissionRecord  carried LimsDatabase  outputs ReceivingLogRow,LimsDatabase  worked by A-bram  reviewed by A-pia
 ```
 
 `workflow run` does these steps in one process:
@@ -425,9 +429,11 @@ pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.
 4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
 5. For each stage in order, it takes the previous stage's output Artifacts whose type is among the stage's input types; stage 1 takes the Fixture. When an input type is missing, it refuses before it proposes the Task, naming the stage and the type. For each carried type it adds the latest Artifact of that type in the Ledger, and nothing when the Ledger holds none.
 6. It proposes a Task (`Stage <n> <name>: <file>`, TAT `Regular`, priority 1, those Artifacts as inputs), naming as its cause the Fixture's `ArtifactStored` for stage 1 and the previous stage's last `TaskCompleted` after that. It assigns the Task to the stage's Agent and starts it as that Agent.
-7. It runs the stage's Script in the Sandbox on the inputs. A Run that exits non-zero, or writes no Artifact of one of the stage's output types, scores 0. Otherwise the stage's Evaluation scores the Run's Artifacts of its output types. Stage 1's Evaluation reads the `SubmissionRecord`: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/workflow/evaluate.ts`).
+7. It runs the stage's Script in the Sandbox on the inputs. A Run that exits non-zero, or writes no Artifact of one of the stage's output types, scores 0. Otherwise the stage's Evaluation scores the Run from its input Artifacts and every Artifact it wrote (`conductor/src/workflow/evaluate.ts`):
+   - Stage 1's Evaluation reads the `SubmissionRecord`: every required field must be filled and the TAT code must be `1`, `2`, or `3`.
+   - Stage 2's Evaluation reads the record the Run took, the database version it carried, the version it wrote, and `receipt.json`, the sheet as the Script read it back from its xlsx (the Conductor has no xlsx reader). It needs one row per container, the record's Lot and Product Code on every row, a `samples` row of that Lot for every row's Lab Reference, one `lots` row for the Lot, and no row's Lab Reference in the carried version.
 8. It records `EvaluationRecorded`, which names the stage, through the workflow lifecycle (`conductor/src/workflow/lifecycle.ts`). The lifecycle mints the Evaluation id and names the Run's `RunFinished` as the cause. When the Evaluation failed, it records `TaskFailed` with the findings, and the workflow stops.
-9. When the Evaluation passed and the Agent's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the stage's reviewer and the stage's output Artifacts as outputs. Then, as the reviewer, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
+9. When the Evaluation passed and the Agent's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the stage's reviewer and every Artifact the Run wrote as outputs. Then, as the reviewer, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
 The command prints each stage's Task, Run, output Artifacts, and score. It exits 0 when every stage's Task is `Done` and 1 when one is `Failed`. Options:
 
@@ -441,27 +447,54 @@ submission-form-seed1.docx
     run       R-1 S-parse_submission v1, exit 0
     output    <record id> SubmissionRecord submission.json
     eval      E-1 score 1.000, passed
+  stage 2 Receipt: T-2 Done
+    run       R-2 S-log_receipt v1, exit 0
+    output    <database id> LimsDatabase lims.sqlite
+    output    <read-back id> Other receipt.json
+    output    <rows id> ReceivingLogRow receiving_log_row.xlsx
+    eval      E-2 score 1.000, passed
 ```
 
-After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin` is on `Probation`, so the Task goes through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`. `conductor/src/workflow/commands.test.ts` checks this table.
+After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin` and `A-bram` are on `Probation`, so both Tasks go through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and a Run's `ArtifactStored` Events name its `RunStarted`. `conductor/src/workflow/commands.test.ts` checks this table.
 
 | seq | kind | task | causation |
 |---|---|---|---|
 | 1–8 | AgentRecruited | | |
-| 9 | ScriptRegistered | | |
-| 10 | ArtifactStored (the Fixture, Lineage none) | | |
-| 11 | TaskProposed | T-1 | 10 |
-| 12 | TaskAssigned | T-1 | 11 |
-| 13 | TaskStarted | T-1 | 12 |
-| 14 | RunStarted | T-1 | 13 |
-| 15–17 | ArtifactStored (`submission.json` as a `SubmissionRecord`, stdout, stderr; Lineage the Fixture) | T-1 | 14 |
-| 18 | RunFinished | T-1 | 14 |
-| 19 | EvaluationRecorded (stage 1, score 1, passed) | T-1 | 18 |
-| 20 | TaskCompleted (Review required from A-pia), as A-rin | T-1 | 19 |
-| 21 | ReviewRecorded (3 on every dimension), as A-pia | T-1 | 20 |
-| 22 | TaskCompleted (Reviewed), as A-pia | T-1 | 21 |
+| 9–10 | ScriptRegistered (`S-parse_submission` owned by A-rin, `S-log_receipt` owned by A-bram) | | |
+| 11 | ArtifactStored (the Fixture, Lineage none) | | |
+| 12 | TaskProposed | T-1 | 11 |
+| 13 | TaskAssigned | T-1 | 12 |
+| 14 | TaskStarted | T-1 | 13 |
+| 15 | RunStarted | T-1 | 14 |
+| 16–18 | ArtifactStored (`submission.json` as a `SubmissionRecord`, stdout, stderr; Lineage the Fixture) | T-1 | 15 |
+| 19 | RunFinished | T-1 | 15 |
+| 20 | EvaluationRecorded (stage 1, score 1, passed) | T-1 | 19 |
+| 21 | TaskCompleted (Review required from A-pia), as A-rin | T-1 | 20 |
+| 22 | ReviewRecorded (3 on every dimension), as A-pia | T-1 | 21 |
+| 23 | TaskCompleted (Reviewed), as A-pia | T-1 | 22 |
+| 24 | TaskProposed (inputs: the record; no database to carry yet) | T-2 | 23 |
+| 25 | TaskAssigned | T-2 | 24 |
+| 26 | TaskStarted | T-2 | 25 |
+| 27 | RunStarted | T-2 | 26 |
+| 28–32 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `receipt.json`, `receiving_log_row.xlsx` as a `ReceivingLogRow`, stdout, stderr; Lineage the record) | T-2 | 27 |
+| 33 | RunFinished | T-2 | 27 |
+| 34 | EvaluationRecorded (stage 2, score 1, passed) | T-2 | 33 |
+| 35 | TaskCompleted (Review required from A-pia), as A-bram | T-2 | 34 |
+| 36 | ReviewRecorded (3 on every dimension), as A-pia | T-2 | 35 |
+| 37 | TaskCompleted (Reviewed), as A-pia | T-2 | 36 |
 
-`task list` shows T-1 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage and the record with a Lineage of the Fixture, and `sandbox lineage <record id>` walks the same Lineage (see Sandbox). CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
+`task list` shows T-1 and T-2 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage, the record with a Lineage of the Fixture, and stage 2's outputs with a Lineage of the record. `sandbox lineage <database id>` walks from the database to the record to the Fixture (see Sandbox). A second `workflow run` on another Fixture carries that database: the next version's Lineage names its own record and the first version, and its Lab References continue the numbering.
+
+```text
+<version 2 id> LimsDatabase <- R-4 S-log_receipt v1
+  <record 2 id> SubmissionRecord <- R-3 S-parse_submission v1
+    <fixture 2 id> SubmissionForm <- none
+  <version 1 id> LimsDatabase <- R-2 S-log_receipt v1
+    <record 1 id> SubmissionRecord <- R-1 S-parse_submission v1
+      <fixture 1 id> SubmissionForm <- none
+```
+
+CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. `run-all` takes the Fixtures in name order on one home, so each Fixture's stage 2 carries the database the one before it wrote. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
 
 ## Serve
 
@@ -486,8 +519,13 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 |---|---|
 | `GET /` | The interface, from `conductor/dist/ui/`. |
 | `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts`, `/api/turns` | The Projection as JSON. Each map is an object keyed by id. `/api/turns` holds every Turn by id and each Agent's open Turn, the data `turn list` prints. |
+| `GET /api/org-tree` | The reporting tree `org tree` prints: the Operator at the root, each live Agent as `{tag: "Agent", agent, children}`, and the Specialists in one `{tag: "Pool", supervisors, children}` node. |
 | `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
 | `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
+| `GET /api/stages` | The toy workflow's stage table, as `workflow stages` prints it, with each stage's Script id (`S-<script>`). |
+| `GET /api/lots` | The Lot each `SubmissionRecord` names, by Artifact id, read from the record's bytes. A record that names no Lot is left out. |
+| `GET /api/reviews` | Every Review in Ledger order: its seq and time, the Task, the reviewer, the Task's assignee, the five scores, and `merit`, the assignee's Merit just after the Review. `merit` is `null` for a Review that does not count toward Merit. |
+| `GET /api/budget` | `{from, to, tokens, budget}`: the tokens the society's Turns counted in the trailing 5 hours, and the Energy budget that `vitality show` uses (1,000,000). |
 | `GET /api/ledger?from=<seq>&limit=<n>` | `{events, next}`: the Events from seq `from` (default 1), at most `limit` (default 100, at most 1000). `next` is the seq the next page starts from, or `null` after the last Event. |
 | `GET /api/ledger/verify` | The chain check as `{ok: true, count}` or `{ok: false, seq, reason}`, the verdict `ledger verify` prints. |
 | `GET /api/events` | The Ledger's Events as Server-Sent Events. |
@@ -551,4 +589,15 @@ Node's `crypto` verifies the token, so Access needs no dependency.
 
 The interface is plain TypeScript in `conductor/ui/`, with no framework and no bundler. `pnpm -C conductor build` compiles it with `ui/tsconfig.build.json` to ES modules in `conductor/dist/ui/`, and copies `ui/index.html` beside them. `pnpm -C conductor lint` and `typecheck` cover `ui/`. Without a build, `aliquot serve` says so on stderr and serves the API only.
 
-The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and shows them as JSON. It fetches them again on every Event from `/api/events`. In `ui/views.ts`, each view is a pure function from Projection JSON to markup, so its ticket replaces that function and tests it without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body.
+The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and draws them. It fetches them again on every Event from `/api/events`. A view its ticket has not drawn yet shows the JSON as it came. In `ui/views.ts`, each view is a pure function from Projection JSON and the hash's query to markup, in a module of its own such as `ui/org.ts`, tested without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body, and its status line shows the answer to every action, a view's included.
+
+A view's action is a form whose markup names the verb in `data-action` and the fixed part of the body in `data-body`. The page sets each field the Operator fills in at its name, so `definition.supervisor_id` sets that key of the body, and an empty field leaves its key out. A redraw keeps the panels the Operator opened and the text they typed.
+
+A view's filters live in the hash's query, as in `#/flow?lot=LOT-7`, so a filter survives every Event and a reload. A filter is a form whose markup names its route in `data-route`; submitting it sets the hash to that route with the form's non-empty fields as the query.
+
+| View | Shows | Actions |
+|---|---|---|
+| Org (`#/org`) | The tree `org tree` prints, from `/api/org-tree`. Each Agent has its Mood and load from `/api/vitality`, its Trust tier, and a `paused` badge when paused. | Under **Actions**: pause with a reason, or resume a paused Agent; reassign, a Revision of `supervisor_id` to the Operator, the Director or a Supervisor that does not report to the Agent; request retirement, which requests a `RetireAgent` Gate with a reason. The Agent's name opens `#/agent?id=<id>`. |
+| Ledger (`#/ledger`) | The Events, newest first, 50 a page, each with seq, time, actor, kind, Task and cause, and its payload, which opens on click. A status line gives the verdict of `/api/ledger/verify` and when it was read. The newest page takes each new Event at its top; `#/ledger?before=<seq>` is the page of the 50 Events before that seq, and it stays put. | **Verify** reads the verdict again. A cause links to the page it heads. |
+| Flow (`#/flow`) | One swimlane per stage of `/api/stages`, and one for Tasks in no stage. A Task's lane is the stage whose Script its latest Run ran, so a Task joins its lane when its first Run starts. Each card shows the Task's id, title, state, assignee and TAT class. | Filter by Task id (`?task=T-1`) or by Lot (`?lot=<lot>`). A Task's Lots are those of the `SubmissionRecord`s in the Lineage of its Artifacts, or made from one of them. Open a Task (`?open=T-1`) to read its Events in seq order, with the cause of the first one, and an arrow from each Event to the Event its `causation_id` names. The panel reads the Ledger's first 1,000 Events. |
+| Performance (`#/performance`) | Merit per Agent, one line per Agent and one point per Review counted toward Merit, in Ledger order; the mean of each rubric dimension per Agent; the society's tokens in the trailing 5 hours against the Energy budget, with the 80 percent line; and the count of Tasks in each state. | Export CSV: `reviews.csv`, one row per Review under the header `review_seq,task_id,reviewer,assignee,at,quality,traceability,boundary_adherence,collaboration,timeliness`. |

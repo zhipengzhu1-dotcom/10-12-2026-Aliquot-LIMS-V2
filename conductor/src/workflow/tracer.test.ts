@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import {
 	afterAll,
@@ -26,7 +27,8 @@ import { lineageOf, openArtifacts } from "../sandbox/artifacts.js";
 import { buildImage, scriptsRoot } from "../sandbox/image.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
-import { STAGES, type Stage } from "./stages.js";
+import type { ArtifactType } from "../types/artifact.js";
+import { STAGES, type Stage, type StageArtifact } from "./stages.js";
 import { ensureScript, runWorkflow } from "./tracer.js";
 
 // Each build gives its tag a new image id and Docker drops the image the tag
@@ -66,18 +68,20 @@ afterEach(() => {
 
 const scriptOf = (stage: Stage) => join(scriptsRoot, stage.script);
 
-/** Run the workflow on the Fixture through `stages`, each Script from `source`. */
+/** Run the workflow on a Fixture through `stages`, each Script from `source`. */
 const trace = ({
 	stages = STAGES,
 	source = scriptOf,
+	formPath = fixture,
 }: {
 	stages?: readonly Stage[];
 	source?: (stage: Stage) => string;
+	formPath?: string;
 } = {}) =>
 	runWorkflow({
 		ledger: s.ledger,
 		home,
-		formPath: fixture,
+		formPath,
 		plan: stages.map((stage) => {
 			const script = ensureScript({
 				ledger: s.ledger,
@@ -136,6 +140,70 @@ const scriptWithoutLot = () => {
 	return dir;
 };
 
+/** log_receipt, except that a copy writes LT-000000 as every Receiving Log row's LOT#. */
+const scriptWithWrongLot = (stage: Stage) => {
+	if (stage.script !== "log_receipt") return scriptOf(stage);
+	const dir = join(home, "log_receipt_wrong_lot");
+	mkdirSync(dir);
+	const original = join(scriptsRoot, "log_receipt");
+	copyFileSync(join(original, "main.py"), join(dir, "log_receipt.py"));
+	copyFileSync(join(original, "lims_schema.py"), join(dir, "lims_schema.py"));
+	writeFileSync(
+		join(dir, "main.py"),
+		[
+			"import sys",
+			"",
+			"import log_receipt",
+			"",
+			"write_rows = log_receipt.write_rows",
+			"",
+			"",
+			"def wrong_lot(path, record, on, at, refs):",
+			"    sample = {**record['sample'], 'lot': 'LT-000000'}",
+			"    write_rows(path, {**record, 'sample': sample}, on, at, refs)",
+			"",
+			"",
+			"log_receipt.write_rows = wrong_lot",
+			"sys.exit(log_receipt.main())",
+			"",
+		].join("\n"),
+	);
+	return dir;
+};
+
+const secondFixture = fileURLToPath(
+	new URL("../../../fixtures/submission-form-seed2.docx", import.meta.url),
+);
+
+const ofType = (
+	artifacts: readonly StageArtifact[] | undefined,
+	type: ArtifactType,
+): StageArtifact => {
+	const found = artifacts?.find((a) => a.artifact_type === type);
+	if (!found) throw new Error(`no ${type}`);
+	return found;
+};
+
+/** Every Lab Reference in a toy LIMS database version, in order. */
+const labReferences = (database: StageArtifact): string[] => {
+	const dir = mkdtempSync(join(tmpdir(), "aliquot-tracer-db-"));
+	try {
+		const path = join(dir, "lims.sqlite");
+		writeFileSync(path, database.bytes);
+		const db = new DatabaseSync(path, { readOnly: true });
+		try {
+			return db
+				.prepare("SELECT lab_reference FROM samples ORDER BY lab_reference")
+				.all()
+				.map((row) => String(row.lab_reference));
+		} finally {
+			db.close();
+		}
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
 describe("the workflow tracer without Docker", () => {
 	it("refuses a stage before proposing its Task when nothing gave it an input type, naming the stage and the type", async () => {
 		image = Sha256.parse("c".repeat(64));
@@ -163,7 +231,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 	});
 
 	it("completes stage 1's Task through Review by the stage's reviewer, each Event from TaskProposed on naming the one before it", async () => {
-		const { stages } = await trace();
+		const { stages } = await trace({ stages: [submission] });
 
 		expect(stages).toHaveLength(1);
 		const [result] = stages;
@@ -219,7 +287,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 	}, 600_000);
 
 	it("stores the record as a SubmissionRecord with a Lineage of the Fixture, and the Fixture, stored as the Operator's SubmissionForm, with an empty Lineage", async () => {
-		const [result] = (await trace()).stages;
+		const [result] = (await trace({ stages: [submission] })).stages;
 		const [record] = result?.outputs ?? [];
 		if (!result || !record) throw new Error("stage 1 wrote no record");
 
@@ -242,7 +310,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		// Rin has 9 reviewed Tasks, so the tracer's Review of T-10 is the 10th.
 		for (let i = 0; i < 9; i++) s.reviewed(rin, scores(3));
 
-		const [result] = (await trace()).stages;
+		const [result] = (await trace({ stages: [submission] })).stages;
 
 		expect(result?.task_id).toBe("T-10");
 		expect(result?.revisions).toMatchObject([
@@ -257,7 +325,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 	}, 600_000);
 
 	it("fails the Evaluation and the Task when the Script's record drops the Lot", async () => {
-		const [result] = (await trace({ source: scriptWithoutLot })).stages;
+		const [result] = (
+			await trace({ stages: [submission], source: scriptWithoutLot })
+		).stages;
 
 		expect(result?.evaluation).toMatchObject({
 			passed: false,
@@ -346,5 +416,86 @@ describe.skipIf(!requireDocker())(suite, () => {
 		});
 		expect(withRow?.run.inputs).toEqual([fixtureId, latest]);
 		expect(withRow?.state.tag).toBe("Done");
+	}, 600_000);
+
+	it("runs stage 2 on stage 1's record to a Done Task worked by Bram, whose LimsDatabase has the record as its Lineage, and carries that database into the next Fixture's stage 2", async () => {
+		const first = await trace();
+
+		expect(first.stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
+			[1, "Done"],
+			[2, "Done"],
+		]);
+		const [submitted, receipt] = first.stages;
+		if (!submitted || !receipt) throw new Error("a stage did not run");
+		expect(receipt.state).toEqual({ tag: "Done", assignee: bram });
+		expect(receipt.evaluation).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+		expect(receipt.outputs.map((o) => [o.artifact_type, o.filename])).toEqual([
+			["LimsDatabase", "lims.sqlite"],
+			["Other", "receipt.json"],
+			["ReceivingLogRow", "receiving_log_row.xlsx"],
+		]);
+		const record = ofType(submitted.outputs, "SubmissionRecord");
+		const version1 = ofType(receipt.outputs, "LimsDatabase");
+		expect(receipt.run.inputs, "no database to carry yet").toEqual([record.id]);
+		expect(
+			s.ledger.projections.artifacts.artifacts.get(version1.id)?.media_type,
+		).toBe("application/vnd.sqlite3");
+		expect(
+			lineageOf(s.ledger.projections.artifacts, version1.id, {
+				tag: "Run",
+				id: receipt.run.id,
+			}),
+		).toEqual([record.id]);
+		expect(labReferences(version1)).toEqual(["LR-2026-0001", "LR-2026-0002"]);
+
+		const second = await trace({ formPath: secondFixture });
+
+		const [submittedAgain, receiptAgain] = second.stages;
+		if (!submittedAgain || !receiptAgain)
+			throw new Error("a stage did not run");
+		expect(receiptAgain.state.tag).toBe("Done");
+		const record2 = ofType(submittedAgain.outputs, "SubmissionRecord");
+		const version2 = ofType(receiptAgain.outputs, "LimsDatabase");
+		expect(receiptAgain.run.inputs).toEqual([record2.id, version1.id]);
+		expect(
+			lineageOf(s.ledger.projections.artifacts, version2.id, {
+				tag: "Run",
+				id: receiptAgain.run.id,
+			}),
+		).toEqual([record2.id, version1.id]);
+		expect(
+			labReferences(version2),
+			"seed 2's three containers continue the numbering",
+		).toEqual([
+			"LR-2026-0001",
+			"LR-2026-0002",
+			"LR-2026-0003",
+			"LR-2026-0004",
+			"LR-2026-0005",
+		]);
+	}, 600_000);
+
+	it("fails stage 2's Evaluation and Task when a copy of log_receipt writes a Lot in the Receiving Log rows that differs from the record's", async () => {
+		const { stages } = await trace({ source: scriptWithWrongLot });
+
+		const [, receipt] = stages;
+		expect(receipt?.evaluation).toMatchObject({
+			passed: false,
+			findings: [
+				"row 1 (LR-2026-0001): LOT# LT-000000 is not the record's Lot LT-268123",
+				"row 2 (LR-2026-0002): LOT# LT-000000 is not the record's Lot LT-268123",
+			],
+		});
+		expect(receipt?.state).toMatchObject({
+			tag: "Failed",
+			reason: expect.stringContaining("LOT# LT-000000"),
+		});
+		const failed = s.events().at(-1);
+		expect(failed?.kind).toBe("TaskFailed");
+		expect(failed?.task_id).toBe(receipt?.task_id);
 	}, 600_000);
 });

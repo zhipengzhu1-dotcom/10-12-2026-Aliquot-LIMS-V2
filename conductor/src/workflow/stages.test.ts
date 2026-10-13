@@ -21,7 +21,6 @@ const table = (verifier: AgentId): Stage[] =>
 
 describe("the stage table", () => {
 	it("has stage 1, Submission: parse_submission from a SubmissionForm to a SubmissionRecord, worked by Rin and reviewed by Pia", () => {
-		expect(STAGES).toHaveLength(1);
 		expect(submission).toMatchObject({
 			number: 1,
 			name: "Submission",
@@ -30,6 +29,20 @@ describe("the stage table", () => {
 			carried: [],
 			outputs: ["SubmissionRecord"],
 			worked_by: "A-rin",
+			reviewed_by: "A-pia",
+		});
+	});
+
+	it("has stage 2, Receipt: log_receipt from the SubmissionRecord and the carried LimsDatabase to a ReceivingLogRow and the next LimsDatabase, worked by Bram and reviewed by Pia", () => {
+		expect(STAGES).toHaveLength(2);
+		expect(STAGES[1]).toMatchObject({
+			number: 2,
+			name: "Receipt",
+			script: "log_receipt",
+			inputs: ["SubmissionRecord"],
+			carried: ["LimsDatabase"],
+			outputs: ["ReceivingLogRow", "LimsDatabase"],
+			worked_by: "A-bram",
 			reviewed_by: "A-pia",
 		});
 	});
