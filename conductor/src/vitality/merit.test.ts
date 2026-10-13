@@ -59,7 +59,7 @@ describe("Merit", () => {
 		expect(merit).toBe(2);
 		expect(reviewedTasks).toBe(1);
 		expect(window.map((r) => r.reviewer)).toEqual([
-			{ tag: "Operator" },
+			{ tag: "Agent", id: "A-pia" },
 			thorne,
 		]);
 	});

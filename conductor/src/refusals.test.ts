@@ -104,6 +104,48 @@ const ROWS: Row[] = [
 		"TaskCompleted refused: T-1 is sampled for Review, as every Task of A-rin on Probation is; its completion names a reviewer",
 	],
 	[
+		"the Task guard on the reviewer",
+		(s) => {
+			const task_id = s.task(rin.id);
+			return {
+				actor: rin,
+				task_id,
+				kind: "TaskCompleted",
+				payload: {
+					task_id,
+					outputs: [],
+					review: { tag: "Required", reviewer: agent("odile") },
+				},
+			};
+		},
+		"TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); A-odile may not review T-1",
+	],
+	[
+		"the Task guard on Mood",
+		(s) => {
+			const task_id = s.task(agent("ines").id, { start: false });
+			s.appendNonTask({
+				actor: operator,
+				kind: "VitalitySampled",
+				payload: {
+					agent: rin.id,
+					load: 0,
+					fatigue: 0.65,
+					friction: 0,
+					confidence: 1,
+					morale: 0,
+				},
+			});
+			return {
+				actor: operator,
+				task_id,
+				kind: "TaskAssigned",
+				payload: { task_id, assignee: rin.id },
+			};
+		},
+		"TaskAssigned refused: A-rin is strained and may not accept a Task",
+	],
+	[
 		"the RoomOpened guard",
 		() => ({
 			actor: operator,
@@ -254,6 +296,29 @@ const ROWS: Row[] = [
 			};
 		},
 		"ReviewRecorded refused: T-1 is InProgress; only an UnderReview or Done Task gets a Review",
+	],
+	[
+		"the Review guard on the reviewer",
+		(s) => {
+			const task_id = s.submitted(rin.id);
+			const odile = agent("odile");
+			return {
+				actor: odile,
+				task_id,
+				kind: "ReviewRecorded",
+				payload: {
+					task_id,
+					reviewer: odile,
+					quality: 3,
+					traceability: 3,
+					boundary_adherence: 3,
+					collaboration: 3,
+					timeliness: 3,
+					note: "",
+				},
+			};
+		},
+		"ReviewRecorded refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); A-odile may not review T-1",
 	],
 	[
 		"the Rest guard",
