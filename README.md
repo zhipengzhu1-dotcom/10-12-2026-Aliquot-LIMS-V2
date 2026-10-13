@@ -417,13 +417,14 @@ pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --budget 1000000
 
 ## Workflow tracer
 
-The toy workflow is one table of stages, `conductor/src/workflow/stages.ts`. Each row names the stage number and name, the Script, the input Artifact types it takes from the previous stage, the types it carries from the Ledger instead, its output types, the Agent that works it, the Agent that reviews it, and its Evaluation, which reads the Run's inputs and outputs and scores the Run from 0 to 1 with a list of findings. Adding a stage is adding a row, a Script directory under `sandbox/scripts/`, and an Evaluation. The table is refused when its rows are not stages 1, 2, 3 in order, or when stage 5 (Verification) is worked by the Agent that works stage 4 (Results). Today the table has five stages:
+The toy workflow is one table of stages, `conductor/src/workflow/stages.ts`. Each row names the stage number and name, the Script, the input Artifact types it takes from earlier stages, the types it carries from the Ledger instead, its output types, the Agent that works it, the Agent that reviews it, and its Evaluation, which reads the Run's inputs and outputs and scores the Run from 0 to 1 with a list of findings. Adding a stage is adding a row, a Script directory under `sandbox/scripts/`, and an Evaluation. The table is refused when its rows are not stages 1, 2, 3 in order, or when stage 5 (Verification) is worked by the Agent that works stage 4 (Results). Today the table has six stages, and the chain runs end to end, from the Submission Form to the Report of Analysis:
 
 - Stage 1, Submission, turns a Submission Form into a `SubmissionRecord`.
 - Stage 2, Receipt, turns the record into Receiving Log rows (`ReceivingLogRow`, one sheet, one row per container, the container's Lab Reference in `#`) and the next version of the toy LIMS database (`LimsDatabase`, `lims.sqlite`). It carries the latest accepted `LimsDatabase`, or creates the database when there is none. `docs/design/overview.md`, "Toy System of record", documents the five tables and the Lab Reference numbering.
 - Stage 3, Work Order, turns the Receiving Log rows into a Work Order (`WorkOrder`, `work_order.xlsx`: a header block with the Work Order number `WO-<year>-<n>`, Client, Lot, Product Code, date received, TAT class and due date, then one row per Sample and Test) and the next database version with its `work_orders` rows. It carries the version stage 2 wrote. Every Sample gets the Test "Average capsule weight", and the due date follows the rule in `docs/design/overview.md`, "The due date rule".
 - Stage 4, Results, turns the Work Order and the weighings (`Other`, the `<fixture stem>.weighings.json` beside the Fixture) into a Result Worksheet (`ResultWorksheet`, `result_worksheet.xlsx`: one row per container with the two weights as values and the average as the formula `=F<row>/20`, then a Mean row with an `AVERAGE` formula) and the next database version with its `results` rows. It carries the version stage 3 wrote. `docs/design/overview.md`, "The weighings", says where the weighings come from and what the `results` rows hold.
 - Stage 5, Verification, takes the Result Worksheet and the same weighings and writes a Verification Record (`VerificationRecord`, `verification_record.json`). For each container row it holds the average's formula text, the value the formula gives on the worksheet's own cells, the weighing's average, their difference, and whether it is within 0.0001 g. It also holds the same for the Mean row and a verdict, `pass` or `fail`. It carries nothing. Bram works it, never Rin, who works stage 4 (see "The Verifier rule" below).
+- Stage 6, Report, takes the Verification Record from stage 5 and the Receiving Log rows from stage 2, carries the version stage 4 wrote, and renders the Report of Analysis twice from one structure: `report_of_analysis.xlsx` in the layout of the synthetic generator's report, and `report_of_analysis.pdf`, both typed `ReportOfAnalysis`. The report is for the first Sample of the record's Work Order on the Receiving Log rows. Every metadata value comes from that Sample's Receiving Log row or its `samples` row, the result is the record's recomputed mean to 4 places, and the Script refuses to render when any metadata value is missing. The next database version holds a `reports` row naming the Sample and the PDF's Artifact id. Ines works it.
 
 A stage carries the latest Artifact of a carried type that a Run of a `Done` Task wrote. A version written by a Run whose Task failed its Evaluation is never carried.
 
@@ -439,6 +440,7 @@ pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.
 3 Work Order  script create_work_order  inputs ReceivingLogRow  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia
 4 Results  script compute_results  inputs WorkOrder,Other  carried LimsDatabase  outputs ResultWorksheet,LimsDatabase  worked by A-rin  reviewed by A-anselm
 5 Verification  script verify_results  inputs ResultWorksheet,Other  carried none  outputs VerificationRecord  worked by A-bram  reviewed by A-anselm
+6 Report  script render_roa  inputs VerificationRecord,ReceivingLogRow  carried LimsDatabase  outputs ReportOfAnalysis,ReportOfAnalysis,LimsDatabase  worked by A-ines  reviewed by A-anselm
 ```
 
 `workflow run` does these steps in one process:
@@ -447,7 +449,7 @@ pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.
 2. It recruits the starting roster if the Org is empty, and refuses when a stage names an Agent the Org lacks.
 3. It registers each stage's Script, `sandbox/scripts/<name>` as `S-<name>`, owned by the Agent that works the stage. A later run reuses that version, unless the image or the Script's code changed; then it records `ScriptRevised`.
 4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
-5. For each stage in order, it takes the previous stage's output Artifacts whose type is among the stage's input types; stage 1 takes the Fixture. An input of type `Other` is always the weighings: before the first stage that takes `Other`, it stores `<fixture stem>.weighings.json` from beside the form as an `Other` Artifact produced by the Operator, with media type `application/json` and no Lineage. A previous stage's own `Other` outputs, its read-backs, are never passed on. When the weighings file is missing, it refuses before it proposes the Task, naming the stage and the file. When another input type is missing, it refuses the same way, naming the stage and the type. For each carried type it adds the latest Artifact of that type that a Run of a `Done` Task wrote, and nothing when there is none.
+5. For each stage in order, it takes, for each of the stage's input types, the output Artifacts of that type from the latest earlier stage that wrote one; stage 1 takes the Fixture. So stage 6 takes stage 5's Verification Record and stage 2's Receiving Log rows. An input of type `Other` is always the weighings: before the first stage that takes `Other`, it stores `<fixture stem>.weighings.json` from beside the form as an `Other` Artifact produced by the Operator, with media type `application/json` and no Lineage. An earlier stage's own `Other` outputs, its read-backs, are never passed on. When the weighings file is missing, it refuses before it proposes the Task, naming the stage and the file. When another input type is missing, it refuses the same way, naming the stage and the type. For each carried type it adds the latest Artifact of that type that a Run of a `Done` Task wrote, and nothing when there is none.
 6. It proposes a Task (`Stage <n> <name>: <file>`, TAT `Regular`, priority 1, those Artifacts as inputs), naming as its cause the Fixture's `ArtifactStored` for stage 1 and the previous stage's last `TaskCompleted` after that. It assigns the Task to the stage's Agent and starts it as that Agent.
 7. It runs the stage's Script in the Sandbox on the inputs. A Run that exits non-zero, or writes no Artifact of one of the stage's output types, scores 0. Otherwise the stage's Evaluation scores the Run from its input Artifacts and every Artifact it wrote (`conductor/src/workflow/evaluate.ts`):
    - Stage 1's Evaluation reads the `SubmissionRecord`: every required field must be filled and the TAT code must be `1`, `2`, or `3`.
@@ -455,6 +457,7 @@ pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.
    - Stage 3's Evaluation reads the database version the Run carried, the version it wrote, and `work_order.json`, which holds the Receiving Log row's Lab References and dates as the Script read them and the Work Order as it read it back from its xlsx. It computes the due date itself, from each row's date received and the Sample's TAT class in the carried version. It needs that due date on the Work Order, a Test for every Sample on the Receiving Log row, only those Samples on the Work Order, a Work Order number the carried version does not hold, and `work_orders` rows in the written version that match the document's Samples, Tests and due date.
    - Stage 4's Evaluation reads the weighings the Run took, the database version it carried, the version it wrote, and `result_worksheet.json`, the sheet as the Script read it back from its xlsx with each formula as its text. It needs the formula `=F<row>/20` as every container row's average and `=AVERAGE(H<first>:H<last>)` in the Mean row, the weighing of each row's container as its two weights, and a row for every weighing. For each Sample of the Work Order in the carried version, the written version's `results` row "Average capsule weight" must equal the Sample's container row's weight of 20 capsules divided by 20, and its row "Average capsule weight, Work Order mean" must equal the mean of those, each within 0.0001 g.
    - Stage 5's Evaluation reads the weighings the Run took and `verification_record.json`. It needs the record to name the worksheet and the weighings the Run took, a row for every weighing, and each row's recomputed average and the recomputed mean within 0.0001 g of what it computes from the weighings. It also needs the verdict `pass` exactly when all of that agrees.
+   - Stage 6's Evaluation reads the Verification Record the Run took, the database version it carried, the version it wrote, the PDF, and `report_of_analysis.json`, which holds the Sample's Receiving Log row as the Script read it and the report's sheet as it read back its xlsx. It needs the record's verdict `pass`, the report's Sample on the record's Work Order, and every Client and metadata cell equal to the Receiving Log row's value (where the row has the column) and to the carried database's `samples` and `lots` values. The result must be the record's mean within 0.0001 g. The PDF's text, read from its uncompressed page streams, must show the Lab Reference, Lot, Product Code and result. The written version's `reports` row must name the PDF's Artifact id and the report's Document Revision, and the carried version must have had none for the Sample.
 8. It records `EvaluationRecorded`, which names the stage, through the workflow lifecycle (`conductor/src/workflow/lifecycle.ts`). The lifecycle mints the Evaluation id and names the Run's `RunFinished` as the cause. When the Evaluation failed, it records `TaskFailed` with the findings, and the workflow stops.
 9. When the Evaluation passed and the Agent's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the stage's reviewer and every Artifact the Run wrote as outputs. Then, as the reviewer, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
@@ -492,68 +495,85 @@ submission-form-seed1.docx
     run       R-5 S-verify_results v1, exit 0
     output    <record id> VerificationRecord verification_record.json
     eval      E-5 score 1.000, passed
+  stage 6 Report: T-6 Done
+    run       R-6 S-render_roa v1, exit 0
+    output    <database id> LimsDatabase lims.sqlite
+    output    <read-back id> Other report_of_analysis.json
+    output    <pdf id> ReportOfAnalysis report_of_analysis.pdf
+    output    <xlsx id> ReportOfAnalysis report_of_analysis.xlsx
+    eval      E-6 score 1.000, passed
 ```
 
-After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin` and `A-bram` are on `Probation`, so every Task goes through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, except two. A Run's `ArtifactStored` Events name its `RunStarted`. The weighings' `ArtifactStored` (seq 55) is the Operator's and names no cause, as the Fixture's does, so stage 4's `TaskProposed` names stage 3's last `TaskCompleted`. `conductor/src/workflow/commands.test.ts` checks this table.
+After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin`, `A-bram` and `A-ines` are on `Probation`, so every Task goes through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, except two. A Run's `ArtifactStored` Events name its `RunStarted`. The weighings' `ArtifactStored` (seq 56) is the Operator's and names no cause, as the Fixture's does, so stage 4's `TaskProposed` names stage 3's last `TaskCompleted`. `conductor/src/workflow/commands.test.ts` checks this table.
 
 | seq | kind | task | causation |
 |---|---|---|---|
 | 1–8 | AgentRecruited | | |
-| 9–13 | ScriptRegistered (`S-parse_submission` and `S-compute_results` owned by A-rin, `S-log_receipt`, `S-create_work_order` and `S-verify_results` owned by A-bram) | | |
-| 14 | ArtifactStored (the Fixture, Lineage none) | | |
-| 15 | TaskProposed | T-1 | 14 |
-| 16 | TaskAssigned | T-1 | 15 |
-| 17 | TaskStarted | T-1 | 16 |
-| 18 | RunStarted | T-1 | 17 |
-| 19–21 | ArtifactStored (`submission.json` as a `SubmissionRecord`, stdout, stderr; Lineage the Fixture) | T-1 | 18 |
-| 22 | RunFinished | T-1 | 18 |
-| 23 | EvaluationRecorded (stage 1, score 1, passed) | T-1 | 22 |
-| 24 | TaskCompleted (Review required from A-pia), as A-rin | T-1 | 23 |
-| 25 | ReviewRecorded (3 on every dimension), as A-pia | T-1 | 24 |
-| 26 | TaskCompleted (Reviewed), as A-pia | T-1 | 25 |
-| 27 | TaskProposed (inputs: the record; no database to carry yet) | T-2 | 26 |
-| 28 | TaskAssigned | T-2 | 27 |
-| 29 | TaskStarted | T-2 | 28 |
-| 30 | RunStarted | T-2 | 29 |
-| 31–35 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `receipt.json`, `receiving_log_row.xlsx` as a `ReceivingLogRow`, stdout, stderr; Lineage the record) | T-2 | 30 |
-| 36 | RunFinished | T-2 | 30 |
-| 37 | EvaluationRecorded (stage 2, score 1, passed) | T-2 | 36 |
-| 38 | TaskCompleted (Review required from A-pia), as A-bram | T-2 | 37 |
-| 39 | ReviewRecorded (3 on every dimension), as A-pia | T-2 | 38 |
-| 40 | TaskCompleted (Reviewed), as A-pia | T-2 | 39 |
-| 41 | TaskProposed (inputs: the Receiving Log row, and stage 2's database carried) | T-3 | 40 |
-| 42 | TaskAssigned | T-3 | 41 |
-| 43 | TaskStarted | T-3 | 42 |
-| 44 | RunStarted | T-3 | 43 |
-| 45–49 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `work_order.json`, `work_order.xlsx` as a `WorkOrder`, stdout, stderr; Lineage the Receiving Log row and stage 2's database) | T-3 | 44 |
-| 50 | RunFinished | T-3 | 44 |
-| 51 | EvaluationRecorded (stage 3, score 1, passed) | T-3 | 50 |
-| 52 | TaskCompleted (Review required from A-pia), as A-bram | T-3 | 51 |
-| 53 | ReviewRecorded (3 on every dimension), as A-pia | T-3 | 52 |
-| 54 | TaskCompleted (Reviewed), as A-pia | T-3 | 53 |
-| 55 | ArtifactStored (the weighings, `submission-form-seed1.weighings.json` as `Other`, by the Operator, Lineage none) | | |
-| 56 | TaskProposed (inputs: the Work Order and the weighings, and stage 3's database carried) | T-4 | 54 |
-| 57 | TaskAssigned | T-4 | 56 |
-| 58 | TaskStarted | T-4 | 57 |
-| 59 | RunStarted | T-4 | 58 |
-| 60–64 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `result_worksheet.json`, `result_worksheet.xlsx` as a `ResultWorksheet`, stdout, stderr; Lineage the Work Order, the weighings and stage 3's database) | T-4 | 59 |
-| 65 | RunFinished | T-4 | 59 |
-| 66 | EvaluationRecorded (stage 4, score 1, passed) | T-4 | 65 |
-| 67 | TaskCompleted (Review required from A-anselm), as A-rin | T-4 | 66 |
-| 68 | ReviewRecorded (3 on every dimension), as A-anselm | T-4 | 67 |
-| 69 | TaskCompleted (Reviewed), as A-anselm | T-4 | 68 |
-| 70 | TaskProposed (inputs: the Result Worksheet and the weighings; nothing carried) | T-5 | 69 |
-| 71 | TaskAssigned (to A-bram) | T-5 | 70 |
-| 72 | TaskStarted | T-5 | 71 |
-| 73 | RunStarted | T-5 | 72 |
-| 74–76 | ArtifactStored (`verification_record.json` as a `VerificationRecord`, stdout, stderr; Lineage the worksheet and the weighings) | T-5 | 73 |
-| 77 | RunFinished | T-5 | 73 |
-| 78 | EvaluationRecorded (stage 5, score 1, passed) | T-5 | 77 |
-| 79 | TaskCompleted (Review required from A-anselm), as A-bram | T-5 | 78 |
-| 80 | ReviewRecorded (3 on every dimension), as A-anselm | T-5 | 79 |
-| 81 | TaskCompleted (Reviewed), as A-anselm | T-5 | 80 |
+| 9–14 | ScriptRegistered (`S-parse_submission` and `S-compute_results` owned by A-rin, `S-log_receipt`, `S-create_work_order` and `S-verify_results` owned by A-bram, `S-render_roa` owned by A-ines) | | |
+| 15 | ArtifactStored (the Fixture, Lineage none) | | |
+| 16 | TaskProposed | T-1 | 15 |
+| 17 | TaskAssigned | T-1 | 16 |
+| 18 | TaskStarted | T-1 | 17 |
+| 19 | RunStarted | T-1 | 18 |
+| 20–22 | ArtifactStored (`submission.json` as a `SubmissionRecord`, stdout, stderr; Lineage the Fixture) | T-1 | 19 |
+| 23 | RunFinished | T-1 | 19 |
+| 24 | EvaluationRecorded (stage 1, score 1, passed) | T-1 | 23 |
+| 25 | TaskCompleted (Review required from A-pia), as A-rin | T-1 | 24 |
+| 26 | ReviewRecorded (3 on every dimension), as A-pia | T-1 | 25 |
+| 27 | TaskCompleted (Reviewed), as A-pia | T-1 | 26 |
+| 28 | TaskProposed (inputs: the record; no database to carry yet) | T-2 | 27 |
+| 29 | TaskAssigned | T-2 | 28 |
+| 30 | TaskStarted | T-2 | 29 |
+| 31 | RunStarted | T-2 | 30 |
+| 32–36 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `receipt.json`, `receiving_log_row.xlsx` as a `ReceivingLogRow`, stdout, stderr; Lineage the record) | T-2 | 31 |
+| 37 | RunFinished | T-2 | 31 |
+| 38 | EvaluationRecorded (stage 2, score 1, passed) | T-2 | 37 |
+| 39 | TaskCompleted (Review required from A-pia), as A-bram | T-2 | 38 |
+| 40 | ReviewRecorded (3 on every dimension), as A-pia | T-2 | 39 |
+| 41 | TaskCompleted (Reviewed), as A-pia | T-2 | 40 |
+| 42 | TaskProposed (inputs: the Receiving Log row, and stage 2's database carried) | T-3 | 41 |
+| 43 | TaskAssigned | T-3 | 42 |
+| 44 | TaskStarted | T-3 | 43 |
+| 45 | RunStarted | T-3 | 44 |
+| 46–50 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `work_order.json`, `work_order.xlsx` as a `WorkOrder`, stdout, stderr; Lineage the Receiving Log row and stage 2's database) | T-3 | 45 |
+| 51 | RunFinished | T-3 | 45 |
+| 52 | EvaluationRecorded (stage 3, score 1, passed) | T-3 | 51 |
+| 53 | TaskCompleted (Review required from A-pia), as A-bram | T-3 | 52 |
+| 54 | ReviewRecorded (3 on every dimension), as A-pia | T-3 | 53 |
+| 55 | TaskCompleted (Reviewed), as A-pia | T-3 | 54 |
+| 56 | ArtifactStored (the weighings, `submission-form-seed1.weighings.json` as `Other`, by the Operator, Lineage none) | | |
+| 57 | TaskProposed (inputs: the Work Order and the weighings, and stage 3's database carried) | T-4 | 55 |
+| 58 | TaskAssigned | T-4 | 57 |
+| 59 | TaskStarted | T-4 | 58 |
+| 60 | RunStarted | T-4 | 59 |
+| 61–65 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `result_worksheet.json`, `result_worksheet.xlsx` as a `ResultWorksheet`, stdout, stderr; Lineage the Work Order, the weighings and stage 3's database) | T-4 | 60 |
+| 66 | RunFinished | T-4 | 60 |
+| 67 | EvaluationRecorded (stage 4, score 1, passed) | T-4 | 66 |
+| 68 | TaskCompleted (Review required from A-anselm), as A-rin | T-4 | 67 |
+| 69 | ReviewRecorded (3 on every dimension), as A-anselm | T-4 | 68 |
+| 70 | TaskCompleted (Reviewed), as A-anselm | T-4 | 69 |
+| 71 | TaskProposed (inputs: the Result Worksheet and the weighings; nothing carried) | T-5 | 70 |
+| 72 | TaskAssigned (to A-bram) | T-5 | 71 |
+| 73 | TaskStarted | T-5 | 72 |
+| 74 | RunStarted | T-5 | 73 |
+| 75–77 | ArtifactStored (`verification_record.json` as a `VerificationRecord`, stdout, stderr; Lineage the worksheet and the weighings) | T-5 | 74 |
+| 78 | RunFinished | T-5 | 74 |
+| 79 | EvaluationRecorded (stage 5, score 1, passed) | T-5 | 78 |
+| 80 | TaskCompleted (Review required from A-anselm), as A-bram | T-5 | 79 |
+| 81 | ReviewRecorded (3 on every dimension), as A-anselm | T-5 | 80 |
+| 82 | TaskCompleted (Reviewed), as A-anselm | T-5 | 81 |
+| 83 | TaskProposed (inputs: the Verification Record from stage 5 and the Receiving Log row from stage 2, and stage 4's database carried) | T-6 | 82 |
+| 84 | TaskAssigned (to A-ines) | T-6 | 83 |
+| 85 | TaskStarted | T-6 | 84 |
+| 86 | RunStarted | T-6 | 85 |
+| 87–92 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `report_of_analysis.json`, `report_of_analysis.pdf` and `report_of_analysis.xlsx` as `ReportOfAnalysis`, stdout, stderr; Lineage the Verification Record, the Receiving Log row and stage 4's database) | T-6 | 86 |
+| 93 | RunFinished | T-6 | 86 |
+| 94 | EvaluationRecorded (stage 6, score 1, passed) | T-6 | 93 |
+| 95 | TaskCompleted (Review required from A-anselm), as A-ines | T-6 | 94 |
+| 96 | ReviewRecorded (3 on every dimension), as A-anselm | T-6 | 95 |
+| 97 | TaskCompleted (Reviewed), as A-anselm | T-6 | 96 |
 
-`task list` shows T-1 to T-5 as `Done`. `sandbox artifacts` shows the Fixture and the weighings with no Lineage, the record with a Lineage of the Fixture, stage 2's outputs with a Lineage of the record, stage 3's outputs with a Lineage of the Receiving Log row and stage 2's database, stage 4's outputs with a Lineage of the Work Order, the weighings and stage 3's database, and the Verification Record with a Lineage of the worksheet and the weighings. `sandbox lineage <database id>` walks from stage 2's database to the record to the Fixture (see Sandbox). `sandbox lineage <work order id>` walks from the Work Order through both of its inputs back to the Fixture:
+`task list` shows T-1 to T-6 as `Done`. `sandbox artifacts` shows the Fixture and the weighings with no Lineage, the record with a Lineage of the Fixture, stage 2's outputs with a Lineage of the record, stage 3's outputs with a Lineage of the Receiving Log row and stage 2's database, stage 4's outputs with a Lineage of the Work Order, the weighings and stage 3's database, the Verification Record with a Lineage of the worksheet and the weighings, and stage 6's outputs with a Lineage of the Verification Record, the Receiving Log row and stage 4's database. `sandbox lineage <database id>` walks from stage 2's database to the record to the Fixture (see Sandbox). `sandbox lineage <work order id>` walks from the Work Order through both of its inputs back to the Fixture:
 
 ```text
 <work order id> WorkOrder <- R-3 S-create_work_order v1
@@ -567,19 +587,21 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 
 `sandbox lineage <worksheet id>` prints the Result Worksheet `<- R-4 S-compute_results v1`, then under it the Work Order's tree above, the weighings `<- none`, and stage 3's database `<- R-3 S-create_work_order v1` with the Receiving Log row and stage 2's database under it. `sandbox lineage <record id>` on the Verification Record prints it `<- R-5 S-verify_results v1`, then the worksheet's tree, then the weighings `<- none`.
 
+`sandbox lineage <pdf id>` on the Report of Analysis is the chain the Auditor samples. It prints the PDF `<- R-6 S-render_roa v1`, then three trees under it: the Verification Record's, the Receiving Log row's, and that of stage 4's database `<- R-4 S-compute_results v1`. Every path ends at the Fixture `SubmissionForm <- none` or at the weighings `Other <- none`. The xlsx report has the same Lineage.
+
 **The Verifier rule.** A Verifier is never the author of the Result Worksheet. The workflow guard refuses a `task assign` or `task handoff` that gives a Verification Task (title `Stage 5 Verification: <file>`) to an Agent that was ever assigned the Task whose Run wrote a Result Worksheet among its inputs. After the run above, the guard refuses a new Verification of the same worksheet for Rin, who worked T-4:
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot task propose --title "Stage 5 Verification: submission-form-seed1.docx" \
-  --goal "Verify the worksheet again" --tat Regular --priority 1 --input <worksheet id>   # prints T-6
-pnpm -C conductor cli --home /tmp/aliquot task assign T-6 A-rin   # refused, exits 1
+  --goal "Verify the worksheet again" --tat Regular --priority 1 --input <worksheet id>   # prints T-7
+pnpm -C conductor cli --home /tmp/aliquot task assign T-7 A-rin   # refused, exits 1
 ```
 
 ```text
-AppendRefused: TaskAssigned refused: A-rin was assigned T-4, whose Run wrote the Result Worksheet that T-6 verifies; a Verifier is never the author of the Result Worksheet
+AppendRefused: TaskAssigned refused: A-rin was assigned T-4, whose Run wrote the Result Worksheet that T-7 verifies; a Verifier is never the author of the Result Worksheet
 ```
 
-A second `workflow run` on another Fixture carries the version stage 4 wrote. Stage 2's next version names its own record and that version in its Lineage, its Lab References continue the numbering, and its Work Order is `WO-<year>-0002`.
+A second `workflow run` on another Fixture carries the version stage 6 wrote. Stage 2's next version names its own record and that version in its Lineage, its Lab References continue the numbering, and its Work Order is `WO-<year>-0002`.
 
 CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. `run-all` takes the Fixtures in name order on one home, so each Fixture's stage 2 carries the last database version that the Fixture before it wrote in a `Done` Task. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
 

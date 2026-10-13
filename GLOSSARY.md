@@ -135,7 +135,7 @@ A content-addressed file that a Run or the Operator produced, with a type and a 
 _Avoid_: output, blob, attachment
 
 **Lineage**:
-The links from an Artifact to the Artifacts it was made from.
+The links from an Artifact to the Artifacts it was made from. The Auditor samples the Lineage of a Report of Analysis, which runs through every stage back to the Submission Form Fixture.
 _Avoid_: provenance, ancestry, dependency graph
 
 ### Execution
@@ -325,7 +325,7 @@ The person or Agent who performs a Verification. A Verifier is never the author 
 _Avoid_: checker, reviewer
 
 **Report of Analysis**:
-The signed document that the lab issues to a Client with the results for one Sample.
+The signed document that the lab issues to a Client with the results for one Sample. In the toy workflow, stage 6 renders it as xlsx and PDF from one structure, both typed `ReportOfAnalysis`, from a Verification Record whose verdict is pass. Every metadata value is read from the Sample's Receiving Log row or its `samples` row, never typed by hand, and the `reports` row names the PDF. `aliquot sandbox lineage <report id>` walks its Lineage back to the Submission Form.
 _Avoid_: CoA, Certificate of Analysis, ROA, final report. Clients may say CoA. A certificate that a supplier ships with a raw material is a different document.
 
 **TAT**:
