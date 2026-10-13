@@ -278,24 +278,29 @@ def blank_samples_received_by(given: dict[str, Path], tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("blank", "label"),
+    ("blank", "reason"),
     [
-        (blank_receiving_log_type, "Product Type"),
-        (blank_samples_received_by, "Received By"),
+        (
+            blank_receiving_log_type,
+            "Product Type: the Receiving Log row of LR-2026-0001 has no TYPE",
+        ),
+        (
+            blank_samples_received_by,
+            "Received By: the samples row of LR-2026-0001 has no received_by",
+        ),
     ],
 )
-def test_it_states_a_blank_metadata_value_as_not_stated_in_both_reports(
-    tmp_path, blank, label
+def test_it_refuses_a_missing_metadata_value_and_writes_nothing(
+    tmp_path, blank, reason
 ):
     given = chain(tmp_path)
     blank(given, tmp_path)
 
     result, outputs = render(tmp_path, given)
 
-    assert result.returncode == 0, result.stderr
-    assert labelled(outputs / "report_of_analysis.xlsx")[label] == "Not stated"
-    with pdfplumber.open(outputs / "report_of_analysis.pdf") as pdf:
-        assert f"{label} Not stated" in pdf.pages[0].extract_text()
+    assert result.returncode == 1
+    assert reason in result.stderr
+    assert list(outputs.iterdir()) == []
 
 
 def test_the_signature_area_carries_the_weighings_notebook_reference(tmp_path):

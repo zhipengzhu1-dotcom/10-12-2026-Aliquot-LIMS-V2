@@ -556,9 +556,6 @@ const Weighings = z.array(
 /** The label of the notebook reference in the worksheet's header and the report's signature area. */
 export const NOTEBOOK_LABEL = "Notebook Reference";
 
-/** What the report shows for a value its source leaves blank. */
-export const NOT_STATED = "Not stated";
-
 /** The one notebook reference the weighings name, or none; weighings naming two are unreadable. */
 const notebookOf = (
 	weighings: z.infer<typeof Weighings>,
@@ -994,8 +991,8 @@ const readReported = (
  * Stage 6's Evaluation of its Run. The Verification Record it took has
  * verdict pass. Every Client and metadata cell of the report equals the
  * value `REPORT_METADATA` names in the Sample's Receiving Log row and in
- * the database version the Run carried, or `NOT_STATED` where those leave
- * it blank, and the Sample is on the record's Work Order. The result equals
+ * the database version the Run carried, and the Sample is on the record's
+ * Work Order. The result equals
  * the record's recomputed mean within `RESULTS_TOLERANCE_G`. The PDF's text
  * shows the report's Lab Reference, Lot, Product Code and result to 4
  * places. The signature area's Notebook Reference, in the sheet and in the
@@ -1068,23 +1065,19 @@ export const evaluateReport = ({ inputs, outputs }: RunArtifacts): Scored => {
 			before.onWorkOrder.has(ref),
 			`${ref || "the report's Lab Reference"} is not a Sample of Work Order ${record.work_order}`,
 		);
-		const stated = (value: string | undefined) =>
-			value?.trim() === "" ? NOT_STATED : value;
 		for (const { label, receivingLog, database } of REPORT_METADATA) {
 			const name = label || "Address, second line";
 			const cell = cells.get(label);
-			const held = cell || "nothing";
 			if (receivingLog) {
-				const fromRow = stated(logged[receivingLog]);
 				check(
-					cell === fromRow,
-					`${name}: the report holds ${held}, not the Receiving Log row's ${receivingLog} ${fromRow ?? "(none)"}`,
+					cell === logged[receivingLog],
+					`${name}: the report holds ${cell ?? "nothing"}, not the Receiving Log row's ${receivingLog} ${logged[receivingLog] ?? "(none)"}`,
 				);
 			}
-			const stored = stated(before.sample?.[database]);
+			const stored = before.sample?.[database];
 			check(
 				cell === stored,
-				`${name}: the report holds ${held}, not ${stored ?? "(no samples row)"}, the carried database's ${database} for ${ref}`,
+				`${name}: the report holds ${cell ?? "nothing"}, not ${stored ?? "(no samples row)"}, the carried database's ${database} for ${ref}`,
 			);
 		}
 

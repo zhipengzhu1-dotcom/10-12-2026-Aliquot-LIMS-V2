@@ -45,8 +45,15 @@ export const RESULTS = stage(4);
 export const VERIFICATION = stage(5);
 export const REPORT = stage(6);
 
-export const READABLE =
-	"Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, finished product, from Acme Nutrition, regular TAT";
+export const REPORT_TO = {
+	company: "Acme Nutrition",
+	contact: "Dana Reyes",
+	address: "12 Harbor Road",
+	city: "Portland, OR 97201",
+} as const;
+export const PRODUCT_TYPE = "60 ct HDPE bottle";
+/** A receipt that states every value the Report of Analysis is rendered from. */
+export const READABLE = `Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, Product Type ${PRODUCT_TYPE}, finished product, from Acme Nutrition, regular TAT. Report to: ${REPORT_TO.company}; Contact: ${REPORT_TO.contact}; Address: ${REPORT_TO.address}; City: ${REPORT_TO.city}`;
 
 export const scripted = (calls: ScriptedModel["calls"]): RunModel =>
 	scriptedModel({

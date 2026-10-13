@@ -202,6 +202,13 @@ describe("the prompt of a Turn", () => {
 		expect(section).toContain("Then assign it to A-bram, who works stage 2.");
 		expect(
 			section,
+			"the values the Report of Analysis needs, by the labels parse_message reads",
+		).toContain(
+			'the Product Type after "Product Type", and the Report To party after "Report to" with its company, Contact, Address and City, propose',
+		);
+		expect(section).toContain("naming each of those values it lacks");
+		expect(
+			section,
 			"the goal names every Script id, which the Specialist has no Tool to look up",
 		).toMatch(/S-parse_message.*S-log_receipt.*S-create_work_order/);
 		expect(section).toContain(

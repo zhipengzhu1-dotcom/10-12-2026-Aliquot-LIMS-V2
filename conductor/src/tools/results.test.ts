@@ -28,7 +28,9 @@ import {
 	named,
 	ODILE,
 	OPERATOR,
+	PRODUCT_TYPE,
 	REPORT,
+	REPORT_TO,
 	RESULTS,
 	type ReadArtifact,
 	receive,
@@ -433,7 +435,19 @@ describe.skipIf(!requireDocker())(suite, () => {
 		]);
 		const pdf = output(rendered, "report_of_analysis.pdf");
 		const xlsx = output(rendered, "report_of_analysis.xlsx");
-		expect(pdfText(artifacts.read(pdf)).split("\n")).toContain("NB-07 p.31");
+		const shown = pdfText(artifacts.read(pdf)).split("\n");
+		expect(shown).toContain("NB-07 p.31");
+		expect(
+			shown,
+			"the report states the receipt's Report To party and Product Type",
+		).toEqual(
+			expect.arrayContaining([
+				REPORT_TO.contact,
+				REPORT_TO.address,
+				REPORT_TO.city,
+				PRODUCT_TYPE,
+			]),
+		);
 
 		expect(
 			events

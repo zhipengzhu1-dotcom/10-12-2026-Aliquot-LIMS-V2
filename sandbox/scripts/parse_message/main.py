@@ -20,18 +20,33 @@ guessed:
 - the Sample Type, from "finished product" (FP), "in-process" (IP),
   "raw material" (RM) or "R&D";
 - the TAT code, from "regular TAT" (1), "rush 1-2 days" (2),
-  "rush 3-4 days" (3) or "TAT code <n>".
+  "rush 3-4 days" (3) or "TAT code <n>";
+- the Product Type, the product's pack configuration, after "Product Type",
+  up to the next comma or full stop;
+- the Report To party, after "Report to", to the end of its line: the
+  company first, then each of "Contact", "Address", "City", "Phone" and
+  "Email" it states, each label after a comma or semicolon and each value
+  running to the next label. The party's labels are read only there, and
+  every other value only outside it, so the party ends the Message or its
+  line:
+
+      ... regular TAT. Report to: Acme Nutrition; Contact: Dana Reyes;
+      Address: 12 Harbor Road; City: Portland, OR 97201
 
 A value the body does not state is "". The Script refuses (exit 1, the
-reason on stderr, no outputs) a Message that names no Lot or no Product
-Code, or names two different values for either.
+reason on stderr, no outputs) a Message that names two different values for
+one of them, or that does not name every value the Report of Analysis is
+rendered from (`REQUIRED`): the Lot, the Product Code, the Client, the
+product, the Product Type, and the Report To company, contact, address and
+city. The refusal names every one missing, so the Director can ask for
+them all at once; a Message that cannot reach a report never reaches stage 2.
 
 Output `/outputs/submission_record.json`, typed `SubmissionRecord`, in the
 `submission/1` shape `parse_submission` writes for stage 1, so stage 2 reads
 it the same way. The receipt is the Message: the date and time received are
 its `ts` (UTC), and `received_by` is who said it. Nothing in a Message
-gives the submission date, the Bill To or Report To party, the product's
-pack configuration, or any party's contact details, so those are "".
+gives the submission date, the Bill To party or the Submitted By party's
+contact details, so those are "".
 """
 
 import argparse
@@ -52,13 +67,20 @@ PRODUCT_CODE = re.compile(
     r"\bProduct\s+Code\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9-]*)", re.I
 )
 CLIENT = re.compile(r"\bfrom\s+([^,.;\n]+)", re.I)
+PRODUCT_TYPE = re.compile(r"\bProduct\s+Type\s*:?\s*([^,.;\n]+)", re.I)
+REPORT_TO = re.compile(r"\bReport\s+to\b\s*:?[ \t]*([^\n]*)", re.I)
+REPORT_TO_LABEL = re.compile(
+    r"(?:^|[,;])\s*(Contact|Address|City|Phone|Email)\b\s*:?\s*", re.I
+)
 CONTAINERS = (
     r"(?:bottles?|containers?|jars?|vials?|bags?|box(?:es)?|tubs?|packs?"
     r"|pouch(?:es)?|units?)"
 )
 QUANTITY = re.compile(rf"\b(\d+)\s+{CONTAINERS}\s+of\s+([^,;\n]+)", re.I)
 # A product name ends where the next labelled value begins.
-NEXT_LABEL = re.compile(r"\s+(?:Lot|Product\s+Code|from)\b.*$", re.I | re.S)
+NEXT_LABEL = re.compile(
+    r"\s+(?:Lot|Product\s+(?:Code|Type)|from|Report\s+to)\b.*$", re.I | re.S
+)
 SAMPLE_TYPES = (
     (re.compile(r"\bfinished\s+products?\b", re.I), "FP"),
     (re.compile(r"\bin[-\s]process\b", re.I), "IP"),
@@ -115,18 +137,50 @@ def tat_code(body: str) -> str:
     return one("TAT code", codes)
 
 
+def report_to(body: str) -> tuple[str, dict[str, str]]:
+    """The body without its Report To party, and the party it states."""
+    blocks = list(REPORT_TO.finditer(body))
+    if not blocks:
+        return body, dict.fromkeys(PARTY_FIELDS, "")
+    if len(blocks) > 1:
+        raise MessageError(f"the Message names {len(blocks)} Report To parties")
+    [block] = blocks
+    text = block.group(1)
+    labels = list(REPORT_TO_LABEL.finditer(text))
+    stated: dict[str, list[str]] = {field: [] for field in PARTY_FIELDS}
+    stated["company"].append(text[: labels[0].start() if labels else len(text)])
+    ends = [label.start() for label in labels[1:]] + [len(text)]
+    for label, end in zip(labels, ends, strict=True):
+        stated[label.group(1).lower()].append(text[label.end() : end])
+    party = {
+        field: one(
+            f"Report To {field} value",
+            [v.strip(" \t,;") for v in values if v.strip(" \t,;")],
+        )
+        for field, values in stated.items()
+    }
+    return body[: block.start()] + body[block.end() :], party
+
+
+# Every value the Report of Analysis is rendered from that a Message must
+# give: (its name, its section of the record, its key there).
+REQUIRED = (
+    ("Lot", "sample", "lot"),
+    ("Product Code", "sample", "product_code"),
+    ("Client", "submitted_by", "company"),
+    ("product", "sample", "sample_description"),
+    ("Product Type", "sample", "product_type"),
+    ("Report To company", "report_to", "company"),
+    ("Report To contact", "report_to", "contact"),
+    ("Report To address", "report_to", "address"),
+    ("Report To city", "report_to", "city"),
+)
+
+
 def parse(message: dict) -> dict:
-    body = message["body"]
+    body, report_to_party = report_to(message["body"])
     lot = one("Lot", matches(LOT, body))
     product_code = one("Product Code", matches(PRODUCT_CODE, body))
-    missing = [
-        name
-        for name, value in (("Lot", lot), ("Product Code", product_code))
-        if not value
-    ]
-    if missing:
-        raise MessageError(f"the Message names no {' and no '.join(missing)}")
-
     quantities = [
         (m.group(1), NEXT_LABEL.sub("", m.group(2)).strip())
         for m in QUANTITY.finditer(body)
@@ -138,7 +192,8 @@ def parse(message: dict) -> dict:
 
     parties = {party: dict.fromkeys(PARTY_FIELDS, "") for party in PARTIES}
     parties["submitted_by"]["company"] = one("Client", matches(CLIENT, body))
-    return {
+    parties["report_to"] = report_to_party
+    record = {
         "schema": SCHEMA,
         "date_submitted": "",
         **parties,
@@ -150,7 +205,7 @@ def parse(message: dict) -> dict:
             "tat_class": TAT_CODES.get(code, ""),
             "lot": lot,
             "product_code": product_code,
-            "product_type": "",
+            "product_type": one("Product Type", matches(PRODUCT_TYPE, body)),
             "no_of_containers": containers,
         },
         "receipt": {
@@ -159,6 +214,10 @@ def parse(message: dict) -> dict:
             "received_by": message["said_by"],
         },
     }
+    missing = [name for name, section, key in REQUIRED if not record[section][key]]
+    if missing:
+        raise MessageError(f"the Message names no {' and no '.join(missing)}")
+    return record
 
 
 def message_of(inputs: Path) -> dict:

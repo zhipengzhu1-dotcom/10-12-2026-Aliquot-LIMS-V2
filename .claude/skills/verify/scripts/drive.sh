@@ -221,7 +221,7 @@ drive_ledger() {
 
 drive_chat() {
 	local said=$((base + 1)) outside=$((base + 2))
-	local report='Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, finished product, from Acme Nutrition, regular TAT'
+	local report='Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, Product Type 60 ct HDPE bottle, finished product, from Acme Nutrition, regular TAT. Report to: Acme Nutrition; Contact: Dana Reyes; Address: 12 Harbor Road; City: Portland, OR 97201'
 	browser ui goto '#/chat' mark \
 		wait '#chat-say' text 'li.message .said b' 'Odile' \
 		text '.note' 'aliquot intake' \

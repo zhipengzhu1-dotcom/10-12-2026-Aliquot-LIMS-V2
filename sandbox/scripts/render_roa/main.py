@@ -12,11 +12,9 @@ exactly one `Other`, the weighings stage 4 computed from, and exactly one
 The report is for the first Sample of the record's Work Order, by Lab
 Reference, that the Receiving Log row lists. Every metadata value is read
 from that Sample's Receiving Log row or from its `samples` row, as `CLIENT`
-and `METADATA` name the source of each; a value its source leaves blank, as
-a Sample received from a chat Message leaves the Report To party, reads
-`NOT_STATED`. The Test is read from its `work_orders` row; the result is the
-record's recomputed mean, rounded to 4 places, and the unit is that of the
-Sample's `results` row for the Test. The letterhead, the Method, the
+and `METADATA` name the source of each; the Test from its `work_orders` row;
+the result is the record's recomputed mean, rounded to 4 places, and the
+unit is that of the Sample's `results` row for the Test. The letterhead, the Method, the
 Specification and the Document Revision belong to the report form, not to
 the Sample. The signature area names this Script and the Verification
 Record, whose Runs' actors the Ledger holds, and, below them, the notebook
@@ -45,9 +43,9 @@ from one `Report`, so they cannot disagree:
   row as this Script read it and the report's sheet as it reads back the
   saved xlsx, row 1 first. Dates read back as YYYY-MM-DD, times as HH:MM.
 
-The Script refuses inputs it cannot read or render a report from, including
-a Sample with no `samples` row or no Receiving Log row (exit 1, the reason
-on stderr, no outputs). It judges nothing else: the stage 6 Evaluation decides
+The Script refuses inputs it cannot read or render a complete report from,
+including any metadata value that is missing or blank (exit 1, the reason on
+stderr, no outputs). It judges nothing else: the stage 6 Evaluation decides
 whether the report agrees with its sources and whether the verdict was pass.
 """
 
@@ -82,7 +80,6 @@ SPECIFICATION = "Report value"
 RESULT_COLUMNS = ("Test", "Method", "Specification", "Result", "Unit")
 SIGNATURE_ROLES = ("Rendered By", "Verified By")
 NOTEBOOK_LABEL = "Notebook Reference"
-NOT_STATED = "Not stated"
 
 RECEIVING_LOG_COLUMNS = (
     "#",
@@ -287,12 +284,12 @@ def build_report(
         raise ReportError(f"the carried database has no {test} result for {ref}")
     row = receiving_log[ref]
 
-    def value(source: Source) -> Value:
+    def value(label: str, source: Source) -> Value:
         match source:
             case ReceivingLog(column):
-                found = row.get(column)
+                found, where = row.get(column), f"the Receiving Log row of {ref}"
             case Samples(column):
-                found = sample[column]
+                found, where = sample[column], f"the samples row of {ref}"
             case Form(form_value):
                 return form_value
         if isinstance(found, datetime):
@@ -300,12 +297,13 @@ def build_report(
         if isinstance(found, date | time):
             return found
         if found is None or str(found).strip() == "":
-            return NOT_STATED
+            name = label or "Address, second line"
+            raise ReportError(f"{name}: {where} has no {source.column}")
         return str(found)
 
     return Report(
-        client=tuple((label, value(s)) for label, s in CLIENT),
-        metadata=tuple((label, value(s)) for label, s in METADATA),
+        client=tuple((label, value(label, s)) for label, s in CLIENT),
+        metadata=tuple((label, value(label, s)) for label, s in METADATA),
         result=(test, METHOD, SPECIFICATION, round(mean, 4), unit["unit"]),
         signatures=(
             ("Rendered By", "render_roa"),

@@ -333,7 +333,7 @@ The person or Agent who performs a Verification. A Verifier is never the author 
 _Avoid_: checker, reviewer
 
 **Report of Analysis**:
-The signed document that the lab issues to a Client with the results for one Sample. In the toy workflow, stage 6 renders it as xlsx and PDF from one structure, both typed `ReportOfAnalysis`, from a Verification Record whose verdict is pass. Every metadata value is read from the Sample's Receiving Log row or its `samples` row, never typed by hand, and a value those leave blank reads "Not stated" (ADR-0016). The `reports` row names the PDF. It leaves the lab only through an `ExternalMessage` Gate. `aliquot sandbox lineage <report id>` walks its Lineage back to the Submission Form.
+The signed document that the lab issues to a Client with the results for one Sample. In the toy workflow, stage 6 renders it as xlsx and PDF from one structure, both typed `ReportOfAnalysis`, from a Verification Record whose verdict is pass. Every metadata value is read from the Sample's Receiving Log row or its `samples` row, never typed by hand, and the `reports` row names the PDF. It leaves the lab only through an `ExternalMessage` Gate. `aliquot sandbox lineage <report id>` walks its Lineage back to the Submission Form.
 _Avoid_: CoA, Certificate of Analysis, ROA, final report. Clients may say CoA. A certificate that a supplier ships with a raw material is a different document.
 
 **TAT**:

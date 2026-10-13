@@ -15,7 +15,6 @@ import {
 	evaluateVerification,
 	evaluateWorkOrder,
 	MEAN_AVERAGE_WEIGHT,
-	NOT_STATED,
 	NOTEBOOK_LABEL,
 	pdfText,
 	RECEIVING_LOG_COLUMNS,
@@ -1099,17 +1098,16 @@ const pdfShowing = (shown: readonly string[]): Buffer =>
 
 const SEED1_PDF = [REF, NAME, LOT, PRODUCT_CODE, RESULT_G.toFixed(4)];
 
-/** A database version holding seed 1's Sample, or `held`, the Work Order's rows and `reports` rows. */
+/** A database version holding seed 1's Sample, the Work Order's rows and `reports` rows. */
 const reportDatabase = (
 	reports: readonly (readonly [string, string, string])[] = [],
-	held: typeof SEED1_SAMPLE = SEED1_SAMPLE,
 ): Buffer => {
 	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
 	try {
 		const path = join(dir, "lims.sqlite");
 		const db = new DatabaseSync(path);
 		const { product_code, product_name, product_type, client, ...sample } =
-			held;
+			SEED1_SAMPLE;
 		db.exec(
 			`CREATE TABLE lots (lot TEXT PRIMARY KEY, product_code TEXT, product_name TEXT, product_type TEXT, client TEXT);
 			CREATE TABLE samples (${Object.keys(sample).join(", ")});
@@ -1323,33 +1321,6 @@ describe("evaluateReport", () => {
 			evaluateReport(reportRun({ weighings: noted, pdf })).findings,
 		).toEqual([
 			"the signature area's Notebook Reference is empty, not the weighings' NB-07 p.31",
-		]);
-	});
-
-	it("passes Not stated for a value the Sample's sources leave blank, and fails a blank cell", () => {
-		const carried = reportDatabase([], {
-			...SEED1_SAMPLE,
-			report_to_contact: "",
-			product_type: "",
-		});
-		const logRow = { ...seed1LogRow(), TYPE: "" };
-		const cells = {
-			...seed1Cells(),
-			Attention: NOT_STATED,
-			"Product Type": NOT_STATED,
-		};
-
-		expect(evaluateReport(reportRun({ carried, logRow, cells }))).toEqual({
-			score: 1,
-			passed: true,
-			findings: [],
-		});
-		expect(
-			evaluateReport(
-				reportRun({ carried, logRow, cells: { ...cells, Attention: "" } }),
-			).findings,
-		).toEqual([
-			"Attention: the report holds nothing, not Not stated, the carried database's report_to_contact for LR-2026-0001",
 		]);
 	});
 

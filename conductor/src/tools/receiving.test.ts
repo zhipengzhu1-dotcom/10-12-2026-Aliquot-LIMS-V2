@@ -23,7 +23,9 @@ import {
 	LAB,
 	ODILE,
 	OPERATOR,
+	PRODUCT_TYPE,
 	RECEIPT,
+	REPORT_TO,
 	receive,
 	registerLabRoomScripts,
 	replyTo,
@@ -33,6 +35,7 @@ import {
 	WORK_ORDER,
 } from "../test-support/lab-room.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
+import type { RunModel } from "../turn/model.js";
 import { messageArtifactId, PARSE_MESSAGE } from "./message.js";
 
 // Each build gives its tag a new image id, so this process's tag is its own.
@@ -40,6 +43,9 @@ const IMAGE = `aliquot-sandbox:receiving-${process.pid}`;
 const UNREADABLE = "Received some samples from Acme";
 const ASKED =
 	"I cannot log these yet: which product is it, and what are its Lot and Product Code?";
+/** #60's receipt: every value but the Product Type and the Report To party. */
+const NO_REPORT_TO =
+	"Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, finished product, from Acme Nutrition, regular TAT";
 
 let s: Scenario;
 let home: string;
@@ -79,6 +85,59 @@ describe("receiving from chat, the Director's judgement on an unreadable Message
 			payload: { room_id: LAB, body: ASKED },
 		});
 		expect(ASKED).toMatch(/product.*Lot.*Product Code/);
+		expect(s.events().filter((e) => e.kind === "TaskProposed")).toEqual([]);
+		expect(
+			s.ledger.projections.artifacts.artifacts.has(messageArtifactId(message)),
+			"the Message is not stored",
+		).toBe(false);
+		expect(s.ledger.verify().ok).toBe(true);
+	});
+
+	it("gets the Director's reply asking for the Product Type and the Report To party a receipt lacks, and no Task", async () => {
+		const message = say(s.ledger, {
+			actor: OPERATOR,
+			room_id: LAB,
+			body: NO_REPORT_TO,
+		});
+		// The Director asks for each labelled value its prompt names that the
+		// Message does not label.
+		const odileModel: RunModel = (request) => {
+			const lacking = [
+				...request.prompt.work.matchAll(
+					/the ([A-Z][\w ]*?) after "([^"]+)"( with its [\w ,]+? and \w+)?/g,
+				),
+			]
+				.filter(
+					([, , label = ""]) =>
+						!message.body.toLowerCase().includes(label.toLowerCase()),
+				)
+				.map(([, name, , parts]) => `the ${name}${parts ?? ""}`);
+			return director(message, [
+				{
+					tool: "send_message",
+					input: {
+						room_id: LAB,
+						reply_to: message.seq,
+						body: `I cannot log these yet: please give ${lacking.join(" and ")}.`,
+					},
+				},
+			])(request);
+		};
+
+		await runScheduler(
+			s,
+			home,
+			(agent) => (agent === ODILE ? odileModel : scripted([])),
+			() => replyTo(s, message.seq) !== undefined,
+		);
+
+		expect(replyTo(s, message.seq)).toMatchObject({
+			actor: { tag: "Agent", id: ODILE },
+			payload: {
+				room_id: LAB,
+				body: "I cannot log these yet: please give the Product Type and the Report To party with its company, Contact, Address and City.",
+			},
+		});
 		expect(s.events().filter((e) => e.kind === "TaskProposed")).toEqual([]);
 		expect(
 			s.ledger.projections.artifacts.artifacts.has(messageArtifactId(message)),
@@ -151,10 +210,12 @@ describe.skipIf(!requireDocker())(suite, () => {
 			artifacts.read(typed(parsed, "SubmissionRecord")).toString(),
 		);
 		expect(record.submitted_by.company).toBe("Acme Nutrition");
+		expect(record.report_to).toEqual({ ...REPORT_TO, phone: "", email: "" });
 		expect(record.sample).toMatchObject({
 			sample_description: "Vitamin C 500 mg capsules",
 			lot: "2403A",
 			product_code: "VC500",
+			product_type: PRODUCT_TYPE,
 			no_of_containers: "3",
 			sample_type: "FP",
 			tat_code: "1",

@@ -41,7 +41,7 @@ Preconditions:
 4. Stop serve again and run the Turns: Odile, Rin (store, `S-parse_results_message`, stage 4, hand on), Bram (stage 5, hand on), Ines (stage 6, `request_gate`, reply), then Pia and Anselm review.
 5. Restart serve, then approve in `#/gates`: `wait '[data-gate="G-1"] .state-open' text '[data-gate="G-1"] .kind' 'ExternalMessage' fill '#approve-G-1-reason' '<reason>' click '#approve-G-1 button' text '#answer' 'Appended GateDecided' text 'li.gate[data-gate="G-1"]' 'Approved'`.
 
-Proof: `/api/gates` has G-1 approved by the Operator, its `GateDecided` names the `GateRequested` as cause, and Ines's reply in RM-lab names G-1 and the PDF. The ticket 61 report links the run's `proof.md` and the lever script that wrote each Turn's file.
+Proof: `/api/gates` has G-1 approved by the Operator, its `GateDecided` names the `GateRequested` as cause, and Ines's reply in RM-lab names G-1 and the PDF. The PDF's text shows the receipt's Report To contact, address and city and its Product Type (`render_roa` refuses a blank one, so a receipt without them is refused by `parse_message` at step 2 and the flow stops there). The ticket 61 report links the run's `proof.md` and the lever script that wrote each Turn's file.
 
 ## Gotchas
 
