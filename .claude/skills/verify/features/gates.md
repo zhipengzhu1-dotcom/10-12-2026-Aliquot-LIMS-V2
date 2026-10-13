@@ -9,7 +9,8 @@ The Gates view at `#/gates` lists the Gates waiting on the Operator, oldest firs
 - `gates-approve` posts `gate-decide` with `decision: "approve"` from `form#approve-G-<n>`.
 - `gates-reject` posts `gate-decide` with `decision: "reject"` from `form#reject-G-<n>`.
 - `gates-closed` lists decided and expired Gates, most recently closed first.
-- `gates-refusal` shows the Ledger's refusal for a second decision or a payload hash that no longer matches.
+- `gates-refusal` surfaces the Ledger's refusal of a second decision, or of a hash that is not the Gate's, in the shell's `#answer` as `409: GateDecided refused: …`; the Gates markup itself shows nothing for it.
+- Gates of kind `Deploy`, `WriteSystemOfRecord` and `ExternalMessage` list the same way with their payload JSON and no `table.diff`.
 
 ## How to get to it (user POV)
 
@@ -33,6 +34,7 @@ Preconditions:
 
 - The action body says `decision`, but the `GateDecided` row stores it as `meaning` (`approve` or `reject`) beside `decided_by`, `decided_at` and `payload_hash`. Query `json_extract(payload, '$.meaning')`.
 - Approving a `RetireAgent` Gate retires nobody. `org retire <id> --gate G-<n>` does, and only while `serve` is stopped.
-- The decide form signs the hash the page read when it drew. A payload that changed since then shows the Ledger's refusal, which is the intended behaviour, not a failure of the drive.
+- The decide form signs the hash the page read when it drew; a Gate's payload never changes (a second `GateRequested` with the same id is refused), so a hash refusal is reachable only by posting a wrong hash through `api.sh act`, and it shows in `#answer`, not in the Gates view.
+- The drive's two Gates come from `Request retirement` in the Org view, so their requester is the Operator; Bram and Mabel are only the Agents the payloads name. A `PromoteToMentor` request or approval is also refused while the Agent holds an unused approved one.
 - An expired Gate shows as `Expired` with no Event; the default lifetime is 86400 seconds, so a drive never sees one without `gate request --lifetime`.
 - `PromoteToMentor` approval does not change the tier by itself: the tier rises only when Merit and tenure meet the tier's bar, which the baseline's two Reviews do not.
