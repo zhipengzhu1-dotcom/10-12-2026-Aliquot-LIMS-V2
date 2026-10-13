@@ -1,6 +1,6 @@
 # Aliquot LIMS
 
-Aliquot LIMS is a society of AI agents that does the work of a regulated pharmaceutical contract testing lab, under the audit and control of one human operator. This glossary has two parts. The first part names the agent society. The second part names the lab work that the agents do.
+Aliquot LIMS is the automation engine behind the LIMS of a regulated pharmaceutical contract testing lab (ADR-0017). A society of AI agents does the lab's paperwork and computation, under the audit and control of one human operator. This glossary has two parts. The first part names the agent society. The second part names the lab work that the agents do.
 
 ## Agent society
 

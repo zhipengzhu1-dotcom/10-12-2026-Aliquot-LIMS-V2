@@ -1,10 +1,12 @@
 # Aliquot LIMS design overview
 
-This document describes the agent society that will run a regulated pharmaceutical contract testing lab. Read it first. The decisions it rests on are in `docs/adr/`, the vocabulary is in `GLOSSARY.md`, and the mechanics of Mood and Merit are in `docs/design/vitality-and-merit.md`.
+This document describes the automation engine behind the LIMS of a regulated pharmaceutical contract testing lab. Read it first. The decisions it rests on are in `docs/adr/`, the vocabulary is in `GLOSSARY.md`, and the mechanics of Mood and Merit are in `docs/design/vitality-and-merit.md`.
 
 ## Vision
 
-A small society of Agents does the paperwork and the computation of the lab, from the Submission Form to the Report of Analysis. Each Agent has a Charter, a Persona, and a measured Vitality. In the first edition Vitality decides nothing: Mood is flat (#62). Agents earn Trust tiers through Reviews, train each other through Skills and Revisions, and rewrite their own Scripts in a Sandbox. The Operator sees every Agent's Vitality and Merit live, and decides every Gate. Nothing leaves the Sandbox without the Operator's signature. Every action is an Event in one hash-chained Ledger, so the lab can show an inspector who did what, when, and why. The first slice runs on synthetic lab work. Real data connects only after the Operator has watched the society work.
+This repository is the automation engine behind the lab's human LIMS, the owner's aliquot-lims-dev ([ADR-0017](../adr/0017-this-repository-is-the-automation-engine-behind-the-human-lims.md)). The human LIMS keeps people, roles, two-person review, QA release, OOS investigations and the Client portal. The engine reads submissions, logs receipts, computes results and drafts reports. Every human act it records names the person (#74). Nothing leaves the Sandbox without the Operator's signature on a Gate. Every action is an Event in one hash-chained Ledger, so the lab can show an inspector who did what, when, and why.
+
+**The engine.** Agents do the engine's work, each under a Charter and with its own Tools, and Scripts in the Sandbox do the computation. The Operator reports received Samples and then results in the Lab Room, and the engine logs the Samples, opens the Work Order, computes and verifies the results, and drafts the Report of Analysis behind an `ExternalMessage` Gate. Slices 0 to 2 run on synthetic data. Slice 3 takes the same flow to the lab's real documents, in parallel first. The engine writes shadow copies beside the lab's records and a comparison, and it writes the real Receiving Log only when the Operator says so ([ADR-0018](../adr/0018-slice-3-runs-in-parallel-first.md)). Vitality, Merit, Reviews, Trust tiers and Training are built and stay in the Ledger, but they are not on the first edition's path, and Mood is flat (#62).
 
 ## What exists today
 
@@ -447,7 +449,7 @@ Stage 2 assigns each container a Lab Reference at receipt, `LR-<year received>-<
 
 **Cost.** Everything on Cloudflare stays on the free tier, which covers Tunnel, Access for up to 50 users, and DNS. There is no Workers paid plan, no Containers, and no R2 beyond the free tier. The Ledger and the Artifact store stay on the Mac.
 
-**Data boundary.** Real lab documents never leave the Mac, except as text inside prompts sent to Anthropic. The Operator must accept this before slice 3 or replace the model with a local one.
+**Data boundary.** Real lab documents never leave the Mac, except as text inside prompts sent to Anthropic. The owner accepted this on 2026-10-13 for the demo to lab members (see "Risks and open questions").
 
 ## The starting roster
 
@@ -544,15 +546,19 @@ Each slice ends in something the Operator can check. The first edition is the ch
 2. **Slice 1, the society on toy work.** Done 2026-10-13. Built: the lifecycles, the six stages of the toy workflow under a tracer, the views behind Tunnel and Access, Turns as Events, the Agent's Tools, the first real Turn through the Agent SDK, and the Scheduler. It ends with one live run of the society on a Fixture. Mood is flat (#62): the Mood thresholds stay written but are not in force until the chat flow has produced data to tune against. Beyond its line: flat Mood (#62), an escalated Task's target gets a Turn (#63), assignment refuses a paused or Retired Agent (#65), the Access landing and the Aliquot design, and the project `verify` skill. Short of its line: the live run stopped at stage 1, the Rooms and Scripts views show their JSON undrawn, and the Tunnel and Access setup is written but not applied.
 3. **Slice 2, the chat flow.** Done 2026-10-13. A Chat view on the Lab Room. Receiving from chat: the Operator's Message becomes a Submission Record, and stages 2 and 3 log the Samples and open the Work Order. Results from chat: the Operator's Message with the notebook reference and the weighings feeds stage 4, stages 4 to 6 run as built, and the Specialist that rendered the report requests an `ExternalMessage` Gate the Operator decides. It ends when the Operator has logged Samples and approved a report from the Chat view, on synthetic data. Beyond its line: the receipt must state the Report To party and the Product Type, so no receipt reaches stage 2 that stage 6 would refuse (ADR-0016 withdrawn), and the Lab References continue the toy LIMS database (#66). Short of its line: the end check ran with a scripted model in the tests and the `verify` proofs, not live; no live Turn has taken the chat flow to its Gate.
 
-   Follow-ups left after slices 1 and 2:
-   - #67: a Task can be escalated to a paused or unknown Agent.
-   - Gate G2: the owner applies the Tunnel and Access setup in `docs/ops/tunnel.md`.
-   - #68: `tools/serve.sh` still serves with `--no-schedule`, so no Turn starts behind the Tunnel.
-   - A full live run of the chat flow, from a receipt in the Lab Room to a decided `ExternalMessage` Gate.
-   - Drawing the Rooms and Scripts views, which show their JSON as it came.
-4. **Slice 3, real work.** The same flow on the lab's real Submission Forms, writing the real Receiving Log workbook and real reports behind the `WriteSystemOfRecord` Gate. Anonymized copies of the real templates become Fixtures.
+   Slice 2 is finished by four tickets:
+   - #70: the Tunnel serve runs the Scheduler (resolves #68).
+   - #71: a stage's Task goes to the stage's worker, who sees the stage's Script (resolves #64 and the Scheduler's half of #59).
+   - #72: Escalation and Help go only to an active Agent (resolves #67).
+   - #73: one live run of the chat flow, from a receipt in the Lab Room to a decided `ExternalMessage` Gate, after #70, #71 and #72. Slice 2 is finished when its note is read.
 
-Later, not in the first edition: tuning the Mood thresholds, Developer and Tester building for Lab staff behind the `Deploy` Gate, and reading VBA.
+   Two more items stay open. At gate G2 the owner applies the Tunnel and Access setup in `docs/ops/tunnel.md`. The Rooms and Scripts views still show their JSON as it came, until a ticket draws them.
+4. **Identity, before slice 3.** #74: every Event a person authors names the person by email, from the Cloudflare Access assertion in the interface and from `--operator` on the command line, and `aliquot serve` admits a list of people. Events written before it read as the unnamed Operator (ADR-0012). The email on the actor is the shape the seam to the human LIMS will use (ADR-0017).
+5. **Slice 3, real work in parallel.** The same flow on the lab's real documents, run beside the lab's own work first (ADR-0018). #75: scrubbed copies of the real templates, in their layout, become Fixtures (the `anonymize` of the risks table). #76: stages 1 and 2 read the real Submission Form layout and write a shadow Receiving Log in the real columns and sheets, with a comparison against the rows the lab entered by hand. #77: reports in the real layouts, beside the lab's, once #76's comparisons are read. Slice 3 has started when the first comparison is read. Only after the Operator has judged the parallel run does a separate ticket write the real Receiving Log behind the `WriteSystemOfRecord` Gate.
+
+After slice 3, by the owner's word: the Client submission interface, where a Client gives text, .csv, .xlsx or .txt, a model on Sonnet or Haiku fills the lab's Submission Form, the Client confirms it, and the Client sees status and downloads the report; the seam to aliquot-lims-dev; and the login mechanism, chosen last, before deployment.
+
+Not on the first edition's path: Vitality, Merit, Reviews, Trust tiers and Training (ADR-0017). They stay built and in the Ledger, and nothing is deleted. Later still: tuning the Mood thresholds, Developer and Tester building for Lab staff behind the `Deploy` Gate, and reading VBA.
 
 ## Risks and open questions
 
@@ -561,7 +567,9 @@ Each item states the default we take and the one word the Operator can send to r
 | Risk or question | Default | Reverse word |
 |---|---|---|
 | The SDK documentation does not cover subscription login for a personal tool, and forbids third parties from offering claude.ai login in products. | Proceed for personal internal use and keep authentication swappable. The Operator may confirm with Anthropic. | `apikey` |
-| Lab text reaches Anthropic inside prompts. | Accept for the toy phase. Real data waits for slice 3 and an explicit decision. | `local` |
+| Lab text reaches Anthropic inside prompts. | Accepted by the owner on 2026-10-13 for the demo to lab members: real lab text goes to Anthropic inside prompts in slice 3's parallel run. The real templates are still never committed (ADR-0009). | `local`, which replaces the model with a local one before real data reaches it |
+| Is the society the product? | No. This repository is the automation engine behind the human LIMS, aliquot-lims-dev, which keeps people, roles, review, OOS and the Client portal (ADR-0017). | `society` |
+| Does slice 3 write the lab's real records? | Not at first. It writes shadow copies and a comparison, and writes the real Receiving Log only when the Operator says so, behind the `WriteSystemOfRecord` Gate (ADR-0018). | `direct` |
 | Subdomain or path on the Cloudflare zone. | `agents.nitrolims-demo.com`. | `path` |
 | The templates hold real Client data and are untracked. | Ignore them in git and copy shapes only. | `anonymize`, which creates scrubbed copies for Fixtures |
 | Nobody knows how many Turns the subscription allows at once. | Two at a time. The live run of 2026-10-13 ([live-run-2026-10.md](live-run-2026-10.md)) had 2 Turns open at once for 6 seconds, and the subscription refused neither. It never asked for a third, so the ceiling is still unknown. | `serial`, which runs one Turn at a time |
