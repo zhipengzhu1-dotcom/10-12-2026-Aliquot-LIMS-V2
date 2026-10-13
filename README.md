@@ -384,7 +384,7 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 | Route | Answers |
 |---|---|
 | `GET /` | The interface, from `conductor/dist/ui/`. |
-| `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts` | The Projection as JSON. Each map is an object keyed by id. |
+| `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts`, `/api/turns` | The Projection as JSON. Each map is an object keyed by id. `/api/turns` holds every Turn by id and each Agent's open Turn, the data `turn list` prints. |
 | `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
 | `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
 | `GET /api/ledger?from=<seq>&limit=<n>` | `{events, next}`: the Events from seq `from` (default 1), at most `limit` (default 100, at most 1000). `next` is the seq the next page starts from, or `null` after the last Event. |
@@ -392,7 +392,7 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 | `GET /api/events` | The Ledger's Events as Server-Sent Events. |
 | `POST /api/actions/<verb>` | One of the Operator's actions. |
 
-The `turns` and `training` routes and the `coach` action wait for the Turn and Training Projections (#46).
+The `training` route and the `coach` action wait for the Training lifecycle and Projection (#46).
 
 ### Events
 

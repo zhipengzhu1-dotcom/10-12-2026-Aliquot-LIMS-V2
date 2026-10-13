@@ -29,6 +29,7 @@ export const PROJECTION_ROUTES = {
 	scripts: (p: Projections) => p.scripts,
 	runs: (p: Projections) => p.runs,
 	artifacts: (p: Projections) => p.artifacts,
+	turns: (p: Projections) => p.turns,
 } satisfies Record<string, (projections: Projections, now: Date) => unknown>;
 
 export type ProjectionName = keyof typeof PROJECTION_ROUTES;

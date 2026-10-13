@@ -49,7 +49,7 @@ export const VIEWS: readonly View[] = [
 	view("rooms", "Rooms", ["rooms"]),
 	view("scripts", "Scripts", ["scripts", "runs", "artifacts"]),
 	view("gates", "Gates", ["gates"]),
-	view("performance", "Performance", ["tiers", "vitality", "tasks"]),
+	view("performance", "Performance", ["tiers", "vitality", "tasks", "turns"]),
 	view("ledger", "Ledger", ["ledger", "ledger/verify"]),
 ];
 

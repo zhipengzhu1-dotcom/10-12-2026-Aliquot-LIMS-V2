@@ -8,6 +8,7 @@ import { AgentId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import { seedRooms } from "../room/seed.js";
+import { startTurn } from "../turn/lifecycle.js";
 import { type Serving, serve } from "./http.js";
 import { PROJECTION_ROUTES } from "./routes.js";
 
@@ -139,6 +140,31 @@ describe("aliquot serve: Projections", () => {
 		});
 		expect(answers.tasks?.json).toMatchObject({ tasks: {} });
 		expect(answers.gates?.json).toEqual({ gates: {} });
+	});
+
+	it("GET /api/turns returns the Turn Projection, each Turn by id", async () => {
+		startTurn(ledger, {
+			agent: AgentId.parse("A-rin"),
+			model: "claude-sonnet-5-5",
+			energyBudgetTokens: 1_000_000,
+		});
+
+		const { status, text } = await get("/api/turns");
+
+		expect(status).toBe(200);
+		expect(JSON.parse(text)).toMatchObject({
+			turns: {
+				"TN-1": {
+					started: {
+						turn_id: "TN-1",
+						agent: "A-rin",
+						model: "claude-sonnet-5-5",
+					},
+					seq: 10,
+				},
+			},
+			open: { "A-rin": "TN-1" },
+		});
 	});
 
 	it("answers 404 for a Projection the Ledger does not keep", async () => {
