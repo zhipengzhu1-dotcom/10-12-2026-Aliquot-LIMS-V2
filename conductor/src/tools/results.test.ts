@@ -25,6 +25,7 @@ import {
 	director,
 	json,
 	LAB,
+	latest,
 	named,
 	ODILE,
 	OPERATOR,
@@ -102,11 +103,6 @@ const handedOn = (goal: string, stage: number) => {
 	const [, name = "", next = "", worker = ""] = found;
 	return { name, next, worker: AgentId.parse(worker) };
 };
-
-const latest = async (tool: ReturnType<typeof json>, artifact_type: string) =>
-	(
-		(await tool("list_artifacts", { artifact_type })) as { id: ArtifactId }[]
-	).at(-1)?.id;
 
 /**
  * The Director's judgement on a results Message, scripted the way a model

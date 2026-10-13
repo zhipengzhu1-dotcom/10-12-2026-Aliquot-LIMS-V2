@@ -211,6 +211,12 @@ describe("the prompt of a Turn", () => {
 			section,
 			"the goal names every Script id, which the Specialist has no Tool to look up",
 		).toMatch(/S-parse_message.*S-log_receipt.*S-create_work_order/);
+		expect(
+			section,
+			"stage 2 carries the latest database, so Lab References continue",
+		).toMatch(
+			/S-log_receipt \(stage 2 Receipt\) on its Submission Record and the latest toy LIMS database when there is one/,
+		);
 		expect(section).toContain(
 			`- seq ${report.seq}, Artifact ${id}: Received 3 bottles, Lot 2403A, Product Code VC500`,
 		);
