@@ -179,12 +179,24 @@ describe.skipIf(!requireDocker())(suite, () => {
 		);
 
 		expect(ran.status, ran.stderr).toBe(0);
+		const printed = JSON.parse(ran.stdout);
+		const run_id = printed.run.id;
+		expect(printed).toMatchObject({
+			run: { script: { id: "S-parse_submission" }, exit_code: 0 },
+			evaluation: { stage: 1, run_id, task_id, score: 1, passed: true },
+		});
+		const written = events();
 		expect(
-			JSON.parse(ran.stdout),
-			"R-3 follows the workflow's two stage Runs",
+			written.filter((e) => e.kind === "RunFinished").at(-1),
+			"the printed Run is the last one the Ledger finished",
 		).toMatchObject({
-			run: { id: "R-3", script: { id: "S-parse_submission" }, exit_code: 0 },
-			evaluation: { stage: 1, run_id: "R-3", task_id, score: 1, passed: true },
+			actor: { tag: "Agent", id: "A-rin" },
+			payload: { id: run_id },
+		});
+		expect(written.at(-1)).toMatchObject({
+			kind: "EvaluationRecorded",
+			actor: { tag: "Agent", id: "A-rin" },
+			payload: { run_id, task_id },
 		});
 		expect(aliquot("ledger", "verify").status).toBe(0);
 	}, 120_000);
