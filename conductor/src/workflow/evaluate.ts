@@ -18,6 +18,10 @@
  * Stage 4: the Result Worksheet that `sandbox/scripts/compute_results/main.py`
  * writes computes every average and the mean by formula from the weighings,
  * and the `results` rows agree with it.
+ *
+ * Stage 5: the Verification Record that `sandbox/scripts/verify_results/main.py`
+ * writes names the worksheet and weighings the Run took, every recomputation
+ * agrees with the weighings, and its verdict says so.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -699,6 +703,110 @@ export const evaluateResults = ({ inputs, outputs }: RunArtifacts): Scored => {
 				`${ref}: results holds ${meanValue ?? "no row"} for ${MEAN_AVERAGE_WEIGHT}, not ${mean}, the mean of the worksheet's averages, within ${RESULTS_TOLERANCE_G} g`,
 			);
 		}
+
+		return {
+			score: (checks - findings.length) / checks,
+			passed: findings.length === 0,
+			findings,
+		};
+	} catch (error) {
+		if (error instanceof Unreadable) return failed(error.message);
+		throw error;
+	}
+};
+
+/** One recomputed cell of a Verification Record. */
+const Recomputed = z.object({
+	row: z.int(),
+	formula: z.string().nullable(),
+	recomputed_g: z.number().nullable(),
+});
+
+/** `verification_record.json` (schema `verification_record/1`), the fields stage 5 checks. */
+const VerificationRecordFile = z.object({
+	schema: z.literal("verification_record/1"),
+	worksheet: z.string(),
+	weighings: z.string(),
+	rows: z.array(Recomputed.extend({ container: Cell })),
+	mean: Recomputed,
+	verdict: z.enum(["pass", "fail"]),
+});
+
+/**
+ * Stage 5's Evaluation of its Run. The Verification Record names the Result
+ * Worksheet and the weighings the Run took; it has a row for every
+ * weighing; each row's recomputed average is its container's weight of 20
+ * capsules divided by 20, and the recomputed mean the mean of those, each
+ * within `RESULTS_TOLERANCE_G`, computed here from the Run's weighings; and
+ * its verdict is `pass` exactly when all of that agrees. The Run's
+ * Artifacts name no Agent, so the rule that the Verifier is not the
+ * worksheet's author is the workflow guard's, on whoever takes the Task.
+ */
+export const evaluateVerification = ({
+	inputs,
+	outputs,
+}: RunArtifacts): Scored => {
+	try {
+		const record = readJson(
+			ofType(outputs, "VerificationRecord"),
+			"Verification Record",
+			VerificationRecordFile,
+		);
+		const worksheet = ofType(inputs, "ResultWorksheet");
+		if (!worksheet) throw new Unreadable("the Run took no ResultWorksheet");
+		const given = ofType(inputs, "Other");
+		const weighings = readJson(given, "weighings file", Weighings);
+
+		const findings: string[] = [];
+		let checks = 0;
+		const check = (ok: boolean, finding: string) => {
+			checks++;
+			if (!ok) findings.push(finding);
+		};
+		check(
+			record.worksheet === worksheet.id,
+			`the record verifies ${record.worksheet}, not the Result Worksheet ${worksheet.id} the Run took`,
+		);
+		check(
+			record.weighings === given?.id,
+			`the record checks against ${record.weighings}, not the weighings ${given?.id} the Run took`,
+		);
+
+		const named = findings.length;
+		const within = (value: number | null, expected: number | undefined) =>
+			value !== null &&
+			expected !== undefined &&
+			Math.abs(value - expected) <= RESULTS_TOLERANCE_G;
+		const averageOf = new Map(
+			weighings.map((w) => [w.container, w.weight_of_20_g / 20]),
+		);
+		for (const { container } of weighings) {
+			check(
+				record.rows.some((r) => r.container === container),
+				`container ${container}: the record has no row for its weighing`,
+			);
+		}
+		for (const row of record.rows) {
+			const expected =
+				typeof row.container === "number"
+					? averageOf.get(row.container)
+					: undefined;
+			check(
+				within(row.recomputed_g, expected),
+				`row ${row.row} (container ${shown(row.container)}): ${row.formula ?? "a typed value"} recomputes to ${row.recomputed_g ?? "nothing"}, not ${expected ?? "(no weighing)"}, the weighing's weight of 20 capsules / 20, within ${RESULTS_TOLERANCE_G} g`,
+			);
+		}
+		const averages = [...averageOf.values()];
+		const mean = averages.reduce((sum, a) => sum + a, 0) / averages.length;
+		check(
+			within(record.mean.recomputed_g, mean),
+			`the Mean row's ${record.mean.formula ?? "typed value"} recomputes to ${record.mean.recomputed_g ?? "nothing"}, not ${mean}, the mean of the weighings' averages, within ${RESULTS_TOLERANCE_G} g`,
+		);
+		const agrees = findings.length === named;
+		check(
+			record.verdict === (agrees ? "pass" : "fail"),
+			`the record's verdict is ${record.verdict}, but ${agrees ? "every recomputation agrees" : "a recomputation disagrees"}`,
+		);
 
 		return {
 			score: (checks - findings.length) / checks,
