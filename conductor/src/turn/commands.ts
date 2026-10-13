@@ -36,7 +36,7 @@ const vector = (v: Vitality) =>
 export const SCRIPTED_MODEL_VARIABLE = "ALIQUOT_SCRIPTED_MODEL";
 
 /** The real model, or the scripted one when the variable names its file. */
-const chosenModel = (): { run: RunModel; text: string } => {
+export const chosenModel = (): { run: RunModel; text: string } => {
 	const file = process.env[SCRIPTED_MODEL_VARIABLE];
 	if (file === undefined || file === "") {
 		return { run: sdkModel, text: "the Agent SDK" };

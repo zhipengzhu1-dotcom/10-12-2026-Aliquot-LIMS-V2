@@ -117,13 +117,15 @@ const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 
 /**
  * The Events the Conductor records of its own acts (ADR-0013). Their own
- * domain's guards hold their rules, including that no one else records them.
+ * domain's guards hold their rules, including, for a Turn and a refused Tool
+ * call, that no one else records them.
  */
 const CONDUCTOR_ACTS: ReadonlySet<EventKind> = new Set([
 	"TurnStarted",
 	"TurnFinished",
 	"ActionRefused",
 	"VitalitySampled",
+	"TaskAssigned",
 ]);
 
 /**

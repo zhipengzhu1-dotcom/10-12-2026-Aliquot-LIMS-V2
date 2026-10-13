@@ -86,6 +86,16 @@ One approved `PromoteToMentor` Gate covers one Promotion to `Mentor`. A Promotio
 
 The Director and the Supervisors create Tasks. The Director or a Supervisor may name an assignee. The Conductor refuses the assignment if that Agent is `strained` or worse. When no assignee is named, the Conductor offers the Task to eligible Agents in proportion to the allocation weight of their tier multiplied by `1 - load`. Agents that are `strained` or worse are not eligible.
 
+The Scheduler in `aliquot serve` does this as built (`conductor/src/scheduler/plan.ts`). A Proposed Task that no one has assigned one Tick after its `TaskProposed` is assigned by the Conductor, as its own act: the `TaskAssigned` has the actor `Conductor` and names the `TaskProposed` as its cause (ADR-0013).
+
+- The candidates are the live Agents of the Task's role. A stage's Task, one whose inputs cover the stage's input types, goes to the role of the Agent that works the stage in the stage table. Any other Task goes to a Specialist.
+- A candidate is passed over when it is paused, when its Mood does not let it accept a Task, or when the Verifier rule refuses it.
+- Each other candidate weighs `round(tier weight × max(0, 1 - load) × 100)`, a whole number. Its load is the Tasks it holds (`Assigned`, `InProgress` or `Blocked`), counting those assigned earlier in the same Tick, divided by its `capacity`. A candidate at capacity weighs 0 and is passed over.
+- The pick is the first 32 bits of the SHA-256 of the Task id, as the Review sample reads them, mod the total weight. The candidates lie in id order, and the pick falls in one of them. The same Ledger gives the same assignee.
+- A Task no candidate may take waits for the next Tick, and the Scheduler's line names each candidate and why it was passed over.
+
+The Energy budget's 80 percent line holds when the Scheduler starts Turns: while the society's tokens in the trailing 5 hours, as the Turn Projection counts them, are above 80 percent of `--budget`, only an Agent that holds a Task with a rush TAT class starts a Turn.
+
 ## Promotion is the reward
 
 An Agent with good Reviews gets more work offered, fewer Reviews, and new rights. A change of role is a Revision. Any Agent with the right may propose it, and the Operator sees it in the Ledger. Promotion to `Mentor` is the only Promotion that needs a Gate, because a Mentor can revise other Agents' Charters.

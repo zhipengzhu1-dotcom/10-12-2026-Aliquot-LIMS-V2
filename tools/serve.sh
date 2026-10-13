@@ -57,7 +57,8 @@ stop() {
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 
-node "$root/conductor/dist/cli.js" --home "$home" serve --bind 127.0.0.1 --port "$port" \
+# --no-schedule keeps live Turns off until the owner says run; #41 removes it.
+node "$root/conductor/dist/cli.js" --home "$home" serve --bind 127.0.0.1 --port "$port" --no-schedule \
 	--access-team "$access_team" --access-aud "$access_aud" --operator-email "$operator_email" &
 serve_pid=$!
 

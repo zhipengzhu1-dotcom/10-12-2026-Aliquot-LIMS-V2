@@ -3,7 +3,7 @@ import {
 	spawn,
 	spawnSync,
 } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -29,11 +29,14 @@ const aliquot = (...args: string[]) =>
 	);
 
 /** `aliquot serve` in its own process, once it says where it serves. */
-const startServe = async () => {
+const startServe = async (
+	flags: readonly string[] = ["--no-schedule"],
+	extraEnv: Record<string, string> = {},
+) => {
 	const started = spawn(
 		process.execPath,
-		["--import", "tsx", cli, "--home", home, "serve", "--port", "0"],
-		{ env },
+		["--import", "tsx", cli, "--home", home, "serve", "--port", "0", ...flags],
+		{ env: { ...env, ...extraEnv } },
 	);
 	child = started;
 	let stdout = "";
@@ -117,6 +120,85 @@ describe("aliquot serve", () => {
 		});
 		expect(brokenCli.stderr).toBe(
 			"Ledger broken at seq 4: hash does not match the Event's contents\n",
+		);
+	});
+
+	it("schedules Turns every Tick, prints a line per decision, and serves the last Tick at /api/scheduler", async () => {
+		const model = join(home, "scripted.json");
+		writeFileSync(
+			model,
+			JSON.stringify({
+				calls: [],
+				usage_per_round: {
+					input_tokens: 10,
+					output_tokens: 1,
+					cache_creation_tokens: 0,
+					cache_read_tokens: 0,
+					cost_usd: 0,
+				},
+				stop: { tag: "Completed" },
+			}),
+		);
+		const { url, stopped } = await startServe(
+			["--tick", "200ms", "--concurrency", "1"],
+			{ ALIQUOT_SCRIPTED_MODEL: model },
+		);
+
+		let report: { last: { decisions: { verb: string }[] } | null } = {
+			last: null,
+		};
+		for (let i = 0; i < 50 && report.last === null; i += 1) {
+			report = (await (
+				await fetch(`${url}/api/scheduler`)
+			).json()) as typeof report;
+		}
+		child?.kill("SIGTERM");
+		const exit = await stopped;
+		const turns = aliquot("turn", "list").stdout;
+
+		expect(report).toMatchObject({
+			options: {
+				tickMs: 200,
+				dutyMs: 1_800_000,
+				concurrency: 1,
+				energyBudgetTokens: 1_000_000,
+			},
+		});
+		expect(report.last?.decisions.length).toBeGreaterThan(0);
+		expect(exit.code).toBe(0);
+		expect(exit.stdout).toMatch(
+			/^scheduler \d{4}-\d\d-\d\dT\S+Z A-mabel start standing duty, no Turn yet$/m,
+		);
+		expect(exit.stdout).toMatch(
+			/^scheduler \S+ A-mabel finished TN-1 Completed/m,
+		);
+		expect(turns).toMatch(/^TN-1 A-mabel .* outcome=Completed$/m);
+		expect(turns, "every Turn finished before the Ledger closed").not.toContain(
+			"outcome=open",
+		);
+		expect(aliquot("ledger", "verify").status).toBe(0);
+	});
+
+	it("--no-schedule serves without scheduling: no Turn, and /api/scheduler says the Scheduler is off", async () => {
+		const { url, stopped } = await startServe();
+
+		const res = await fetch(`${url}/api/scheduler`);
+		const body = await res.text();
+		child?.kill("SIGTERM");
+		const exit = await stopped;
+
+		expect(res.status).toBe(404);
+		expect(body).toBe("the Scheduler is off: aliquot serve --no-schedule\n");
+		expect(exit.stdout).not.toContain("scheduler ");
+		expect(aliquot("turn", "list").stdout).toBe("No Turns\n");
+	});
+
+	it("refuses a --tick without a unit", () => {
+		const refused = aliquot("serve", "--tick", "15");
+
+		expect(refused.status).toBe(2);
+		expect(refused.stderr).toMatch(
+			/^UsageError: --tick must be a whole number above 0 with ms, s, m or h, like 15s, not "15"\n/,
 		);
 	});
 

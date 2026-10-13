@@ -303,7 +303,7 @@ A Script is a directory with `main.py` (or `--entrypoint`). The container runs `
 
 A Turn is one bounded unit of Agent activity that the Conductor schedules. The Conductor records its own acts (ADR-0013): a `TurnStarted` with the Turn id (`TN-<n>`), the Agent, the model, and the Mood and Policy the Agent works under, and a `TurnFinished` with the usage the model reports (input, output, cache creation and cache read tokens, and cost in USD), the outcome (`Completed`, `MaxTurns`, `Budget`, or `Error` with its text), and the number of tool calls. A `TurnFinished` names its `TurnStarted` in `causation_id`. The Turn lifecycle, `conductor/src/turn/lifecycle.ts`, appends both. The Ledger refuses a Turn Event from an Agent or the Operator, a Turn for an Agent that is not live, is resting, is paused, or already has an open Turn, and the finish of a Turn that is unknown or already finished. After the finish, the Conductor samples the Agent's Vitality as a `VitalitySampled` naming the `TurnFinished`. No command writes a Turn Event directly.
 
-Run one Turn of one Agent. The Conductor builds the prompt from the Ledger: the Agent's Charter, Persona, reporting line, Mood and Policy in words, Skills, Memory notes and Tools, then its live Tasks with their inputs, the Messages in its Rooms and the Coaching since its previous Turn, the Help requests addressed to it, the Gates it requested, and, for the Director, the Submission Forms no Task has been proposed for. It calls the model once through the Agent SDK with the Agent's `model` and only its Tools, records the Turn, samples the Agent's Vitality, and prints the Turn, the login, the sample and the Mood. `--max-turns` (default 20) caps the model's round trips and `--max-budget-usd` its cost; a Turn that reaches one records `MaxTurns` or `Budget` with the usage it consumed. A model call that fails records `Error` with its text and exits 1. A Turn for an Agent that is resting, paused, retired or in a Turn is refused before any Event.
+Run one Turn of one Agent. The Conductor builds the prompt from the Ledger: the Agent's Charter, Persona, reporting line, Mood and Policy in words, Skills, Memory notes and Tools, then its live Tasks with their inputs and, for a Task the Trust tier samples for Review, that `complete_task` must name a reviewer and the first one the reviewer rule allows, the Messages in its Rooms and the Coaching since its previous Turn, the Help requests addressed to it, the Gates it requested, and, for the Director, the Submission Forms no Task has been proposed for. It calls the model once through the Agent SDK with the Agent's `model` and only its Tools, records the Turn, samples the Agent's Vitality, and prints the Turn, the login, the sample and the Mood. `--max-turns` (default 20) caps the model's round trips and `--max-budget-usd` its cost; a Turn that reaches one records `MaxTurns` or `Budget` with the usage it consumed. A model call that fails records `Error` with its text and exits 1. A Turn for an Agent that is resting, paused, retired or in a Turn is refused before any Event.
 
 The Turn runs on the `claude` CLI's subscription login, and the CLI gets no `ANTHROPIC_API_KEY` from the environment. `ALIQUOT_API_KEY` switches to that API key, and then `--max-budget-usd` is required. `ALIQUOT_SCRIPTED_MODEL=<file.json>` replaces the model with a scripted one that makes the listed Tool calls through the same hook, with no network: `{"calls": [{"tool": "read_tasks", "input": {}}], "usage_per_round": {<TurnUsage>}, "stop": {"tag": "Completed"}}`, or `"stop": {"tag": "Throws", "message": "..."}`. The test that runs a real Turn runs only with `ALIQUOT_LIVE_TURN=1`.
 
@@ -583,9 +583,18 @@ A second `workflow run` on another Fixture carries the version stage 4 wrote. St
 
 CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. `run-all` takes the Fixtures in name order on one home, so each Fixture's stage 2 carries the last database version that the Fixture before it wrote in a `Done` Task. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
 
+## Intake
+
+The Operator drops work on the society by storing a Submission Form. `aliquot intake <file.docx>` stores the file as a `SubmissionForm` Artifact produced by the Operator, with no Lineage, and prints its id. Bytes the Ledger already holds append nothing, so a second intake of the same file prints `<id> is already stored; nothing appended`. The Director's prompt lists every Submission Form that no Task has been proposed for, and the Scheduler gives the Director a Turn while one is waiting. `aliquot serve` holds the writer lock, so run `intake` before `serve`.
+
+```sh
+tools/aliquot --home /tmp/aliquot intake fixtures/submission-form-seed1.docx
+# Stored <id> SubmissionForm submission-form-seed1.docx
+```
+
 ## Serve
 
-`aliquot serve` is the long-running Conductor. It opens the Ledger for writing and holds the writer lock until it stops. While it runs, a command that writes exits 1 with `LedgerLocked: <home>/ledger.sqlite.lock held by pid <pid>`, and a command that only reads still works. On SIGINT or SIGTERM it closes the Ledger, which releases the lock, and exits 0.
+`aliquot serve` is the long-running Conductor. It opens the Ledger for writing and holds the writer lock until it stops. While it runs, a command that writes exits 1 with `LedgerLocked: <home>/ledger.sqlite.lock held by pid <pid>`, and a command that only reads still works. Unless `--no-schedule` is given, it also runs the Scheduler (see below), which starts Turns on the model `turn run` uses: the Agent SDK on the subscription login, or the scripted model that `ALIQUOT_SCRIPTED_MODEL` names. With `ALIQUOT_API_KEY` set, `serve` exits 2 unless `--no-schedule` is given. On SIGINT or SIGTERM it stops the Scheduler, waits for the Turns still open, closes the Ledger, which releases the lock, and exits 0.
 
 ```sh
 pnpm -C conductor build                   # compiles the interface
@@ -597,8 +606,48 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 | `--port <n>` | `8787` | The port. `0` lets the system choose one. |
 | `--bind <address>` | `127.0.0.1` | The address. Any other address needs Cloudflare Access; without it, the command exits 2. |
 | `--access-team <team>` `--access-aud <aud>` `--operator-email <email>` | none | Cloudflare Access. Give all three or none. |
+| `--tick <duration>` | `15s` | How often the Scheduler runs, and how long a Proposed Task waits for its proposer to assign it. A duration is a whole number with `ms`, `s`, `m` or `h`. |
+| `--duty <duration>` | `30m` | How often the Steward and the Auditor get a Turn with nothing else to do. |
+| `--concurrency <n>` | `2` | The most Turns open at once. |
+| `--budget <tokens>` | `1000000` | The Energy budget: the society's tokens per 5-hour window. Turns record Vitality against it, and the 80 percent rule reads it. |
+| `--no-schedule` | off | Serve without the Scheduler: no Turn starts, and `/api/scheduler` answers 404. |
 
 `--home` works before or after `serve`.
+
+### Scheduler
+
+Every Tick, the Scheduler plans from the Ledger, then applies the plan as the Conductor. The plan is a pure function of the Projections, the time and the options (`conductor/src/scheduler/plan.ts`), so the same Ledger gives the same decisions.
+
+1. **Assignment.** Each Proposed Task proposed at least one Tick ago is assigned by the Conductor, as its own act (ADR-0013): a `TaskAssigned` by the actor `Conductor` that names the `TaskProposed` as its cause. The Agents of the Task's role may take it: for a stage's Task, the role of the Agent that works the stage; for any other Task, a Specialist. An Agent is passed over when it is paused, when its Mood does not let it accept a Task (`strained` or worse), or when the Verifier rule refuses it. Each other Agent weighs its Trust tier's allocation weight (1 for `Probation`, 2 for `Trusted`, 3 for `Senior` and `Mentor`) times `1 - load`, in hundredths, where load counts the Tasks it holds, those assigned earlier in the same Tick included. The pick is the first 32 bits of the SHA-256 of the Task id, mod the total weight, laid over the Agents in id order. A Task that no Agent may take waits, and the line says why.
+2. **Turns.** An Agent has something to do when it holds an `Assigned` or `InProgress` Task, or, since its last Turn started (its prompt was built then), has a new Message in one of its Rooms from someone else, a Help request addressed to it, or a Gate it requested decided. The Director also has something to do while a Submission Form has no Task, and the Steward and the Auditor when their last Turn started at least `--duty` ago. An Agent that is resting, paused, or in a Turn is skipped. The others start, oldest last Turn first, while fewer than `--concurrency` Turns are open.
+3. **The 80 percent rule.** When the society's tokens in the trailing 5 hours are more than 80 percent of `--budget`, only an Agent holding a Task with a rush TAT class starts a Turn.
+
+A Turn the Ledger refuses to start, such as one for an Agent put to Rest after the plan, is a `skip` line of the same Tick with the refusal, and the Tick goes on.
+
+The Scheduler prints one line per decision to stdout:
+
+```text
+scheduler <ISO time> <Agent id or nobody> <verb> <why>
+```
+
+| Verb | Means |
+|---|---|
+| `assign` | The Conductor assigns a Task. The why names the Task, the pick, the total weight, each weighed Agent with its weight, and each Agent passed over with the reason. With `nobody`, no Agent may take the Task. |
+| `start` | A Turn starts. The why lists what the Agent has to do. |
+| `skip` | The Agent has something to do but no Turn starts: the refusal (resting, paused, in a Turn), the Turns already open, the 80 percent rule, or the Ledger's refusal of the Turn's start. |
+| `idle` | No Agent has anything to do. |
+| `refused` | The Ledger refused the assignment, with its text. |
+| `finished` | A Turn finished: its id, outcome, Tool calls, counted tokens and the Agent's Mood after it. |
+| `failed` | A Turn or a Tick failed outside the Ledger's refusals, with the error. |
+
+```text
+scheduler 2026-10-12T09:00:20.000Z A-rin assign T-2: pick 134 of 167 over A-ines 100, A-rin 67; passed over: A-bram is strained and may not accept a Task
+scheduler 2026-10-12T09:00:20.000Z A-mabel skip A-mabel is resting; standing duty, no Turn yet
+scheduler 2026-10-12T09:00:20.000Z A-rin start holds T-1, T-2
+scheduler 2026-10-12T09:00:20.000Z A-rin finished TN-6 Completed: 0 Tool calls, 100 tokens; Mood fresh
+```
+
+`GET /api/scheduler` answers `{options, last}`: the options in milliseconds and tokens, and the last Tick as `{at, decisions}`, each decision `{at, agent, verb, why}` as its line says it. `last` is `null` before the first Tick.
 
 ### Routes
 
@@ -616,6 +665,7 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 | `GET /api/budget` | `{from, to, tokens, budget}`: the tokens the society's Turns counted in the trailing 5 hours, and the Energy budget that `vitality show` uses (1,000,000). |
 | `GET /api/ledger?from=<seq>&limit=<n>` | `{events, next}`: the Events from seq `from` (default 1), at most `limit` (default 100, at most 1000). `next` is the seq the next page starts from, or `null` after the last Event. |
 | `GET /api/ledger/verify` | The chain check as `{ok: true, count}` or `{ok: false, seq, reason}`, the verdict `ledger verify` prints. |
+| `GET /api/scheduler` | The Scheduler's options and last Tick (see Scheduler), or 404 under `--no-schedule`. |
 | `GET /api/events` | The Ledger's Events as Server-Sent Events. |
 | `POST /api/actions/<verb>` | One of the Operator's actions. |
 
@@ -672,9 +722,11 @@ With `--access-team`, `--access-aud` and `--operator-email`, every request must 
 
 Node's `crypto` verifies the token, so Access needs no dependency.
 
+The first admitted request for an email prints one line to stdout, `Admitted <email>, verified by Cloudflare Access`, with the email as the token gives it. Later admitted requests for the same email, ignoring case, print nothing, so an Event stream that reconnects or a view that refetches does not repeat it. A refused request prints nothing.
+
 ### Tunnel
 
-`tools/serve.sh` serves the interface at `https://agents.nitrolims-demo.com`. It starts `aliquot serve` on `127.0.0.1:8787` with the Access flags from `.aliquot/serve.json`, which git ignores (`tools/tunnel/serve.example.json` shows its shape), and `cloudflared` running the Cloudflare Tunnel `aliquot` from `tools/tunnel/config.yml`. Ctrl-C stops both. `--no-tunnel` starts the Conductor alone.
+`tools/serve.sh` serves the interface at `https://agents.nitrolims-demo.com`. It starts `aliquot serve --no-schedule` on `127.0.0.1:8787`, so no Turn starts until #41 turns the Scheduler on, with the Access flags from `.aliquot/serve.json`, which git ignores (`tools/tunnel/serve.example.json` shows its shape), and `cloudflared` running the Cloudflare Tunnel `aliquot` from `tools/tunnel/config.yml`. Ctrl-C stops both. `--no-tunnel` starts the Conductor alone.
 
 ```sh
 tools/serve.sh

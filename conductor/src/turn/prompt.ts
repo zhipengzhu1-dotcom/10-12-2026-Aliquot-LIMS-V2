@@ -9,6 +9,8 @@ import { actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Task } from "../types/task.js";
 import type { Policy } from "../types/vitality.js";
+import { reviewerOf } from "../vitality/reviewers.js";
+import { reviewSampleOf } from "../vitality/trust.js";
 import type { TurnRecord } from "./projection.js";
 
 /**
@@ -129,7 +131,25 @@ const taskLine = (task: Task, projections: Projections) => {
 		const type = projections.artifacts.artifacts.get(a)?.artifact_type;
 		return type === undefined ? a : `${a} (${type})`;
 	});
-	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.`;
+	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.${reviewNote(task, projections)}`;
+};
+
+/**
+ * What completing one's own Task takes when the Trust tier samples it for
+ * Review: complete_task must name a reviewer, and the reviewer rule names
+ * the first it allows.
+ */
+const reviewNote = (task: Task, projections: Projections): string => {
+	const { state } = task;
+	if (state.tag !== "Assigned" && state.tag !== "InProgress") return "";
+	const { tier, sampled } = reviewSampleOf(
+		projections.trust,
+		state.assignee,
+		task.id,
+	);
+	if (!sampled) return "";
+	const reviewer = reviewerOf(projections, state.assignee);
+	return `\n  Sampled for Review at ${tier}: complete it with complete_task naming a reviewer${reviewer === undefined ? "" : `, such as ${actorText(reviewer)}`}.`;
 };
 
 /** The Tasks assigned to the Agent and the ones it proposed, by live state. */

@@ -141,8 +141,16 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns and the Tool calls its hook refuses.
+The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns, the Tool calls its hook refuses, and the Scheduler's assignments.
 _Avoid_: orchestrator, server, backend, scheduler
+
+**Scheduler**:
+The part of the Conductor that runs the society on its own inside `aliquot serve`. Every Tick it assigns the Proposed Tasks no one assigned within a Tick, by the weighted pick, and starts Turns for the Agents that have something to do, within the Policy, the Energy budget and the number of Turns allowed at once. It prints one line per decision and keeps the last Tick's decisions for the Interface.
+_Avoid_: cron, job queue
+
+**Tick**:
+One pass of the Scheduler, every `--tick` (15 seconds by default). A Tick is not a Turn: it decides which Turns start.
+_Avoid_: heartbeat, polling loop
 
 **Interface**:
 The single-page application the Conductor serves to the Operator: one view per hash route, each showing Projections that update on every Event from the Event stream, and the Operator's actions.

@@ -13,6 +13,7 @@ import { policyOf } from "../vitality/policy.js";
 import { reviewerRefusal } from "../vitality/reviewers.js";
 import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
+import { stateIn } from "./projection.js";
 
 /**
  * An Agent takes a Task, by assignment or Hand-off, only while the Policy of
@@ -28,6 +29,38 @@ export const assigneeRefusal = (
 	return policyOf(mood).mayAcceptTasks
 		? undefined
 		: new Refusal(`${agent} is ${mood} and may not accept a Task`);
+};
+
+/**
+ * The Conductor assigns a Task only while it is Proposed, so it never
+ * overrides an assignment an Agent or the Operator made (ADR-0013).
+ */
+export const conductorAssignRefusal = (
+	projections: Projections,
+	task_id: TaskId,
+): Refusal | undefined => {
+	const state = stateIn(projections.tasks, task_id, ["Proposed"]);
+	return state instanceof Refusal
+		? new Refusal(`the Conductor assigns only a Proposed Task; ${state.reason}`)
+		: undefined;
+};
+
+/**
+ * The Conductor's assignment is its own act (ADR-0013): of a Proposed Task,
+ * naming the Task's previous Event as its cause.
+ */
+const conductorAssignment = (
+	projections: Projections,
+	event: Extract<Event, { kind: "TaskAssigned" }>,
+): string | undefined => {
+	if (event.actor.tag !== "Conductor") return undefined;
+	const { task_id } = event.payload;
+	const refusal = conductorAssignRefusal(projections, task_id);
+	if (refusal !== undefined) return refusal.reason;
+	const previous = projections.tasks.lastSeq.get(task_id);
+	return event.causation_id === previous
+		? undefined
+		: `the Conductor's assignment of ${task_id} names its previous Event, seq ${previous}, as its cause, not ${event.causation_id ?? "none"}`;
 };
 
 /** Why a Task the sample picks for Review may not complete without a reviewer. */
@@ -100,7 +133,10 @@ export const helpTargetRefusal = (
 const taskRules: AppendGuard = (projections, event) => {
 	switch (event.kind) {
 		case "TaskAssigned":
-			return reasonOf(assigneeRefusal(projections, event.payload.assignee));
+			return (
+				conductorAssignment(projections, event) ??
+				reasonOf(assigneeRefusal(projections, event.payload.assignee))
+			);
 		case "TaskHandedOff":
 			return reasonOf(assigneeRefusal(projections, event.payload.to));
 		case "TaskCompleted": {

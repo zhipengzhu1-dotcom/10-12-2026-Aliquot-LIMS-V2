@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { type Command, UsageError } from "../command.js";
 import { openLedger } from "../ledger.js";
+import type { SchedulerOptions } from "../scheduler/plan.js";
+import { openScheduler } from "../scheduler/scheduler.js";
+import { loginFrom, loginText } from "../turn/auth.js";
+import { chosenModel } from "../turn/commands.js";
+import { DEFAULT_ENERGY_BUDGET_TOKENS } from "../vitality/commands.js";
 import { cloudflareAccess } from "./access.js";
 import { serve } from "./http.js";
 
@@ -20,6 +25,37 @@ const portOf = (text: string) => {
 		);
 	}
 	return port;
+};
+
+/** The cap on a scheduled Turn's model round trips, as `turn run` defaults it. */
+const MAX_TURNS = 20;
+
+const UNIT_MS: Readonly<Record<string, number>> = {
+	ms: 1,
+	s: 1000,
+	m: 60_000,
+	h: 3_600_000,
+};
+
+/** `15s`, `30m`, `500ms` or `1h`: a whole number above 0 and a unit. */
+const durationOf = (text: string, flag: string): number => {
+	const [, amount, unit] = /^(\d+)(ms|s|m|h)$/.exec(text) ?? [];
+	const ms = Number(amount) * (UNIT_MS[unit ?? ""] ?? 0);
+	if (!(ms > 0)) {
+		throw new UsageError(
+			`${flag} must be a whole number above 0 with ms, s, m or h, like 15s, not ${JSON.stringify(text)}`,
+		);
+	}
+	return ms;
+};
+
+const wholeAbove0 = (text: string, flag: string): number => {
+	if (!/^\d+$/.test(text) || Number(text) === 0) {
+		throw new UsageError(
+			`${flag} must be a whole number above 0, not ${JSON.stringify(text)}`,
+		);
+	}
+	return Number(text);
 };
 
 /** Cloudflare Access takes all three flags or none. */
@@ -57,12 +93,14 @@ const stopSignal = () =>
 /**
  * `aliquot serve`: the long-running Conductor. It holds the Ledger's writer
  * from start to SIGINT or SIGTERM, so a command that writes meanwhile is
- * refused by the writer lock, and closes it before it exits.
+ * refused by the writer lock, and closes it before it exits. Unless
+ * `--no-schedule`, the Scheduler ticks meanwhile, and the Ledger closes only
+ * once the Turns it started have finished.
  */
 export const serveCommand: Command = {
-	args: "[--port 8787] [--bind 127.0.0.1] [--access-team <team> --access-aud <aud> --operator-email <email>]",
+	args: "[--port 8787] [--bind 127.0.0.1] [--access-team <team> --access-aud <aud> --operator-email <email>] [--tick 15s] [--duty 30m] [--concurrency 2] [--budget <tokens>] [--no-schedule]",
 	describe:
-		"Hold the Ledger and serve the Operator's interface: Projections, Events over SSE, and actions",
+		"Hold the Ledger, serve the Operator's interface (Projections, Events over SSE, and actions), and schedule Turns every Tick",
 	run: async (args, ctx) => {
 		const { values } = parseArgs({
 			args,
@@ -73,6 +111,14 @@ export const serveCommand: Command = {
 				"access-team": { type: "string" },
 				"access-aud": { type: "string" },
 				"operator-email": { type: "string" },
+				tick: { type: "string", default: "15s" },
+				duty: { type: "string", default: "30m" },
+				concurrency: { type: "string", default: "2" },
+				budget: {
+					type: "string",
+					default: String(DEFAULT_ENERGY_BUDGET_TOKENS),
+				},
+				"no-schedule": { type: "boolean", default: false },
 			},
 		});
 		const port = portOf(values.port);
@@ -82,6 +128,19 @@ export const serveCommand: Command = {
 				`--bind ${values.bind} needs --access-team: without Cloudflare Access the Conductor serves ${LOOPBACK} only`,
 			);
 		}
+		const options: SchedulerOptions = {
+			tickMs: durationOf(values.tick, "--tick"),
+			dutyMs: durationOf(values.duty, "--duty"),
+			concurrency: wholeAbove0(values.concurrency, "--concurrency"),
+			energyBudgetTokens: wholeAbove0(values.budget, "--budget"),
+		};
+		const schedule = !values["no-schedule"];
+		const login = loginFrom(process.env);
+		if (schedule && login.tag === "ApiKey") {
+			throw new UsageError(
+				`the Scheduler runs Turns on the subscription login only, not on ${loginText(login)}; unset it or pass --no-schedule`,
+			);
+		}
 		const home = values.home === undefined ? ctx.home : resolve(values.home);
 		if (!existsSync(join(UI_DIR, "index.html"))) {
 			ctx.stderr.write(
@@ -89,17 +148,40 @@ export const serveCommand: Command = {
 			);
 		}
 
+		const say = (line: string) => ctx.stdout.write(`${line}\n`);
 		const ledger = openLedger({ home, writer: true });
 		let signal: NodeJS.Signals;
 		try {
+			const model = schedule ? chosenModel() : undefined;
+			const scheduler =
+				model === undefined
+					? undefined
+					: openScheduler(ledger, {
+							home,
+							options,
+							maxTurns: MAX_TURNS,
+							login,
+							modelFor: () => model.run,
+							say,
+						});
 			const serving = await serve(ledger, {
 				port,
 				bind: values.bind,
 				ui: UI_DIR,
-				...(access === undefined ? {} : { admit: cloudflareAccess(access) }),
+				...(access === undefined
+					? {}
+					: { admit: cloudflareAccess(access, { say }) }),
+				...(scheduler === undefined ? {} : { scheduler: scheduler.report }),
 			});
 			ctx.stdout.write(`Serving ${home} at ${serving.url}\n`);
+			if (scheduler !== undefined && model !== undefined) {
+				say(
+					`Scheduling Turns on ${model.text}, on ${loginText(login)}: a Tick every ${values.tick}, standing duty every ${values.duty}, at most ${options.concurrency} Turns at once, an Energy budget of ${options.energyBudgetTokens} tokens`,
+				);
+				scheduler.start();
+			}
 			signal = await stopSignal();
+			await scheduler?.stop();
 			await serving.close();
 		} finally {
 			ledger.close();

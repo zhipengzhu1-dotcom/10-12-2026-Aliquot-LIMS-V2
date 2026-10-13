@@ -7,6 +7,7 @@ import {
 	UsageError,
 } from "./command.js";
 import { gateCommands } from "./gate/commands.js";
+import { intakeCommand } from "./intake/command.js";
 import { ledgerCommands } from "./ledger-commands.js";
 import { orgCommands } from "./org/commands.js";
 import { roomCommands } from "./room/commands.js";
@@ -35,7 +36,10 @@ const domains: Readonly<Record<string, CommandTable>> = {
 };
 
 /** `aliquot <command>`: commands that belong to no one domain. */
-const processes: CommandTable = { serve: serveCommand };
+const processes: CommandTable = {
+	serve: serveCommand,
+	intake: intakeCommand,
+};
 
 const globalOptions = {
 	home: { type: "string" },

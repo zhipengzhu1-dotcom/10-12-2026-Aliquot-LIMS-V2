@@ -42,8 +42,11 @@ let fetched: string[];
 let ledger: Ledger;
 let serving: Serving;
 
+let said: string[];
+
 beforeEach(async () => {
 	fetched = [];
+	said = [];
 	const jwk = { ...teamKey.export({ format: "jwk" }), kid: KID };
 	const publicJwk = {
 		kty: jwk.kty,
@@ -67,7 +70,7 @@ beforeEach(async () => {
 		ui: "/nonexistent",
 		admit: cloudflareAccess(
 			{ team: TEAM, aud: AUD, email: EMAIL },
-			{ fetch: certs },
+			{ fetch: certs, say: (line) => said.push(line) },
 		),
 	});
 });
@@ -109,6 +112,20 @@ describe("aliquot serve with Cloudflare Access", () => {
 		const refused = await getOrg(assertion);
 
 		expect(refused).toEqual({ status: 401, body: "" });
+		expect(said, "a refused request names no email").toEqual([]);
+	});
+
+	it("says the verified email once, on its first admitted request", async () => {
+		await getOrg(token({ email: "someone@example.com" }));
+		expect(said, "nothing before an admission").toEqual([]);
+
+		await getOrg(token());
+		await getOrg(token());
+		await getOrg(token({ email: EMAIL.toUpperCase() }));
+
+		expect(said).toEqual([
+			"Admitted operator@example.com, verified by Cloudflare Access",
+		]);
 	});
 
 	it("fetches the team's keys once while they are fresh", async () => {

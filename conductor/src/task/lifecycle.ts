@@ -14,7 +14,7 @@ import type { Ledger } from "../ledger.js";
 import { type Origin, type Recorded, readBack } from "../lifecycle-support.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
+import type { Actor, EventActor } from "../types/actor.js";
 import type { Review } from "../types/merit.js";
 import type { Task, TaskState, TatClass } from "../types/task.js";
 import { reviewRefusal } from "../vitality/guards.js";
@@ -23,6 +23,7 @@ import { reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
 import {
 	assigneeRefusal,
+	conductorAssignRefusal,
 	helpTargetRefusal,
 	sampledRefusal,
 } from "./guards.js";
@@ -69,7 +70,10 @@ export const taskOf = (projections: Projections, task_id: TaskId): Task =>
  */
 const record = (
 	ledger: Ledger,
-	{ actor, causation_id }: Origin,
+	{
+		actor,
+		causation_id,
+	}: { readonly actor: EventActor; readonly causation_id?: Seq | undefined },
 	body: TaskBody,
 ): Recorded<"task", Task> => {
 	const { task_id } = body.payload;
@@ -118,15 +122,28 @@ export const propose = (
 		},
 	);
 
-/** Assign a Task to `assignee`, refused when it is strained or worse. */
+/**
+ * Assign a Task to `assignee`, refused when it is strained or worse. The
+ * Conductor assigns too, as its own act (ADR-0013): only a Proposed Task,
+ * naming the Task's previous Event as the cause.
+ */
 export const assign = (
 	ledger: Ledger,
 	{
 		task_id,
 		assignee,
 		...origin
-	}: Origin & { readonly task_id: TaskId; readonly assignee: AgentId },
+	}: (Origin | { readonly actor: { readonly tag: "Conductor" } }) & {
+		readonly task_id: TaskId;
+		readonly assignee: AgentId;
+	},
 ): Recorded<"task", Task> => {
+	if (origin.actor.tag === "Conductor") {
+		orRefuse(
+			"TaskAssigned",
+			conductorAssignRefusal(ledger.projections, task_id),
+		);
+	}
 	orRefuse("TaskAssigned", assigneeRefusal(ledger.projections, assignee));
 	return record(ledger, origin, {
 		kind: "TaskAssigned",
