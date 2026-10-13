@@ -1,6 +1,6 @@
 import { act } from "./actions.js";
 import { onLedgerEvent } from "./sse.js";
-import { escapeHtml, navigation, viewOf } from "./views.js";
+import { escapeHtml, navigation, paramsOf, viewOf } from "./views.js";
 
 const element = <T extends Element>(selector: string): T => {
 	const found = document.querySelector<T>(selector);
@@ -28,7 +28,7 @@ const render = async () => {
 				view.sources.map(async (s) => [s, await fetchJson(s)] as const),
 			),
 		);
-		page.innerHTML = view.render(view, data);
+		page.innerHTML = view.render(view, data, paramsOf(location.hash));
 	} catch (error) {
 		page.innerHTML = `<p role="alert">${escapeHtml(String(error))}</p>`;
 	}
@@ -68,6 +68,23 @@ form.addEventListener("submit", async (submitted) => {
 	answer.value = result.ok
 		? `Appended ${result.event.kind} at seq ${result.event.seq}`
 		: `${result.status}: ${result.text}`;
+});
+
+// A view's filter form names its route in `data-route`; submitting it moves
+// the hash, so the filter lives in the URL and the view stays pure.
+page.addEventListener("submit", (submitted) => {
+	const filter = submitted.target;
+	if (!(filter instanceof HTMLFormElement) || !filter.dataset.route) return;
+	submitted.preventDefault();
+	const params = new URLSearchParams();
+	for (const [key, value] of new FormData(filter)) {
+		if (typeof value === "string" && value.trim() !== "") {
+			params.set(key, value.trim());
+		}
+	}
+	const query = params.toString();
+	location.hash =
+		query === "" ? filter.dataset.route : `${filter.dataset.route}?${query}`;
 });
 
 addEventListener("hashchange", () => void refresh());

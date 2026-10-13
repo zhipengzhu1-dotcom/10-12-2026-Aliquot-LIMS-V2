@@ -5,8 +5,9 @@ import {
 	type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import { extname, resolve, sep } from "node:path";
+import { dirname, extname, resolve, sep } from "node:path";
 import type { Ledger } from "../ledger.js";
+import { openArtifacts } from "../sandbox/artifacts.js";
 import type { Admit } from "./access.js";
 import { runAction } from "./actions.js";
 import {
@@ -118,6 +119,7 @@ export const serve = async (
 ): Promise<Serving> => {
 	const ui = resolve(options.ui);
 	const events = eventStream(ledger);
+	const { read } = openArtifacts({ ledger, home: dirname(ledger.path) });
 	let loopbackHosts: ReadonlySet<string> = new Set();
 
 	const route = async (req: IncomingMessage, res: ServerResponse) => {
@@ -170,7 +172,7 @@ export const serve = async (
 		if (name !== undefined && isProjectionName(name)) {
 			return json(
 				res,
-				toJson(PROJECTION_ROUTES[name](ledger.projections, ledger.now())),
+				toJson(PROJECTION_ROUTES[name](ledger.projections, ledger.now(), read)),
 			);
 		}
 		if (path.startsWith("/api/")) return text(res, 404, `no route ${path}`);
