@@ -9,6 +9,7 @@ import { memoryStorage, type Storage } from "../storage.js";
 import { forge, forgeBeforeAdr0011 } from "../test-support/forge.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import type { Actor, EventActor } from "../types/actor.js";
+import { orderRest } from "./lifecycle.js";
 import { tierRevisions, vitalityProjection } from "./projection.js";
 import { reviewSampleOf, tierCauseRefusal } from "./trust.js";
 
@@ -63,10 +64,11 @@ describe("vitalityProjection", () => {
 
 	it("takes Mood from Rest, Tasks InProgress and the latest Vitality sample", () => {
 		s.task(rin);
-		s.appendNonTask({
+		orderRest(s.ledger, {
 			actor: { tag: "Agent", id: AgentId.parse("A-mabel") },
-			kind: "RestOrdered",
-			payload: { agent_id: ines, action: "begin", reason: "fatigue 0.92" },
+			agent_id: ines,
+			action: "begin",
+			reason: "fatigue 0.92",
 		});
 		s.appendNonTask({
 			actor: { tag: "Operator" },

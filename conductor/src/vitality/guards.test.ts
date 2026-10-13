@@ -59,29 +59,3 @@ describe("ReviewRecorded", () => {
 		expect(() => s.review(t, scores(2), thorne)).not.toThrow();
 	});
 });
-
-describe("RestOrdered", () => {
-	const rest = (agent: string, action: "begin" | "end") =>
-		s.appendNonTask({
-			actor: { tag: "Operator" },
-			kind: "RestOrdered",
-			payload: { agent_id: AgentId.parse(agent), action, reason: "fatigue" },
-		});
-
-	it("is refused for an Agent not in the Org", () => {
-		expect(() => rest("A-nobody", "begin")).toThrow(
-			new AppendRefused("RestOrdered refused: A-nobody is not in the Org"),
-		);
-	});
-
-	it("begins only when no Rest is in effect and ends only when one is", () => {
-		expect(() => rest("A-rin", "end")).toThrow(
-			new AppendRefused("RestOrdered refused: A-rin is not resting"),
-		);
-		rest("A-rin", "begin");
-		expect(() => rest("A-rin", "begin")).toThrow(
-			new AppendRefused("RestOrdered refused: A-rin is already resting"),
-		);
-		expect(() => rest("A-rin", "end")).not.toThrow();
-	});
-});

@@ -65,6 +65,8 @@ The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`,
 
 An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it.
 
+One module, the Org lifecycle (`org/lifecycle.ts`), appends every Agent Event that the Operator or an Agent causes: it recruits, revises, pauses, resumes, and retires an Agent, and the seed recruits the starting roster through it. Each verb returns the Agent as the Event left it and the seq it appended. Each verb names the Event's cause in `causation_id`: the Agent's previous Org Event, which the Org Projection keeps, so a Recruitment names none. A caller names a cause only when it lies outside the Org. A retirement's reason defaults to the one in its `RetireAgent` Gate's payload. The Conductor's tier Revisions stay Ledger follow-ons (ADR-0011).
+
 ```ts
 type Role = "Director" | "Steward" | "Auditor" | "Supervisor" | "Specialist" | "Developer" | "Tester";
 
@@ -200,6 +202,8 @@ declare function moodOf(v: Vitality, restInEffect: boolean, hasTaskInProgress: b
 declare function policyOf(m: Mood): Policy;
 ```
 
+One module, the Vitality lifecycle (`vitality/lifecycle.ts`), appends every Vitality Event. It samples a live Agent's Vitality from the Ledger and returns the sample and the seq it appended. A sample names no cause, because the end of a Turn lies outside Vitality. It orders Rest for an Agent or ends it, and returns the seq. A Rest order names the Agent's previous `VitalitySampled` or `RestOrdered` as its cause: the Vitality it acts on, or the Rest it ends. A Rest order that the Rest guard would refuse is refused before the verb builds an Event, in the same words.
+
 ### 7. Merit and Trust tier
 
 A Review scores a completed Task on five dimensions. Merit is the rolling mean. The Trust tier is a Projection of Merit, tenure and approved `PromoteToMentor` Gates. One approved Gate covers one Promotion to Mentor.
@@ -256,7 +260,7 @@ type MemoryNote = { agent: AgentId; task_id: TaskId; lesson: string; applies_to:
 
 ### 10. Room and Message
 
-A Room is where Agents talk (ADR-0010). The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room that names itself. The Operator is a member of every Room. A Message is a `MessageSent` Event projected for its reader. A reply names the Message it answers through the envelope's `causation_id`, which must be a Message in the same Room. One membership rule decides both who may say a Message and who may read a Room's history.
+A Room is where Agents talk (ADR-0010). The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room that names itself. The Operator is a member of every Room. A Message is a `MessageSent` Event projected for its reader. A reply names the Message it answers through the envelope's `causation_id`, which must be a Message in the same Room. One membership rule decides both who may say a Message and who may read a Room's history. One module, the Room lifecycle (`room/lifecycle.ts`), appends every Room Event. It opens a Room, which the Room's `opened_by` appends, and says a Message, returning the Room or the Message and the seq it appended. Neither Event names a cause, except a reply, whose `causation_id` is the Message it answers.
 
 ```ts
 type RoomId = `RM-${string}`;
@@ -325,6 +329,8 @@ A synthetic generator invents Clients, products, Lots, and dates in the shape of
 | 4. Results | Work Order and synthetic weighings | `compute_results` | Result Worksheet (xlsx with `=F/20` style formulas) | The formulas are present and agree with the values. |
 | 5. Verification | Result Worksheet | `verify_results`, run by a different Agent than stage 4 | Verification Record | The independent recomputation agrees within tolerance. |
 | 6. Report | Verification Record and metadata | `render_roa` | Report of Analysis (xlsx and PDF) | Every metadata field traces to the Receiving Log row, and no field is typed by hand. |
+
+The stage 1 lifecycle (`stage1/lifecycle.ts`) appends every `EvaluationRecorded`. It mints the Evaluation id from the Projections and names the `RunFinished` of the Run it scores as the Event's cause. It refuses an Evaluation of a Run that has not finished, or for a Task that is no longer live, before it builds the Event, in the words of the stage 1 guard. The stage 1 tracer appends nothing itself: it calls the Sandbox, the Task lifecycle, and this lifecycle.
 
 ## The Operator's interface
 

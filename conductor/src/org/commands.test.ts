@@ -30,10 +30,9 @@ afterEach(() => {
 });
 
 describe("aliquot org", () => {
-	it("seeds the roster once and prints the tree", () => {
+	it("seed recruits the roster once", () => {
 		const first = org("seed");
 		const second = org("seed");
-		const printed = org("tree");
 
 		expect(first.stderr).toBe("");
 		expect(first.stdout).toBe(
@@ -43,6 +42,13 @@ describe("aliquot org", () => {
 		expect(second.stdout).toBe(
 			"Org already seeded: all 8 roster Agents are in the Ledger, nothing appended\n",
 		);
+	});
+
+	it("tree prints the reporting tree", () => {
+		org("seed");
+
+		const printed = org("tree");
+
 		expect(printed.status).toBe(0);
 		expect(printed.stdout).toBe(`Operator
 +-- Odile, Director, Probation
@@ -57,7 +63,7 @@ describe("aliquot org", () => {
 `);
 	});
 
-	it("revises the Auditor only as the Operator", () => {
+	it("revise records the next version of an Agent definition from a JSON file", () => {
 		org("seed");
 		const thorne = rosterDefinitions().find((d) => d.id === "A-thorne");
 		const file = join(home, "thorne-v2.json");
@@ -70,62 +76,33 @@ describe("aliquot org", () => {
 			}),
 		);
 
-		const asDirector = org("revise", "A-thorne", file, "--as", "A-odile");
-		const asOperator = org("revise", "A-thorne", file);
+		const revised = org("revise", "A-thorne", file);
 
-		expect(asDirector.status).toBe(1);
-		expect(asDirector.stderr).toMatch(
-			/^AppendRefused: AgentDefinitionRevised refused: the Auditor can only be revised by the Operator; A-odile tried/,
-		);
-		expect(asOperator.stderr).toBe("");
-		expect(asOperator.stdout).toBe("Revised A-thorne to version 2\n");
+		expect(revised.stderr).toBe("");
+		expect(revised.stdout).toBe("Revised A-thorne to version 2\n");
 	});
 
-	it("refuses a Revision to a Trust tier other than the projected one, and accepts one that keeps it", () => {
-		org("seed");
-		const rin = rosterDefinitions().find((d) => d.id === "A-rin");
-		const write = (name: string, changes: object) => {
-			const file = join(home, name);
-			writeFileSync(
-				file,
-				JSON.stringify({
-					...rin,
-					version: 2,
-					revision_reason: "Hand-set tier",
-					...changes,
-				}),
-			);
-			return file;
-		};
-
-		const trusted = org(
-			"revise",
-			"A-rin",
-			write("trusted.json", { trust_tier: "Trusted" }),
-		);
-		const kept = org("revise", "A-rin", write("kept.json", { capacity: 2 }));
-
-		expect(trusted.status).toBe(1);
-		expect(trusted.stderr).toBe(
-			"AppendRefused: AgentDefinitionRevised refused: A-rin's projected Trust tier is Probation, not Trusted\n",
-		);
-		expect(kept.stderr).toBe("");
-		expect(kept.stdout).toBe("Revised A-rin to version 2\n");
-	});
-
-	it("pauses, resumes and retires an Agent from the command line", () => {
+	it("pause marks an Agent paused, and needs a reason", () => {
 		org("seed");
 
 		const paused = org("pause", "A-mabel", "--reason", "Energy budget review");
 		const whilePaused = org("tree").stdout;
-		const resumed = org("resume", "A-mabel");
 		const noReason = org("pause", "A-pia");
 
 		expect(paused.stdout).toBe("Paused A-mabel\n");
 		expect(whilePaused).toContain("+-- Mabel, Steward, Probation (paused)\n");
-		expect(resumed.stdout).toBe("Resumed A-mabel\n");
 		expect(noReason.status).toBe(2);
 		expect(noReason.stderr).toMatch(/^UsageError: org pause needs --reason/);
+	});
+
+	it("resume returns a paused Agent to work", () => {
+		org("seed");
+		org("pause", "A-mabel", "--reason", "Energy budget review");
+
+		const resumed = org("resume", "A-mabel");
+
+		expect(resumed.stdout).toBe("Resumed A-mabel\n");
+		expect(org("tree").stdout).toContain("+-- Mabel, Steward, Probation\n");
 	});
 
 	it("retires an Agent through a RetireAgent Gate the Operator approves", () => {

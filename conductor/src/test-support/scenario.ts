@@ -3,7 +3,6 @@ import { gateDecision, requestGate } from "../gate/request.js";
 import {
 	AgentId,
 	ArtifactId,
-	EvaluationId,
 	type GateId,
 	Sha256,
 	type TaskId,
@@ -14,8 +13,10 @@ import {
 	openLedger,
 	openMemoryLedger,
 } from "../ledger.js";
+import { retire as retireAgent } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
 import { finishRun, register, startRun, store } from "../sandbox/lifecycle.js";
+import { recordEvaluation } from "../stage1/lifecycle.js";
 import type { Storage } from "../storage.js";
 import {
 	assign,
@@ -95,7 +96,6 @@ export const scenario = (
 		entrypoint: "main.py",
 		image_digest: Sha256.parse("b".repeat(64)),
 	});
-	let runs = 0;
 
 	/** Append an Event outside the Task lifecycle, such as a Gate decision. */
 	const appendNonTask = (event: NonTaskEvent): Event => {
@@ -190,7 +190,6 @@ export const scenario = (
 
 	/** A Run on `task_id` that exits with `exit_code`, and its Evaluation. */
 	const run = (task_id: TaskId, exit_code: number, score?: number) => {
-		runs += 1;
 		const { run_id: id } = startRun(ledger, {
 			actor: operator,
 			task_id,
@@ -211,18 +210,13 @@ export const scenario = (
 			},
 		});
 		if (score === undefined) return;
-		ledger.append({
+		recordEvaluation(ledger, {
 			actor: operator,
 			task_id,
-			kind: "EvaluationRecorded",
-			payload: {
-				eval_id: EvaluationId.parse(`E-${runs}`),
-				run_id: id,
-				task_id,
-				score,
-				passed: score >= 0.5,
-				findings: [],
-			},
+			run_id: id,
+			score,
+			passed: score >= 0.5,
+			findings: [],
 		});
 	};
 
@@ -253,14 +247,11 @@ export const scenario = (
 
 	/** Retire `agent` through an approved RetireAgent Gate. */
 	const retire = (agent: AgentId, reason: string) =>
-		appendNonTask({
+		retireAgent(ledger, {
 			actor: operator,
-			kind: "AgentRetired",
-			payload: {
-				agent_id: agent,
-				reason,
-				gate_id: gate("RetireAgent", { agent_id: agent }),
-			},
+			agent_id: agent,
+			gate_id: gate("RetireAgent", { agent_id: agent }),
+			reason,
 		});
 
 	return {

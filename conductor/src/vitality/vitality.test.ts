@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
+import { orderRest } from "./lifecycle.js";
 import { restInEffect, sampleVitality } from "./vitality.js";
 
 const rin = AgentId.parse("A-rin"); // Specialist, capacity 3
@@ -10,10 +11,11 @@ const mabel = AgentId.parse("A-mabel");
 const FIVE_MINUTES = 5 / 1440; // in days
 
 const rest = (agent: AgentId, action: "begin" | "end") =>
-	s.appendNonTask({
+	orderRest(s.ledger, {
 		actor: { tag: "Agent", id: mabel },
-		kind: "RestOrdered",
-		payload: { agent_id: agent, action, reason: "fatigue" },
+		agent_id: agent,
+		action,
+		reason: "fatigue",
 	});
 
 let s: Scenario;
