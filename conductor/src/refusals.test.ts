@@ -13,7 +13,11 @@ import {
 	Sha256,
 	TaskId,
 } from "./ids.js";
-import { type Scenario, scenario } from "./test-support/scenario.js";
+import {
+	type NonTaskEvent,
+	type Scenario,
+	scenario,
+} from "./test-support/scenario.js";
 
 const operator = { tag: "Operator" } as const;
 const agent = (slug: string) =>
@@ -24,7 +28,7 @@ const T1 = TaskId.parse("T-1");
 const G1 = GateId.parse("G-1");
 const bytes = (c: string) => ArtifactId.parse(c.repeat(64));
 
-const gateRequest: NewEvent = {
+const gateRequest: NonTaskEvent = {
 	actor: rin,
 	kind: "GateRequested",
 	payload: {
@@ -119,7 +123,7 @@ const ROWS: Row[] = [
 		"the MessageSent guard",
 		(s) => {
 			const room_id = RoomId.parse("RM-pia-ines");
-			s.append({
+			s.appendNonTask({
 				actor: operator,
 				kind: "RoomOpened",
 				payload: {
@@ -146,7 +150,7 @@ const ROWS: Row[] = [
 	[
 		"the Gate guard",
 		(s) => {
-			s.append(gateRequest);
+			s.appendNonTask(gateRequest);
 			return {
 				actor: rin,
 				kind: "GateDecided",
@@ -164,7 +168,7 @@ const ROWS: Row[] = [
 	[
 		"the Gate Projection",
 		(s) => {
-			s.append(gateRequest);
+			s.appendNonTask(gateRequest);
 			return gateRequest;
 		},
 		"GateRequested refused: G-1 already exists, requested at 2026-10-12T09:00:00.000Z",
@@ -272,7 +276,7 @@ describe("every refusal reads <Kind> refused: <reason>", () => {
 		const event = refused(s);
 		const before = s.events().length;
 
-		expect(() => s.append(event)).toThrow(new AppendRefused(refusal));
+		expect(() => s.ledger.append(event)).toThrow(new AppendRefused(refusal));
 		expect(s.events()).toHaveLength(before);
 	});
 });

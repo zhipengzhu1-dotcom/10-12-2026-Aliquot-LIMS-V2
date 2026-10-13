@@ -22,7 +22,7 @@ const current = (): AgentDefinition => {
 const revise = (actor: Actor, changes: Partial<AgentDefinition>) => {
 	const definition = current();
 	return () =>
-		s.append({
+		s.appendNonTask({
 			actor,
 			kind: "AgentDefinitionRevised",
 			payload: {
@@ -42,7 +42,7 @@ describe("ADR rules the slice-0 review found missing", () => {
 		const gate_id = s.gate("RetireAgent", { agent_id: rin }, "reject");
 
 		expect(() =>
-			s.append({
+			s.appendNonTask({
 				actor: operator,
 				kind: "AgentRetired",
 				payload: { agent_id: rin, reason: "Replaced", gate_id },
@@ -84,7 +84,7 @@ describe("ADR rules the slice-0 review found missing", () => {
 		) => {
 			const definition = current();
 			return () =>
-				s.append({
+				s.appendNonTask({
 					actor: conductor,
 					...(causation_id === null
 						? {}
@@ -104,7 +104,7 @@ describe("ADR rules the slice-0 review found missing", () => {
 
 		it("refuses any other Event with actor Conductor", () => {
 			expect(() =>
-				s.append({
+				s.appendNonTask({
 					actor: conductor,
 					kind: "AgentPaused",
 					payload: { agent_id: rin, reason: "Tired" },
@@ -117,7 +117,7 @@ describe("ADR rules the slice-0 review found missing", () => {
 		it("refuses a payload that names the Conductor as anything but an author", () => {
 			const task_id = s.task(rin);
 			expect(() =>
-				s.append({
+				s.ledger.append({
 					actor: { tag: "Agent", id: rin },
 					task_id,
 					kind: "TaskCompleted",

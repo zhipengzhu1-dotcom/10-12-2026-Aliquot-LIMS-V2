@@ -1,10 +1,26 @@
 import type { AppendGuard } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
+import type { AgentId, TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import { actorText } from "../types/actor.js";
+import type { TrustTier } from "../types/merit.js";
 import type { Task } from "../types/task.js";
 import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
+import { reviewsBy } from "../vitality/work.js";
+
+/** Why a Task the sample picks for Review may not complete without a reviewer. */
+export const sampledRefusal = (
+	task_id: TaskId,
+	assignee: AgentId,
+	tier: TrustTier,
+): string => {
+	const share =
+		tier === "Probation"
+			? `every Task of ${assignee} on Probation is`
+			: `1 in ${REVIEW_ONE_IN[tier]} Tasks of ${assignee} at ${tier} are`;
+	return `${task_id} is sampled for Review, as ${share}; its completion names a reviewer`;
+};
 
 /**
  * Review follows the Trust tier (docs/design/vitality-and-merit.md): a Task
@@ -13,7 +29,7 @@ import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
  * recorded a Review, and only by that reviewer.
  */
 const reviewRefusal = (
-	ledger: Projections,
+	projections: Projections,
 	task: Task,
 	event: Extract<Event, { kind: "TaskCompleted" }>,
 ): string | undefined => {
@@ -21,26 +37,17 @@ const reviewRefusal = (
 	const { review } = event.payload;
 	if (review.tag === "Skipped" && state.tag === "InProgress") {
 		const { tier, sampled } = reviewSampleOf(
-			ledger.trust,
+			projections.trust,
 			state.assignee,
 			task.id,
 		);
-		if (!sampled) return undefined;
-		const share =
-			tier === "Probation"
-				? `every Task of ${state.assignee} on Probation is`
-				: `1 in ${REVIEW_ONE_IN[tier]} Tasks of ${state.assignee} at ${tier} are`;
-		return `${task.id} is sampled for Review, as ${share}; its completion names a reviewer`;
+		return sampled ? sampledRefusal(task.id, state.assignee, tier) : undefined;
 	}
 	if (review.tag === "Reviewed" && state.tag === "UnderReview") {
-		const reviewer = canonicalJson(state.reviewer);
-		const recorded = (ledger.work.reviews.get(task.id) ?? []).some(
-			(r) => canonicalJson(r.review.reviewer) === reviewer,
-		);
-		if (!recorded) {
+		if (reviewsBy(projections.work, task.id, state.reviewer).length === 0) {
 			return `${task.id} has no Review by ${actorText(state.reviewer)}, its reviewer`;
 		}
-		if (canonicalJson(event.actor) !== reviewer) {
+		if (canonicalJson(event.actor) !== canonicalJson(state.reviewer)) {
 			return `only ${actorText(state.reviewer)}, the reviewer of ${task.id}, completes it after Review; the actor is ${actorText(event.actor)}`;
 		}
 	}
@@ -51,10 +58,12 @@ const reviewRefusal = (
  * The Review rules on completion. The Task state machine itself is the Task
  * Projection's, which refuses every Event it cannot express.
  */
-const taskRules: AppendGuard = (ledger, event) => {
+const taskRules: AppendGuard = (projections, event) => {
 	if (event.kind !== "TaskCompleted") return undefined;
-	const task = ledger.tasks.tasks.get(event.payload.task_id);
-	return task === undefined ? undefined : reviewRefusal(ledger, task, event);
+	const task = projections.tasks.tasks.get(event.payload.task_id);
+	return task === undefined
+		? undefined
+		: reviewRefusal(projections, task, event);
 };
 
 export const taskGuards: readonly AppendGuard[] = [taskRules];

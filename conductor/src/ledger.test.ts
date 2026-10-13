@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NewEvent } from "./events.js";
-import { AppendRefused, type FollowOn } from "./guards.js";
+import { AppendRefused } from "./guards.js";
 import {
 	AgentId,
 	ArtifactId,
@@ -21,13 +21,17 @@ import {
 import { LAB_ROOM } from "./room/seed.js";
 import { memoryStorage, type Storage } from "./storage.js";
 import { forge } from "./test-support/forge.js";
-import { scenario, scores } from "./test-support/scenario.js";
+import {
+	type NonTaskEvent,
+	scenario,
+	scores,
+} from "./test-support/scenario.js";
 
 const operator = { tag: "Operator" } as const;
 const lab = RoomId.parse("RM-lab");
 const odile = AgentId.parse("A-odile");
 
-const opened: NewEvent = {
+const opened: NonTaskEvent = {
 	actor: operator,
 	kind: "RoomOpened",
 	payload: { room: LAB_ROOM },
@@ -38,7 +42,7 @@ const said = (
 	envelope: Pick<NewEvent, "task_id" | "causation_id" | "actor"> = {
 		actor: operator,
 	},
-): NewEvent => ({
+): NonTaskEvent => ({
 	...envelope,
 	kind: "MessageSent",
 	payload: { room_id: lab, body },
@@ -151,35 +155,6 @@ describe("Ledger append", () => {
 		);
 		expect(l.all().map((e) => e.seq)).toEqual([1, 2]);
 	});
-
-	it("writes the follow-ons after their cause in the same append, and a refused follow-on rolls back the cause", () => {
-		const echo: FollowOn = (ledger, cause) =>
-			cause.kind === "MessageSent" && cause.payload.body.startsWith("echo")
-				? [
-						cause.payload.body === "echo no"
-							? said("no", { actor: { tag: "Agent", id: odile } })
-							: said(`after ${ledger.rooms.messages.at(-1)?.seq}`),
-					]
-				: [];
-		const l = openMemoryLedger({ followOns: [echo] });
-		l.append(opened);
-
-		expect(l.append(said("echo")).seq).toBe(2);
-		expect(bodies(l)).toEqual(["RoomOpened", "echo", "after 2"]);
-
-		expect(() => l.append(said("echo no"))).toThrow(
-			"MessageSent refused: A-odile is not a member of RM-lab",
-		);
-		expect(bodies(l)).toEqual(["RoomOpened", "echo", "after 2"]);
-		expect(l.projections.rooms.messages.map((m) => m.body)).toEqual([
-			"echo",
-			"after 2",
-		]);
-
-		const next = l.append(said("next"));
-		expect(next).toMatchObject({ seq: 4, prev_hash: l.all()[2]?.hash });
-		expect(l.verify()).toEqual({ ok: true, count: 4 });
-	});
 });
 
 describe("Ledger Projections", () => {
@@ -192,8 +167,8 @@ describe("Ledger Projections", () => {
 		s.run(t, 1, 0.4);
 		s.gate("PromoteToMentor", { agent_id: rin }, "reject");
 		s.retire(AgentId.parse("A-bram"), "Replaced");
-		s.append(opened);
-		s.append(said("Rin is Trusted now"));
+		s.appendNonTask(opened);
+		s.appendNonTask(said("Rin is Trusted now"));
 
 		const reader = openMemoryLedger({ storage, writer: false });
 

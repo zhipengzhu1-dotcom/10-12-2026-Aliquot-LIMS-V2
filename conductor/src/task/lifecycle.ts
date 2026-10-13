@@ -1,4 +1,5 @@
-import type { EventBody, PayloadOf } from "../events.js";
+import { AppendRefused, refusalText } from "../append-guard.js";
+import type { EventBody, EventKind, NewEvent, PayloadOf } from "../events.js";
 import { type GateRequest, requestGate } from "../gate/request.js";
 import {
 	type AgentId,
@@ -12,31 +13,78 @@ import {
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Projections } from "../projections.js";
+import { Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { Review } from "../types/merit.js";
-import type { Task, TatClass } from "../types/task.js";
+import type { Task, TaskState, TatClass } from "../types/task.js";
 import { reviewSampleOf } from "../vitality/trust.js";
+import { reviewsBy } from "../vitality/work.js";
+import { sampledRefusal } from "./guards.js";
+import { stateIn } from "./projection.js";
+
+/** The Event kinds that only the Task lifecycle appends. */
+export const TASK_EVENT_KINDS = [
+	"TaskProposed",
+	"TaskAssigned",
+	"TaskStarted",
+	"TaskHandedOff",
+	"TaskCompleted",
+	"TaskFailed",
+	"TaskEscalated",
+	"ReviewRecorded",
+] as const satisfies readonly EventKind[];
+export type TaskEventKind = (typeof TASK_EVENT_KINDS)[number];
+
+/**
+ * The kind of `event` when only the Task lifecycle may append it: a Task
+ * Event kind, or a GateRequested that blocks a Task.
+ */
+export const taskEventKind = (
+	event: NewEvent,
+): TaskEventKind | "GateRequested" | undefined =>
+	event.kind === "GateRequested"
+		? event.task_id === undefined
+			? undefined
+			: event.kind
+		: TASK_EVENT_KINDS.find((kind) => kind === event.kind);
 
 /** The rubric a Task is proposed with when none is named: the five-dimension rubric. */
 const DEFAULT_RUBRIC = RubricId.parse("default");
 
-/** Who appends a Task Event, and the Event that caused it. */
-type Step = { readonly actor: Actor; readonly causation_id?: Seq | undefined };
+/**
+ * Who appends a Task Event, and the cause it names when that cause lies
+ * outside the Task, such as the Evaluation a completion follows. Without
+ * one, the Event names the Task's previous Event, or for a completion after
+ * Review the reviewer's Review.
+ */
+type Origin = {
+	readonly actor: Actor;
+	readonly causation_id?: Seq | undefined;
+};
 
 /** The Task as the Event left it, and the Event's seq. */
 export type Recorded = { readonly task: Task; readonly seq: Seq };
 
 type TaskBody = Extract<EventBody, { payload: { task_id: TaskId } }>;
 
-const taskOf = (ledger: Ledger, task_id: TaskId): Task => {
-	const task = ledger.projections.tasks.tasks.get(task_id);
+export const taskOf = (projections: Projections, task_id: TaskId): Task => {
+	const task = projections.tasks.tasks.get(task_id);
 	if (task === undefined) throw new Error(`${task_id} vanished`);
 	return task;
 };
 
+/** The value, or the refusal of `kind` thrown before anything is appended. */
+const orRefuse = <T>(kind: EventKind, value: T | Refusal): T => {
+	if (value instanceof Refusal) {
+		throw new AppendRefused(refusalText(kind, value.reason));
+	}
+	return value;
+};
+
 const record = (
 	ledger: Ledger,
-	{ actor, causation_id }: Step,
+	actor: Actor,
+	causation_id: Seq | undefined,
 	body: TaskBody,
 ): Recorded => {
 	const { task_id } = body.payload;
@@ -46,8 +94,21 @@ const record = (
 		...(causation_id === undefined ? {} : { causation_id }),
 		...body,
 	});
-	return { task: taskOf(ledger, task_id), seq };
+	return { task: taskOf(ledger.projections, task_id), seq };
 };
+
+/** Append `body`, naming the caller's cause or else the Task's previous Event. */
+const recordNext = (
+	ledger: Ledger,
+	{ actor, causation_id }: Origin,
+	body: TaskBody,
+): Recorded =>
+	record(
+		ledger,
+		actor,
+		causation_id ?? ledger.projections.tasks.lastSeq.get(body.payload.task_id),
+		body,
+	);
 
 /** Propose a Task under the next free Task id. */
 export const propose = (
@@ -58,7 +119,7 @@ export const propose = (
 		inputs = [],
 		rubric_id = DEFAULT_RUBRIC,
 		...fields
-	}: Step & {
+	}: Origin & {
 		readonly title: string;
 		readonly goal: string;
 		readonly tat_class: TatClass;
@@ -68,95 +129,112 @@ export const propose = (
 		readonly parent_task?: TaskId;
 	},
 ): Recorded =>
-	record(
-		ledger,
-		{ actor, causation_id },
-		{
-			kind: "TaskProposed",
-			payload: {
-				task_id: TaskId.parse(
-					nextId("T", ledger.projections.tasks.tasks.keys()),
-				),
-				...fields,
-				inputs: [...inputs],
-				rubric_id,
-			},
+	record(ledger, actor, causation_id, {
+		kind: "TaskProposed",
+		payload: {
+			task_id: TaskId.parse(nextId("T", ledger.projections.tasks.tasks.keys())),
+			...fields,
+			inputs: [...inputs],
+			rubric_id,
 		},
-	);
+	});
 
 export const assign = (
 	ledger: Ledger,
 	{
 		task_id,
 		assignee,
-		...step
-	}: Step & { readonly task_id: TaskId; readonly assignee: AgentId },
+		...origin
+	}: Origin & { readonly task_id: TaskId; readonly assignee: AgentId },
 ): Recorded =>
-	record(ledger, step, {
+	recordNext(ledger, origin, {
 		kind: "TaskAssigned",
 		payload: { task_id, assignee },
 	});
 
 export const start = (
 	ledger: Ledger,
-	{ task_id, ...step }: Step & { readonly task_id: TaskId },
+	{ task_id, ...origin }: Origin & { readonly task_id: TaskId },
 ): Recorded =>
-	record(ledger, step, { kind: "TaskStarted", payload: { task_id } });
+	recordNext(ledger, origin, { kind: "TaskStarted", payload: { task_id } });
 
-type Completion = Step & {
-	readonly task_id: TaskId;
-	readonly outputs?: readonly ArtifactId[];
-	/** Who reviews the Task when the Trust tier samples it for Review. */
-	readonly reviewer?: Actor;
-	/**
-	 * Review the Task even when the sample leaves it out, as the Auditor may
-	 * add a Review to any Task.
-	 */
-	readonly reviewUnsampled?: boolean;
-};
+type ReviewDecision = PayloadOf<"TaskCompleted">["review"];
+
+/** A completion, and the Review it decided on. */
+export type Completed = Recorded & { readonly review: ReviewDecision };
 
 /**
  * The Review a completion records: Reviewed for a Task UnderReview; for an
- * InProgress one, Required from the reviewer when the Trust tier samples it,
- * else Skipped.
+ * InProgress one, Required from `reviewer` when the Trust tier samples it,
+ * refused without a reviewer, and Skipped when the sample leaves it out.
  */
 const reviewFor = (
 	projections: Projections,
-	{ task_id, reviewer, reviewUnsampled }: Completion,
-): PayloadOf<"TaskCompleted">["review"] => {
-	const state = projections.tasks.tasks.get(task_id)?.state;
-	if (state?.tag === "UnderReview") return { tag: "Reviewed" };
-	// The Ledger refuses a Task in any other state on its state alone.
-	if (state?.tag !== "InProgress") return { tag: "Skipped", reason: "" };
+	task_id: TaskId,
+	state: Extract<TaskState, { tag: "InProgress" | "UnderReview" }>,
+	reviewer: Actor | undefined,
+): ReviewDecision | Refusal => {
+	if (state.tag === "UnderReview") return { tag: "Reviewed" };
 	const { tier, sampled } = reviewSampleOf(
 		projections.trust,
 		state.assignee,
 		task_id,
 	);
-	if (reviewer !== undefined && (sampled || reviewUnsampled)) {
-		return { tag: "Required", reviewer };
+	if (!sampled) {
+		return { tag: "Skipped", reason: `not sampled for Review at tier ${tier}` };
 	}
-	// The Ledger refuses this skip for a sampled Task, saying it was sampled
-	// for Review.
-	return { tag: "Skipped", reason: `not sampled for Review at tier ${tier}` };
+	return reviewer === undefined
+		? new Refusal(sampledRefusal(task_id, state.assignee, tier))
+		: { tag: "Required", reviewer };
 };
 
 /**
- * Complete a Task. An InProgress Task goes UnderReview or, when the Trust
- * tier leaves it out of the sample, skips Review to Done; a Task UnderReview
- * goes Done once its reviewer has recorded a Review.
+ * Complete a Task. An InProgress Task goes UnderReview to `reviewer` when the
+ * Trust tier samples it for Review, and is refused without one; otherwise it
+ * skips Review to Done, leaving `reviewer` unused. A Task UnderReview goes
+ * Done once its reviewer has recorded a Review, which the completion names
+ * as its cause.
  */
-export const complete = (ledger: Ledger, completion: Completion): Recorded =>
-	record(ledger, completion, {
-		kind: "TaskCompleted",
-		payload: {
-			task_id: completion.task_id,
-			outputs: [...(completion.outputs ?? [])],
-			review: reviewFor(ledger.projections, completion),
+export const complete = (
+	ledger: Ledger,
+	{
+		task_id,
+		outputs = [],
+		reviewer,
+		...origin
+	}: Origin & {
+		readonly task_id: TaskId;
+		readonly outputs?: readonly ArtifactId[];
+		/** Who reviews the Task when the Trust tier samples it for Review. */
+		readonly reviewer?: Actor | undefined;
+	},
+): Completed => {
+	const { projections } = ledger;
+	const state = orRefuse(
+		"TaskCompleted",
+		stateIn(projections.tasks, task_id, ["InProgress", "UnderReview"]),
+	);
+	const review = orRefuse(
+		"TaskCompleted",
+		reviewFor(projections, task_id, state, reviewer),
+	);
+	const causation_id =
+		origin.causation_id ??
+		(state.tag === "UnderReview"
+			? reviewsBy(projections.work, task_id, state.reviewer).at(-1)?.seq
+			: undefined);
+	const recorded = recordNext(
+		ledger,
+		{ actor: origin.actor, causation_id },
+		{
+			kind: "TaskCompleted",
+			payload: { task_id, outputs: [...outputs], review },
 		},
-	});
+	);
+	return { ...recorded, review };
+};
 
-/** The reviewer records a Review of a Task UnderReview. */
+/** The reviewer records a Review of a Task UnderReview, or Done. */
 export const review = (
 	ledger: Ledger,
 	{
@@ -164,7 +242,7 @@ export const review = (
 		...payload
 	}: Review & { readonly causation_id?: Seq | undefined },
 ): Recorded =>
-	record(
+	recordNext(
 		ledger,
 		{ actor: payload.reviewer, causation_id },
 		{ kind: "ReviewRecorded", payload },
@@ -180,18 +258,18 @@ export const handOff = (
 		task_id,
 		to,
 		reason,
-		...step
-	}: Step & {
+		...origin
+	}: Origin & {
 		readonly task_id: TaskId;
 		readonly to: AgentId;
 		readonly reason: string;
 	},
 ): Recorded => {
-	const state = ledger.projections.tasks.tasks.get(task_id)?.state;
-	// A Task with no assignee is not InProgress, so the Ledger refuses it on
-	// its state before `from` matters.
-	const from = state && "assignee" in state ? state.assignee : to;
-	return record(ledger, step, {
+	const { assignee: from } = orRefuse(
+		"TaskHandedOff",
+		stateIn(ledger.projections.tasks, task_id, ["InProgress"]),
+	);
+	return recordNext(ledger, origin, {
 		kind: "TaskHandedOff",
 		payload: { task_id, from, to, reason },
 	});
@@ -203,14 +281,14 @@ export const escalate = (
 		task_id,
 		to,
 		reason,
-		...step
-	}: Step & {
+		...origin
+	}: Origin & {
 		readonly task_id: TaskId;
 		readonly to: Actor;
 		readonly reason: string;
 	},
 ): Recorded =>
-	record(ledger, step, {
+	recordNext(ledger, origin, {
 		kind: "TaskEscalated",
 		payload: { task_id, to, reason },
 	});
@@ -220,10 +298,13 @@ export const fail = (
 	{
 		task_id,
 		reason,
-		...step
-	}: Step & { readonly task_id: TaskId; readonly reason: string },
+		...origin
+	}: Origin & { readonly task_id: TaskId; readonly reason: string },
 ): Recorded =>
-	record(ledger, step, { kind: "TaskFailed", payload: { task_id, reason } });
+	recordNext(ledger, origin, {
+		kind: "TaskFailed",
+		payload: { task_id, reason },
+	});
 
 /**
  * Block an InProgress Task on a Gate it requests under the next free gate
@@ -233,6 +314,16 @@ export const block = (
 	ledger: Ledger,
 	request: GateRequest & { readonly task_id: TaskId },
 ): Recorded & { readonly gate_id: GateId; readonly payload_hash: Sha256 } => {
-	const { gate_id, payload_hash, seq } = requestGate(ledger, request);
-	return { task: taskOf(ledger, request.task_id), seq, gate_id, payload_hash };
+	const { task_id } = request;
+	const { gate_id, payload_hash, seq } = requestGate(ledger, {
+		...request,
+		causation_id:
+			request.causation_id ?? ledger.projections.tasks.lastSeq.get(task_id),
+	});
+	return {
+		task: taskOf(ledger.projections, task_id),
+		seq,
+		gate_id,
+		payload_hash,
+	};
 };

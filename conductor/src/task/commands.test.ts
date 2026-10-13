@@ -2,11 +2,14 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { CommandContext } from "../command.js";
 import { AgentId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
+import { taskCommands } from "./commands.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const rin = AgentId.parse("A-rin");
@@ -38,13 +41,30 @@ const seeded = (build: (s: Scenario) => void = () => {}) => {
 	s.close();
 };
 
-const lastEvent = () => {
+const events = () => {
 	const ledger = openLedger({ home, writer: false });
 	try {
-		return ledger.all().at(-1);
+		return ledger.all();
 	} finally {
 		ledger.close();
 	}
+};
+const lastEvent = () => events().at(-1);
+
+/** Run a `task` command in process, as the dispatcher would, and return its stdout. */
+const inProcess = async (name: string, ...args: string[]) => {
+	const stdout = new PassThrough();
+	const out: Buffer[] = [];
+	stdout.on("data", (chunk: Buffer) => out.push(chunk));
+	const stderr = new PassThrough().resume();
+	const ctx: CommandContext = {
+		home,
+		stdin: Readable.from([]),
+		stdout,
+		stderr,
+	};
+	const code = await taskCommands[name]?.run(args, ctx);
+	return { code, stdout: Buffer.concat(out).toString("utf8") };
 };
 
 beforeEach(() => {
@@ -109,19 +129,11 @@ describe("aliquot task", () => {
 		);
 	});
 
-	it("start refuses a Task that is not Assigned, naming its state, and starts one that is", () => {
-		seeded((s) => {
-			s.task(rin);
-			s.task(rin, { start: false });
-		});
+	it("start starts an Assigned Task", () => {
+		seeded((s) => s.task(rin, { start: false }));
 
-		const again = aliquot("task", "start", "T-1");
-		expect(again.status).toBe(1);
-		expect(again.stderr).toBe(
-			"AppendRefused: TaskStarted refused: T-1 is InProgress, expected Assigned\n",
-		);
-		expect(ok("task", "start", "T-2", "--as", "A-rin")).toBe(
-			"T-2 InProgress (assignee A-rin)\n",
+		expect(ok("task", "start", "T-1", "--as", "A-rin")).toBe(
+			"T-1 InProgress (assignee A-rin)\n",
 		);
 	});
 
@@ -139,35 +151,51 @@ describe("aliquot task", () => {
 		});
 	});
 
-	it("complete skips Review when the Trust tier allows it, refuses a sampled Task with no --reviewer saying it was sampled, and sends it to the reviewer named", () => {
-		// Rin is Trusted after 10 reviewed Tasks; the sample leaves T-11 out and picks T-15.
-		seeded((s) => {
-			for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
-			s.task(rin);
-			for (let i = 0; i < 3; i++) s.task(rin, { start: false });
-			s.task(rin);
-		});
-
-		expect(ok("task", "complete", "T-11", "--as", "A-rin")).toBe(
-			"T-11 Done (assignee A-rin)\n",
+	it("complete sends a sampled Task to its reviewer and closes it after the Review, each Event of the chain naming the one before it", () => {
+		seeded();
+		const before = events().length;
+		ok(
+			"task",
+			"propose",
+			"--title",
+			"Parse the Submission Form",
+			"--goal",
+			"Extract every field",
+			"--tat",
+			"Regular",
+			"--priority",
+			"1",
 		);
-		expect(lastEvent()?.payload).toMatchObject({
-			review: {
-				tag: "Skipped",
-				reason: "not sampled for Review at tier Trusted",
-			},
-		});
-		const unnamed = aliquot("task", "complete", "T-15", "--as", "A-rin");
-		expect(unnamed.status).toBe(1);
-		expect(unnamed.stderr).toBe(
-			"AppendRefused: TaskCompleted refused: T-15 is sampled for Review, as 1 in 3 Tasks of A-rin at Trusted are; its completion names a reviewer\n",
-		);
+		ok("task", "assign", "T-1", "A-rin");
+		ok("task", "start", "T-1", "--as", "A-rin");
 		expect(
-			ok("task", "complete", "T-15", "--reviewer", "A-pia", "--as", "A-rin"),
-		).toBe("T-15 UnderReview (assignee A-rin, reviewer A-pia)\n");
-		expect(lastEvent()?.payload).toMatchObject({
-			review: { tag: "Required", reviewer: { tag: "Agent", id: "A-pia" } },
-		});
+			ok("task", "complete", "T-1", "--reviewer", "A-pia", "--as", "A-rin"),
+		).toBe("T-1 UnderReview (assignee A-rin, reviewer A-pia)\n");
+		ok(
+			"vitality",
+			"review",
+			"T-1",
+			...["--quality", "3", "--traceability", "3", "--boundary", "3"],
+			...["--collaboration", "3", "--timeliness", "3"],
+			...["--note", "Clean work", "--as", "A-pia"],
+		);
+
+		expect(ok("task", "complete", "T-1", "--as", "A-pia")).toBe(
+			"T-1 Done (assignee A-rin)\n",
+		);
+		const chain = events().slice(before);
+		expect(chain.map((e) => [e.kind, e.causation_id])).toEqual([
+			["TaskProposed", undefined],
+			...chain.slice(1).map((e, i) => [e.kind, chain[i]?.seq]),
+		]);
+		expect(chain.map((e) => e.kind)).toEqual([
+			"TaskProposed",
+			"TaskAssigned",
+			"TaskStarted",
+			"TaskCompleted",
+			"ReviewRecorded",
+			"TaskCompleted",
+		]);
 	});
 
 	it("fail fails a live Task with its reason", () => {
@@ -194,8 +222,7 @@ describe("aliquot task", () => {
 		).toBe("T-1 Escalated (to Operator)\n");
 	});
 
-	it("list groups Tasks by state with TAT class, priority and assignee, and says so when there are none", () => {
-		expect(ok("task", "list")).toBe("No Tasks\n");
+	it("list groups Tasks by state with TAT class, priority and assignee", () => {
 		seeded((s) => {
 			s.reviewed(rin, scores(3));
 			s.task(rin, { start: false });
@@ -210,5 +237,31 @@ describe("aliquot task", () => {
 				"",
 			].join("\n"),
 		);
+	});
+});
+
+describe("task commands in process", () => {
+	it("complete says the Review was skipped and the reviewer unused when the Trust tier leaves the Task out of the sample", async () => {
+		// Rin is Trusted after 10 reviewed Tasks; the 1 in 3 sample leaves T-11 out.
+		seeded((s) => {
+			for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
+			s.task(rin);
+		});
+
+		const done = await inProcess(
+			"complete",
+			...["T-11", "--reviewer", "A-pia", "--as", "A-rin"],
+		);
+
+		expect(done).toEqual({
+			code: 0,
+			stdout:
+				"T-11 Done (assignee A-rin)\n" +
+				"Review skipped: T-11 was not sampled for Review at tier Trusted, so the reviewer A-pia is unused\n",
+		});
+	});
+
+	it("list says so when there are no Tasks", async () => {
+		expect(await inProcess("list")).toEqual({ code: 0, stdout: "No Tasks\n" });
 	});
 });

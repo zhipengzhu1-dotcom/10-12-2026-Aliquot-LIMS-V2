@@ -51,7 +51,7 @@ export const gateDecision = (
 	gate: Gate,
 	meaning: "approve" | "reject",
 	reason: string,
-): NewEvent => ({
+): Extract<NewEvent, { kind: "GateDecided" }> => ({
 	actor: { tag: "Operator" },
 	...(gate.task_id === undefined ? {} : { task_id: gate.task_id }),
 	kind: "GateDecided",

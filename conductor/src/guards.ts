@@ -13,6 +13,7 @@ export {
 	AppendRefused,
 	type CatchUp,
 	type FollowOn,
+	refusalText,
 } from "./append-guard.js";
 
 /** Every guard the Ledger runs, in order. Each domain owns its own list. */

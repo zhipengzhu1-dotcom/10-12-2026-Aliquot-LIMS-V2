@@ -33,3 +33,7 @@ export type CatchUp = (ledger: Projections) => NewEvent[];
 export class AppendRefused extends Error {
 	override readonly name = "AppendRefused";
 }
+
+/** The one wording of every refusal: `<Kind> refused: <reason>`. */
+export const refusalText = (kind: string, reason: string) =>
+	`${kind} refused: ${reason}`;

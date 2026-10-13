@@ -56,9 +56,11 @@ const readView = (home: string): TaskView => {
 	return withLedger(home, false, (ledger) => ledger.projections.tasks);
 };
 
-/** Run one lifecycle verb under the writer lock and return the Task it left. */
-const record = (ctx: CommandContext, verb: (ledger: Ledger) => Recorded) =>
-	withLedger(ctx.home, true, (ledger) => verb(ledger).task);
+/** Run one lifecycle verb under the writer lock and return what it recorded. */
+const recordUnderWriterLock = <R extends Recorded>(
+	ctx: CommandContext,
+	verb: (ledger: Ledger) => R,
+): R => withLedger(ctx.home, true, verb);
 
 const stateText = (state: TaskState) => {
 	const { tag, ...fields } = state;
@@ -135,7 +137,7 @@ export const taskCommands: CommandTable = {
 			const parent_task =
 				values.parent === undefined ? undefined : taskId(values.parent);
 			const actor = parseActor(values.as);
-			const task = record(ctx, (ledger) =>
+			const { task } = recordUnderWriterLock(ctx, (ledger) =>
 				propose(ledger, {
 					actor,
 					title,
@@ -170,7 +172,9 @@ export const taskCommands: CommandTable = {
 			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, (ledger) => assign(ledger, { actor, task_id, assignee })),
+				recordUnderWriterLock(ctx, (ledger) =>
+					assign(ledger, { actor, task_id, assignee }),
+				).task,
 			);
 		},
 	},
@@ -188,7 +192,9 @@ export const taskCommands: CommandTable = {
 			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, (ledger) => start(ledger, { actor, task_id })),
+				recordUnderWriterLock(ctx, (ledger) =>
+					start(ledger, { actor, task_id }),
+				).task,
 			);
 		},
 	},
@@ -212,9 +218,9 @@ export const taskCommands: CommandTable = {
 			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, (ledger) =>
+				recordUnderWriterLock(ctx, (ledger) =>
 					handOff(ledger, { actor, task_id, to, reason }),
-				),
+				).task,
 			);
 		},
 	},
@@ -246,17 +252,16 @@ export const taskCommands: CommandTable = {
 				),
 			);
 			const actor = parseActor(values.as);
-			return report(
-				ctx,
-				record(ctx, (ledger) =>
-					complete(ledger, {
-						actor,
-						task_id,
-						outputs,
-						...(reviewer && { reviewer }),
-					}),
-				),
+			const { task, review } = recordUnderWriterLock(ctx, (ledger) =>
+				complete(ledger, { actor, task_id, outputs, reviewer }),
 			);
+			report(ctx, task);
+			if (reviewer !== undefined && review.tag === "Skipped") {
+				ctx.stdout.write(
+					`Review skipped: ${task_id} was ${review.reason}, so the reviewer ${actorText(reviewer)} is unused\n`,
+				);
+			}
+			return 0;
 		},
 	},
 	fail: {
@@ -274,7 +279,9 @@ export const taskCommands: CommandTable = {
 			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, (ledger) => fail(ledger, { actor, task_id, reason })),
+				recordUnderWriterLock(ctx, (ledger) =>
+					fail(ledger, { actor, task_id, reason }),
+				).task,
 			);
 		},
 	},
@@ -298,9 +305,9 @@ export const taskCommands: CommandTable = {
 			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, (ledger) =>
+				recordUnderWriterLock(ctx, (ledger) =>
 					escalate(ledger, { actor, task_id, to, reason }),
-				),
+				).task,
 			);
 		},
 	},

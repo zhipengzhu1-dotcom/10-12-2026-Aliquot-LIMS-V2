@@ -1,5 +1,5 @@
 import type { Event, NewEvent } from "../events.js";
-import { IsoTime } from "../ids.js";
+import { IsoTime, type Seq } from "../ids.js";
 import { seal } from "../ledger.js";
 import { eventOf, Row, rowOf, type Storage } from "../storage.js";
 
@@ -25,4 +25,36 @@ export const forge = (
 		}
 	});
 	return forged;
+};
+
+/**
+ * Write the Events of `source` into `target` as a Conductor before ADR-0011
+ * would have: without the Conductor's tier Revisions, each at its own `ts`,
+ * with every `causation_id` renumbered to match. Returns where each source
+ * seq landed in `target`.
+ */
+export const forgeBeforeAdr0011 = (
+	source: Storage,
+	target: Storage,
+): ((seq: Seq) => Seq) => {
+	const seqs = new Map<Seq, Seq>();
+	for (const raw of source.rows()) {
+		const { seq, ts, hash, prev_hash, causation_id, ...body } = eventOf(
+			Row.parse(raw),
+		);
+		if (body.actor.tag === "Conductor") continue;
+		const cause =
+			causation_id === undefined ? undefined : seqs.get(causation_id);
+		const [forged] = forge(
+			target,
+			[{ ...body, ...(cause === undefined ? {} : { causation_id: cause }) }],
+			ts,
+		);
+		if (forged !== undefined) seqs.set(seq, forged.seq);
+	}
+	return (seq) => {
+		const forged = seqs.get(seq);
+		if (forged === undefined) throw new Error(`seq ${seq} was not forged`);
+		return forged;
+	};
 };

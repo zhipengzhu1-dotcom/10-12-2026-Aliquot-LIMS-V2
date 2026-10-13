@@ -1,10 +1,14 @@
 import type { Event, PayloadOf } from "../events.js";
-import type { AgentId, GateId, TaskId } from "../ids.js";
+import type { AgentId, GateId, Seq, TaskId } from "../ids.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { Task, TaskState } from "../types/task.js";
 
-export type TaskView = { readonly tasks: ReadonlyMap<TaskId, Task> };
+export type TaskView = {
+	readonly tasks: ReadonlyMap<TaskId, Task>;
+	/** The seq of the latest Event that created or moved each Task. */
+	readonly lastSeq: ReadonlyMap<TaskId, Seq>;
+};
 
 type Tag = TaskState["tag"];
 type StateOf<T extends Tag> = Extract<TaskState, { tag: T }>;
@@ -90,6 +94,11 @@ const orList = (tags: readonly string[]) =>
 		? tags.join("")
 		: `${tags.slice(0, -1).join(", ")} or ${tags.at(-1)}`;
 
+const notIn = (subject: string, from: readonly Tag[], state: TaskState) =>
+	`${subject} is ${state.tag}, expected ${orList(from)}`;
+
+const missing = (id: TaskId) => `${id} does not exist`;
+
 /**
  * The next state, or why `subject` cannot move: its state, or the rule's own
  * reason. `context` ends a refusal that the state alone would not explain.
@@ -102,12 +111,24 @@ const fire = <F extends Tag, P>(
 	context: string,
 ): TaskState | Refusal => {
 	if (!isIn(r.from, state)) {
-		return new Refusal(
-			`${subject} is ${state.tag}, expected ${orList(r.from)}${context}`,
-		);
+		return new Refusal(`${notIn(subject, r.from, state)}${context}`);
 	}
 	const next = r.to(state, input);
 	return typeof next === "string" ? new Refusal(`${subject} ${next}`) : next;
+};
+
+/**
+ * The state of `task_id` when it is one of `from`, or why a move that needs
+ * one of them is refused, in the words this Projection refuses it with.
+ */
+export const stateIn = <F extends Tag>(
+	view: TaskView,
+	task_id: TaskId,
+	from: readonly F[],
+): StateOf<F> | Refusal => {
+	const state = view.tasks.get(task_id)?.state;
+	if (state === undefined) return new Refusal(missing(task_id));
+	return isIn(from, state) ? state : new Refusal(notIn(task_id, from, state));
 };
 
 /** The Task an Event speaks about, if any. */
@@ -173,11 +194,10 @@ export const transition = (
 	);
 };
 
-const withTask = (view: TaskView, task: Task): TaskView => {
-	const tasks = new Map(view.tasks);
-	tasks.set(task.id, task);
-	return { tasks };
-};
+const withTask = (view: TaskView, task: Task, event: Event): TaskView => ({
+	tasks: new Map(view.tasks).set(task.id, task),
+	lastSeq: new Map(view.lastSeq).set(task.id, event.seq),
+});
 
 const move = (view: TaskView, task: Task, event: Event) => {
 	const state = transition(task.state, event);
@@ -186,7 +206,7 @@ const move = (view: TaskView, task: Task, event: Event) => {
 		event.kind === "TaskCompleted"
 			? [...task.outputs, ...event.payload.outputs]
 			: task.outputs;
-	return withTask(view, { ...task, state, outputs });
+	return withTask(view, { ...task, state, outputs }, event);
 };
 
 /**
@@ -212,22 +232,19 @@ export const applyTaskEvent = (
 			return new Refusal(`${id} already exists and is ${task.state.tag}`);
 		}
 		const { task_id, ...fields } = event.payload;
-		return withTask(view, {
-			id: task_id,
-			...fields,
-			outputs: [],
-			state: { tag: "Proposed" },
-		});
+		return withTask(
+			view,
+			{ id: task_id, ...fields, outputs: [], state: { tag: "Proposed" } },
+			event,
+		);
 	}
-	if (!task) {
-		return new Refusal(`${id} does not exist`);
-	}
+	if (!task) return new Refusal(missing(id));
 	return move(view, task, event);
 };
 
 /** Tasks from the Ledger, moved by the Task state machine. */
 export const TaskProjection: Projection<TaskView> = {
-	init: { tasks: new Map() },
+	init: { tasks: new Map(), lastSeq: new Map() },
 	reduce: applyTaskEvent,
 };
 

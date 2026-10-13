@@ -10,7 +10,7 @@ const mabel = AgentId.parse("A-mabel");
 const FIVE_MINUTES = 5 / 1440; // in days
 
 const rest = (agent: AgentId, action: "begin" | "end") =>
-	s.append({
+	s.appendNonTask({
 		actor: { tag: "Agent", id: mabel },
 		kind: "RestOrdered",
 		payload: { agent_id: agent, action, reason: "fatigue" },
@@ -44,7 +44,7 @@ describe("sampleVitality", () => {
 	it("counts open Tasks assigned to the Agent against its capacity", () => {
 		s.task(rin, { start: false }); // Assigned
 		s.task(rin); // InProgress
-		s.submit(rin, s.task(rin)); // UnderReview: the work is with the reviewer
+		s.submitted(rin); // UnderReview: the work is with the reviewer
 		s.reviewed(rin, scores(3)); // Done
 		s.task(ines); // someone else's
 

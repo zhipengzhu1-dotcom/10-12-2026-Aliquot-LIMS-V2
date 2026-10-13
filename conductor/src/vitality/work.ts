@@ -1,8 +1,10 @@
 import type { Event, PayloadOf } from "../events.js";
+import { canonicalJson } from "../hash.js";
 import type { AgentId, EvaluationId, Seq, TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import type { Projection } from "../reduce.js";
 import { assigneeOf, type TaskView } from "../task/projection.js";
+import type { Actor } from "../types/actor.js";
 import type { Review } from "../types/merit.js";
 import type { Vitality } from "../types/vitality.js";
 
@@ -81,17 +83,32 @@ const reassigned = (
  * Merit.
  */
 export const countedReview = (
-	ledger: Projections,
+	projections: Projections,
 	event: Event,
 ): { readonly agent: AgentId; readonly review: DatedReview } | undefined => {
 	if (event.kind !== "ReviewRecorded") return undefined;
 	const { task_id } = event.payload;
-	const agent = assigneeOf(ledger.tasks.tasks.get(task_id));
-	if (agent === undefined || ledger.work.skipped.has(task_id)) return undefined;
-	return {
-		agent,
-		review: { review: event.payload, seq: event.seq, ts: event.ts },
-	};
+	const agent = assigneeOf(projections.tasks.tasks.get(task_id));
+	if (agent === undefined || projections.work.skipped.has(task_id)) {
+		return undefined;
+	}
+	return { agent, review: datedReview(event) };
+};
+
+const datedReview = (
+	event: Extract<Event, { kind: "ReviewRecorded" }>,
+): DatedReview => ({ review: event.payload, seq: event.seq, ts: event.ts });
+
+/** The Reviews of `task_id` that `reviewer` recorded, in Ledger order. */
+export const reviewsBy = (
+	work: WorkState,
+	task_id: TaskId,
+	reviewer: Actor,
+): readonly DatedReview[] => {
+	const by = canonicalJson(reviewer);
+	return (work.reviews.get(task_id) ?? []).filter(
+		(r) => canonicalJson(r.review.reviewer) === by,
+	);
 };
 
 export const WorkProjection: Projection<WorkState> = {
@@ -104,7 +121,7 @@ export const WorkProjection: Projection<WorkState> = {
 		failedRuns: new Map(),
 		evaluations: new Map(),
 	},
-	reduce: (state, event, ledger) => {
+	reduce: (state, event, projections) => {
 		switch (event.kind) {
 			case "TaskAssigned": {
 				const { task_id, assignee } = event.payload;
@@ -112,7 +129,7 @@ export const WorkProjection: Projection<WorkState> = {
 					...state,
 					agents: reassigned(
 						state.agents,
-						ledger.tasks,
+						projections.tasks,
 						task_id,
 						assignee,
 						event.seq,
@@ -125,7 +142,7 @@ export const WorkProjection: Projection<WorkState> = {
 					...state,
 					agents: reassigned(
 						state.agents,
-						ledger.tasks,
+						projections.tasks,
 						task_id,
 						to,
 						event.seq,
@@ -140,13 +157,12 @@ export const WorkProjection: Projection<WorkState> = {
 			}
 			case "ReviewRecorded": {
 				const { task_id } = event.payload;
-				const dated = { review: event.payload, seq: event.seq, ts: event.ts };
-				const counted = countedReview(ledger, event);
+				const counted = countedReview(projections, event);
 				return {
 					...state,
 					reviews: new Map(state.reviews).set(task_id, [
 						...(state.reviews.get(task_id) ?? []),
-						dated,
+						datedReview(event),
 					]),
 					agents:
 						counted === undefined

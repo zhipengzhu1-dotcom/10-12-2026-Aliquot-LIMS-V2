@@ -46,7 +46,7 @@ beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-vitality-cli-"));
 	const s = scenario(undefined, { home });
 	for (let i = 0; i < 9; i++) s.reviewed(rin, scores(3));
-	s.submit(rin, s.task(rin));
+	s.submitted(rin);
 	s.close();
 });
 
