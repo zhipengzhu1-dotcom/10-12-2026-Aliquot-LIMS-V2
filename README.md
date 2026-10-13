@@ -546,6 +546,7 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 | `GET /api/org-tree` | The reporting tree `org tree` prints: the Operator at the root, each live Agent as `{tag: "Agent", agent, children}`, and the Specialists in one `{tag: "Pool", supervisors, children}` node. |
 | `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
 | `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
+| `GET /api/training` | The Training Projection: each Agent's Memory notes and Coaching by Agent id, and every version of each Skill by Skill id, the data `training notes` and `training skills` print. |
 | `GET /api/stages` | The toy workflow's stage table, as `workflow stages` prints it, with each stage's Script id (`S-<script>`). |
 | `GET /api/lots` | The Lot each `SubmissionRecord` names, by Artifact id, read from the record's bytes. A record that names no Lot is left out. |
 | `GET /api/reviews` | Every Review in Ledger order: its seq and time, the Task, the reviewer, the Task's assignee, the five scores, and `merit`, the assignee's Merit just after the Review. `merit` is `null` for a Review that does not count toward Merit. |
@@ -554,8 +555,6 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 | `GET /api/ledger/verify` | The chain check as `{ok: true, count}` or `{ok: false, seq, reason}`, the verdict `ledger verify` prints. |
 | `GET /api/events` | The Ledger's Events as Server-Sent Events. |
 | `POST /api/actions/<verb>` | One of the Operator's actions. |
-
-The `training` route and the `coach` action wait for the Training lifecycle and Projection (#46).
 
 ### Events
 
@@ -582,6 +581,7 @@ Each action runs the lifecycle verb its command runs, always as the Operator. No
 | `room-say` | `room say` | `{room_id, body, reply_to?}` |
 | `room-open` | `room open` | The Room without `opened_by` |
 | `rest-order` | `vitality rest` | `{agent_id, action: "begin" or "end", reason}` |
+| `coach` | `training coach` | `{agent_id, note, task_id?}`; `note` is the Coaching |
 
 The answer is one of these:
 
@@ -615,13 +615,15 @@ The interface is plain TypeScript in `conductor/ui/`, with no framework and no b
 
 The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and draws them. It fetches them again on every Event from `/api/events`. A view its ticket has not drawn yet shows the JSON as it came. In `ui/views.ts`, each view is a pure function from Projection JSON and the hash's query to markup, in a module of its own such as `ui/org.ts`, tested without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body, and its status line shows the answer to every action, a view's included.
 
-A view's action is a form whose markup names the verb in `data-action` and the fixed part of the body in `data-body`. The page sets each field the Operator fills in at its name, so `definition.supervisor_id` sets that key of the body, and an empty field leaves its key out. A redraw keeps the panels the Operator opened and the text they typed.
+A view's action is a form whose markup names the verb in `data-action` and the fixed part of the body in `data-body`. The page sets each field the Operator fills in at its name, so `definition.supervisor_id` sets that key of the body, and an empty field leaves its key out. A field marked `data-json` holds JSON, which the page parses before it sets it, so the Revision editor sets `definition` as an object and the reason field after it sets `definition.revision_reason`. A form with `data-go` opens that route once its action succeeds. A redraw keeps the panels the Operator opened and the text they typed; a field the Operator left as drawn takes the redrawn value.
 
 A view's filters live in the hash's query, as in `#/flow?lot=LOT-7`, so a filter survives every Event and a reload. A filter is a form whose markup names its route in `data-route`; submitting it sets the hash to that route with the form's non-empty fields as the query.
 
 | View | Shows | Actions |
 |---|---|---|
 | Org (`#/org`) | The tree `org tree` prints, from `/api/org-tree`. Each Agent has its Mood and load from `/api/vitality`, its Trust tier, and a `paused` badge when paused. | Under **Actions**: pause with a reason, or resume a paused Agent; reassign, a Revision of `supervisor_id` to the Operator, the Director or a Supervisor that does not report to the Agent; request retirement, which requests a `RetireAgent` Gate with a reason. The Agent's name opens `#/agent?id=<id>`. |
+| Agent (`#/agent?id=<id>`) | One Agent: its Charter and Persona; its Vitality, Mood and Policy from `/api/vitality`; its Trust tier, Merit, and one point per Review in its Merit window with the five rubric scores and the Merit after it, from `/api/tiers`; its Memory notes, Coaching, and Skills with their versions, from `/api/training`. `#/agent` lists the Agents. | Open the Agent's Room: a link to the `Listed` Room whose only Agent is this one, or, when there is none, a button that opens one as the Operator, `RM-rin` for `A-rin`, and then goes to `#/rooms?id=<room>`. Give Coaching, with an optional Task. **Author a Revision**: an editor over the next version of the definition, `version` already one higher and `revised_by` the Operator, posted with a reason. A Revision that keeps the current version shows the Ledger's refusal. |
+| Gates (`#/gates`) | Open Gates oldest first, each with its kind, requester, age, lifetime, the Task it blocks, and its payload. A `RetireAgent` or `PromoteToMentor` Gate also shows the fields of the Agent it names that approving it would change, now and proposed. Then the decided and expired Gates, most recently closed first. | Approve or reject an open Gate, each with a reason. The form signs the payload hash the page read, so a payload hash that no longer matches shows the Ledger's refusal. |
 | Ledger (`#/ledger`) | The Events, newest first, 50 a page, each with seq, time, actor, kind, Task and cause, and its payload, which opens on click. A status line gives the verdict of `/api/ledger/verify` and when it was read. The newest page takes each new Event at its top; `#/ledger?before=<seq>` is the page of the 50 Events before that seq, and it stays put. | **Verify** reads the verdict again. A cause links to the page it heads. |
 | Flow (`#/flow`) | One swimlane per stage of `/api/stages`, and one for Tasks in no stage. A Task's lane is the stage whose Script its latest Run ran, so a Task joins its lane when its first Run starts. Each card shows the Task's id, title, state, assignee and TAT class. | Filter by Task id (`?task=T-1`) or by Lot (`?lot=<lot>`). A Task's Lots are those of the `SubmissionRecord`s in the Lineage of its Artifacts, or made from one of them. Open a Task (`?open=T-1`) to read its Events in seq order, with the cause of the first one, and an arrow from each Event to the Event its `causation_id` names. The panel reads the Ledger's first 1,000 Events. |
 | Performance (`#/performance`) | Merit per Agent, one line per Agent and one point per Review counted toward Merit, in Ledger order; the mean of each rubric dimension per Agent; the society's tokens in the trailing 5 hours against the Energy budget, with the 80 percent line; and the count of Tasks in each state. | Export CSV: `reviews.csv`, one row per Review under the header `review_seq,task_id,reviewer,assignee,at,quality,traceability,boundary_adherence,collaboration,timeliness`. |

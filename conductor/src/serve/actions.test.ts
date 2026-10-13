@@ -254,6 +254,20 @@ const CASES: Record<Verb, Case> = {
 			}),
 		},
 	},
+	coach: {
+		body: () => ({ agent_id: "A-rin", note: "Name the blocker sooner" }),
+		event: {
+			kind: "HumanCoached",
+			payload: { agent_id: "A-rin", note: "Name the blocker sooner" },
+		},
+		refused: {
+			body: { agent_id: "A-rin", note: "Name the blocker", task_id: "T-9" },
+			command: () => ({
+				args: ["training", "coach", "A-rin", "--task", "T-9"],
+				input: "Name the blocker",
+			}),
+		},
+	},
 };
 
 let home: string;

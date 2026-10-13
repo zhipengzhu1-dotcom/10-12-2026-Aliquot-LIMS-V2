@@ -19,24 +19,40 @@ const fetchJson = async (route: string): Promise<unknown> => {
 	return res.json();
 };
 
+type Field = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+const isField = (element: Element | null): element is Field =>
+	element instanceof HTMLInputElement ||
+	element instanceof HTMLSelectElement ||
+	element instanceof HTMLTextAreaElement;
+
+/** What the field holds before the Operator types, as the markup drew it. */
+const drawnValue = (field: Field): string =>
+	field instanceof HTMLSelectElement
+		? (([...field.options].find((o) => o.defaultSelected) ?? field.options[0])
+				?.value ?? "")
+		: field.defaultValue;
+
 /**
  * Draw `markup` in the page, keeping what the Operator had open, typed and
- * focused: a view is redrawn on every Event, mid-sentence or not.
+ * focused: a view is redrawn on every Event, mid-sentence or not. A field
+ * the Operator left as drawn takes the new markup's value, so an editor over
+ * a definition shows the version the Event wrote.
  */
 const draw = (markup: string) => {
 	const open = [...page.querySelectorAll("details[open][id]")].map((d) => d.id);
 	const typed = [
-		...page.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-			"input[id], select[id]",
-		),
-	].map((field) => [field.id, field.value] as const);
+		...page.querySelectorAll("input[id], select[id], textarea[id]"),
+	]
+		.filter(isField)
+		.filter((field) => field.value !== drawnValue(field))
+		.map((field) => [field.id, field.value] as const);
 	const focused = document.activeElement?.id;
 	page.innerHTML = markup;
 	for (const id of open) document.getElementById(id)?.setAttribute("open", "");
 	for (const [id, value] of typed) {
 		const field = document.getElementById(id);
-		if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement)
-			field.value = value;
+		if (isField(field)) field.value = value;
 	}
 	if (focused) document.getElementById(focused)?.focus();
 };
@@ -93,7 +109,8 @@ form.addEventListener("submit", async (submitted) => {
 	answer.value = answerText(await act(String(fields.get("verb")), body));
 });
 
-// A view's action is a form whose markup carries its verb and fixed body.
+// A view's action is a form whose markup carries its verb and fixed body,
+// and, in `data-go`, the route to open once the action is done.
 page.addEventListener("submit", async (submitted) => {
 	const target = submitted.target;
 	if (!(target instanceof HTMLFormElement)) return;
@@ -103,11 +120,25 @@ page.addEventListener("submit", async (submitted) => {
 	const fields = [...new FormData(target)].map(
 		([name, value]) => [name, String(value)] as const,
 	);
-	const result = await act(verb, bodyOf(target.dataset.body ?? "{}", fields));
+	const json = new Set(
+		[...target.querySelectorAll("[data-json][name]")].map(
+			(field) => field.getAttribute("name") ?? "",
+		),
+	);
+	let body: Record<string, unknown>;
+	try {
+		body = bodyOf(target.dataset.body ?? "{}", fields, json);
+	} catch (error) {
+		answer.value = error instanceof Error ? error.message : String(error);
+		return;
+	}
+	const result = await act(verb, body);
 	answer.value = answerText(result);
 	// The Event may have redrawn the page already, and the form with it.
 	const drawn = document.getElementById(target.id);
 	if (result.ok && drawn instanceof HTMLFormElement) drawn.reset();
+	if (result.ok && target.dataset.go !== undefined)
+		location.hash = target.dataset.go;
 });
 
 // A view's filter form names its route in `data-route`; submitting it moves
