@@ -19,7 +19,7 @@ A member of the society that acts in Turns under one Agent definition.
 _Avoid_: bot, worker, assistant, instance
 
 **Turn**:
-One bounded unit of agent activity that the Conductor schedules, from the prompt it sends to the result it records.
+One bounded unit of agent activity that the Conductor schedules, from the prompt it sends to the result it records. The Conductor records each Turn in the Ledger as a `TurnStarted`, with the Agent's model, Mood and Policy, and a `TurnFinished`, with the usage that fatigue is computed from.
 _Avoid_: session, step, tick
 
 **Agent definition**:
@@ -141,7 +141,7 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require.
+The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns.
 _Avoid_: orchestrator, server, backend, scheduler
 
 **Sandbox**:

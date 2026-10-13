@@ -59,6 +59,14 @@ const ALLOWED: readonly Exemption[] = [
 		in: "events.ts",
 		reason: "nesting levels of a payload schema",
 	},
+	{
+		phrase: "tool_calls",
+		reason: "the count of tool calls the model reports for a Turn",
+	},
+	...["cache_creation", "cache_read"].map((phrase) => ({
+		phrase,
+		reason: "prompt-cache tokens the model reports for a Turn",
+	})),
 	{ phrase: "--format", reason: "a docker CLI flag" },
 	{ phrase: "--memory", reason: "a docker CLI flag" },
 	{

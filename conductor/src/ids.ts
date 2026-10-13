@@ -56,6 +56,13 @@ export const RunId = z
 	.brand<"RunId">();
 export type RunId = z.infer<typeof RunId>;
 
+/** `TN-<n>`. `T-` is taken by TaskId. */
+export const TurnId = z
+	.string()
+	.regex(/^TN-[0-9]+$/)
+	.brand<"TurnId">();
+export type TurnId = z.infer<typeof TurnId>;
+
 /** The sha256 hex of the Artifact's bytes, so the same bytes give one id. */
 export const ArtifactId = z.string().regex(hex64).brand<"ArtifactId">();
 export type ArtifactId = z.infer<typeof ArtifactId>;
