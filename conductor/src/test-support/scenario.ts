@@ -1,5 +1,5 @@
 import type { Event, NewEvent } from "../events.js";
-import { gateDecision, requestGate } from "../gate/request.js";
+import { decideGate, requestGate } from "../gate/lifecycle.js";
 import {
 	AgentId,
 	ArtifactId,
@@ -236,16 +236,22 @@ export const scenario = (
 
 	/** A Gate the Operator requests and leaves Open. */
 	const requested = (kind: GateKind, payload: { agent_id: string }): GateId =>
-		requestGate(ledger, { actor: operator, kind, payload }).gate_id;
+		requestGate(ledger, { actor: operator, kind, payload }).gate.id;
 
 	/** The Operator's decision on an Open Gate at the current time. */
 	const decided = (
 		gate_id: GateId,
 		meaning: "approve" | "reject" = "approve",
-	): Event => {
+	) => {
 		const open = ledger.projections.gates.gates.get(gate_id);
 		if (open === undefined) throw new Error(`${gate_id} was not stored`);
-		return appendNonTask(gateDecision(open, meaning, "Checked"));
+		const { payload_hash } = open;
+		return decideGate(ledger, {
+			gate_id,
+			payload_hash,
+			meaning,
+			reason: "Checked",
+		});
 	};
 
 	/** A Gate the Operator requests and decides at the current time. */

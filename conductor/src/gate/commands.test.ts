@@ -2,33 +2,36 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { NewEvent } from "../events.js";
-import { canonicalJson, sha256Hex } from "../hash.js";
-import { AgentId, GateId } from "../ids.js";
+import type { CommandContext } from "../command.js";
+import { AgentId } from "../ids.js";
 import { openLedger } from "../ledger.js";
+import { type Scenario, scenario } from "../test-support/scenario.js";
+import type { Actor } from "../types/actor.js";
+import { gateCommands } from "./commands.js";
+import { requestGate } from "./lifecycle.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 
-const aliquot = (args: string[], input = "") =>
+const runCli = (...args: string[]) =>
 	spawnSync(
 		process.execPath,
-		["--import", "tsx", cli, "--home", home, ...args],
+		["--import", "tsx", cli, "--home", home, "gate", ...args],
 		{
 			encoding: "utf8",
-			input,
 			env: { ...process.env, ALIQUOT_HOME: "" },
 		},
 	);
 
-const runCli = (args: string[], input = "") =>
-	aliquot(["gate", ...args], input);
-
+const bram: Actor = { tag: "Agent", id: AgentId.parse("A-bram") };
 const deploy = { target: "receiving-screen", version: "1.2.0" };
 // sha256 of {"target":"receiving-screen","version":"1.2.0"}, from shasum.
 const deployHash =
 	"644b4ff33f551679c2cafd567934dd65cb8ea3d3c6bae02b1d676fafc67892e5";
+
+const HOUR = 3600_000;
 
 let home: string;
 
@@ -40,114 +43,155 @@ afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 });
 
-/** Write Gate requests whose ts lies `agoMs` before the wall clock. */
-const requestedAgo = (
-	requests: { agoMs: number; event: (n: number) => NewEvent }[],
-) => {
-	let ts = new Date();
-	const ledger = openLedger({ home, writer: true, clock: () => ts });
+/**
+ * A seeded Ledger in `home` whose clock starts `agoMs` before the wall
+ * clock, after `build`, closed for the command line.
+ */
+const seeded = <T>(agoMs: number, build: (s: Scenario) => T): T => {
+	const s = scenario(new Date(Date.now() - agoMs).toISOString(), { home });
 	try {
-		requests.forEach(({ agoMs, event }, i) => {
-			ts = new Date(Date.now() - agoMs);
-			ledger.append(event(i + 1));
-		});
+		return build(s);
+	} finally {
+		s.close();
+	}
+};
+
+/** Bram's Deploy Gate, requested `agoMs` before the wall clock. */
+const deployRequested = (agoMs = 60_000) =>
+	seeded(agoMs, (s) =>
+		requestGate(s.ledger, { actor: bram, kind: "Deploy", payload: deploy }),
+	);
+
+const events = () => {
+	const ledger = openLedger({ home, writer: false });
+	try {
+		return ledger.all();
 	} finally {
 		ledger.close();
 	}
 };
 
-const gateRequest =
-	(
-		kind: "Deploy" | "RetireAgent",
-		payload: Record<string, string>,
-		lifetime_s = 86400,
-	) =>
-	(n: number): NewEvent => ({
-		actor: { tag: "Agent", id: AgentId.parse("A-bram") },
-		kind: "GateRequested",
-		payload: {
-			gate_id: GateId.parse(`G-${n}`),
-			kind,
-			payload,
-			payload_hash: sha256Hex(canonicalJson(payload)),
-			lifetime_s,
-		},
-	});
-
-const HOUR = 3600_000;
+/** Run a `gate` command in process, as the dispatcher would, with `input` on stdin. */
+const inProcess = async (name: string, args: string[], input = "") => {
+	const stdout = new PassThrough();
+	const out: Buffer[] = [];
+	stdout.on("data", (chunk: Buffer) => out.push(chunk));
+	const ctx: CommandContext = {
+		home,
+		stdin: Readable.from([input]),
+		stdout,
+		stderr: new PassThrough().resume(),
+	};
+	const code = await gateCommands[name]?.run(args, ctx);
+	return { code, stdout: Buffer.concat(out).toString("utf8") };
+};
 
 describe("aliquot gate", () => {
-	it("requests, lists and decides a Gate end to end", () => {
+	it("request --task blocks the Task through the Task lifecycle, naming the Task's previous Event as its cause", () => {
+		const { task_id, started } = seeded(0, (s) => ({
+			task_id: s.task(AgentId.parse("A-bram")),
+			started: s.events().at(-1),
+		}));
 		const file = join(home, "payload.json");
 		writeFileSync(file, JSON.stringify(deploy));
-		for (const args of [
-			[
-				"propose",
-				"--title",
-				"Deploy",
-				"--goal",
-				"Ship it",
-				"--tat",
-				"Regular",
-				"--priority",
-				"1",
-			],
-			["assign", "T-1", "A-bram"],
-			["start", "T-1", "--as", "A-bram"],
-		]) {
-			expect(aliquot(["task", ...args]).status).toBe(0);
-		}
 
-		const requested = runCli([
-			"request",
-			"--kind",
-			"Deploy",
-			"--payload",
-			file,
-			"--task",
-			"T-1",
-			"--as",
-			"A-bram",
-		]);
+		const requested = runCli(
+			...["request", "--kind", "Deploy", "--payload", file],
+			...["--task", "T-1", "--as", "A-bram"],
+		);
+
 		expect(requested.stderr).toBe("");
 		expect(requested.status).toBe(0);
 		expect(requested.stdout).toBe(`G-1 ${deployHash}\n`);
-		expect(aliquot(["task", "list"]).stdout).toMatch(
-			/^Blocked \(1\)\n {2}T-1 /m,
-		);
+		expect(started?.kind).toBe("TaskStarted");
+		expect(events().at(-1)).toMatchObject({
+			kind: "GateRequested",
+			actor: bram,
+			task_id,
+			causation_id: started?.seq,
+			payload: { gate_id: "G-1", payload_hash: deployHash },
+		});
+		const ledger = openLedger({ home, writer: false });
+		try {
+			expect(ledger.projections.tasks.tasks.get(task_id)).toMatchObject({
+				state: { tag: "Blocked", assignee: "A-bram", gate: "G-1" },
+			});
+		} finally {
+			ledger.close();
+		}
+	});
 
-		const fromStdin = runCli(
-			["request", "--kind", "RetireAgent", "--payload", "-"],
-			JSON.stringify({ agent_id: "A-rin" }),
-		);
-		expect(fromStdin.stdout).toMatch(/^G-2 [0-9a-f]{64}\n$/);
+	it("list shows each open Gate's kind, requester, age and a one-line payload summary, and --all shows an expired one as Expired", () => {
+		const long = { note: "x".repeat(200) };
+		seeded(3 * 24 * HOUR, (s) => {
+			requestGate(s.ledger, {
+				actor: bram,
+				kind: "Deploy",
+				payload: long,
+				lifetime_s: 4 * 86400,
+			});
+			s.at(new Date(Date.now() - 2 * HOUR - 5 * 60_000).toISOString());
+			requestGate(s.ledger, { actor: bram, kind: "Deploy", payload: deploy });
+			s.at(new Date(Date.now() - 2 * HOUR).toISOString());
+			requestGate(s.ledger, {
+				actor: bram,
+				kind: "Deploy",
+				payload: deploy,
+				lifetime_s: 3600,
+			});
+		});
 
-		const open = runCli(["list"]);
+		const open = runCli("list");
+		const all = runCli("list", "--all");
+
 		expect(open.status).toBe(0);
-		expect(open.stdout).toMatch(/^ID +KIND +REQUESTER +AGE +HASH +PAYLOAD\n/);
-		expect(open.stdout).toMatch(
-			new RegExp(`\nG-1 +Deploy +A-bram +\\d+s +${deployHash} +\\{"target"`),
+		const lines = open.stdout.trimEnd().split("\n");
+		expect(lines[0]).toMatch(/^ID +KIND +REQUESTER +AGE +HASH +PAYLOAD$/);
+		expect(lines).toHaveLength(3);
+		const summary = lines[1]?.split(/ {2,}/) ?? [];
+		expect(summary[3]).toBe("3d 0h");
+		expect(summary.at(-1)).toHaveLength(60);
+		expect(summary.at(-1)?.endsWith("…")).toBe(true);
+		expect(lines[2]?.split(/ {2,}/)).toEqual([
+			"G-2",
+			"Deploy",
+			"A-bram",
+			"2h 5m",
+			deployHash,
+			'{"target":"receiving-screen","version":"1.2.0"}',
+		]);
+		expect(all.stdout).toMatch(/\nG-3 +Expired +Deploy +A-bram +2h 0m /);
+	});
+
+	it("show prints a Gate's full payload and its hash", () => {
+		deployRequested();
+
+		const { stdout, status } = runCli("show", "G-1");
+
+		expect(status).toBe(0);
+		expect(stdout).toContain("state: Open\n");
+		expect(stdout).toContain(`payload_hash: ${deployHash}\n`);
+		expect(stdout).toContain(
+			'{\n  "target": "receiving-screen",\n  "version": "1.2.0"\n}\n',
 		);
-		expect(open.stdout).toMatch(
-			/\nG-2 +RetireAgent +Operator +\d+s +[0-9a-f]{64} +\{/,
+	});
+
+	it("decide records the Operator's decision on the hash the Operator checked and prints the decision Event", () => {
+		const requested = deployRequested();
+
+		const decided = runCli(
+			...["decide", "G-1", "--approve", "--hash", deployHash],
+			...["--reason", "diff checked"],
 		);
 
-		const decided = runCli([
-			"decide",
-			"G-1",
-			"--approve",
-			"--hash",
-			deployHash,
-			"--reason",
-			"diff checked",
-		]);
 		expect(decided.stderr).toBe("");
 		expect(decided.status).toBe(0);
 		const event = JSON.parse(decided.stdout);
+		expect(event).toEqual(events().at(-1));
 		expect(event).toMatchObject({
-			seq: 6,
+			seq: requested.seq + 1,
 			actor: { tag: "Operator" },
-			task_id: "T-1",
+			causation_id: requested.seq,
 			kind: "GateDecided",
 			payload: {
 				gate_id: "G-1",
@@ -158,123 +202,32 @@ describe("aliquot gate", () => {
 				reason: "diff checked",
 			},
 		});
+	});
+});
 
-		expect(aliquot(["task", "list"]).stdout).toMatch(
-			/^InProgress \(1\)\n {2}T-1 /m,
+describe("gate commands in process", () => {
+	it("request reads the payload from stdin for -", async () => {
+		const result = await inProcess(
+			"request",
+			["--kind", "RetireAgent", "--payload", "-"],
+			JSON.stringify({ agent_id: "A-rin" }),
 		);
 
-		const after = runCli(["list"]);
-		expect(after.stdout).not.toContain("G-1");
-		expect(after.stdout).toContain("G-2");
-		expect(runCli(["list", "--all"]).stdout).toMatch(
-			/\nG-1 +Approved +Deploy /,
-		);
+		expect(result).toEqual({
+			code: 0,
+			stdout: expect.stringMatching(/^G-1 [0-9a-f]{64}\n$/),
+		});
 	});
 
-	it("lists each open Gate's kind, requester, age and a one-line payload summary", () => {
-		const long = { note: "x".repeat(200) };
-		requestedAgo([
-			{ agoMs: 2 * HOUR + 5 * 60_000, event: gateRequest("Deploy", deploy) },
-			{ agoMs: 3 * 24 * HOUR, event: gateRequest("Deploy", long, 4 * 86400) },
-		]);
+	it("decide refuses a decision without the hash the Operator checked, or that both approves and rejects", async () => {
+		const decide = (...args: string[]) =>
+			inProcess("decide", ["G-1", ...args, "--reason", "ok"]);
 
-		const { stdout, status } = runCli(["list"]);
-		expect(status).toBe(0);
-		const lines = stdout.trimEnd().split("\n");
-		expect(lines).toHaveLength(3);
-		expect(lines[1]?.split(/ {2,}/)).toEqual([
-			"G-1",
-			"Deploy",
-			"A-bram",
-			"2h 5m",
-			deployHash,
-			'{"target":"receiving-screen","version":"1.2.0"}',
-		]);
-		const summary = lines[2]?.split(/ {2,}/).at(-1) ?? "";
-		expect(lines[2]?.split(/ {2,}/)[3]).toBe("3d 0h");
-		expect(summary).toHaveLength(60);
-		expect(summary.endsWith("…")).toBe(true);
-	});
-
-	it("shows a Gate past its lifetime as Expired without writing an Event, and refuses to decide it", () => {
-		requestedAgo([
-			{ agoMs: 2 * HOUR, event: gateRequest("Deploy", deploy, 3600) },
-		]);
-
-		expect(runCli(["list"]).stdout).toBe("No open Gates\n");
-		expect(runCli(["list", "--all"]).stdout).toMatch(
-			/\nG-1 +Expired +Deploy +A-bram +2h 0m /,
+		await expect(decide("--approve")).rejects.toThrow(
+			"gate decide needs --hash, the payload hash shown by gate show",
 		);
-		const refused = runCli([
-			"decide",
-			"G-1",
-			"--approve",
-			"--hash",
-			deployHash,
-			"--reason",
-			"late",
-		]);
-		expect(refused.status).toBe(1);
-		expect(refused.stderr).toMatch(
-			/^AppendRefused: GateDecided refused: G-1 expired at /,
-		);
-
-		const ledger = openLedger({ home, writer: false });
-		try {
-			expect(ledger.all().map((e) => e.kind)).toEqual(["GateRequested"]);
-		} finally {
-			ledger.close();
-		}
-	});
-
-	it("shows a Gate's full payload", () => {
-		requestedAgo([{ agoMs: 60_000, event: gateRequest("Deploy", deploy) }]);
-		const { stdout, status } = runCli(["show", "G-1"]);
-		expect(status).toBe(0);
-		expect(stdout).toContain("state: Open\n");
-		expect(stdout).toContain(`payload_hash: ${deployHash}\n`);
-		expect(stdout).toContain(
-			'{\n  "target": "receiving-screen",\n  "version": "1.2.0"\n}\n',
-		);
-	});
-
-	it("refuses a decision without the hash the Operator saw, or with another one, and writes nothing", () => {
-		requestedAgo([{ agoMs: 60_000, event: gateRequest("Deploy", deploy) }]);
-		const decide = (...hash: string[]) =>
-			runCli(["decide", "G-1", "--approve", ...hash, "--reason", "ok"]);
-
-		const missing = decide();
-		const other = decide("--hash", "0".repeat(64));
-
-		expect(missing.status).toBe(2);
-		expect(missing.stderr).toMatch(
-			/^UsageError: gate decide needs --hash, the payload hash shown by gate show/,
-		);
-		expect(other.status).toBe(2);
-		expect(other.stderr).toMatch(
-			new RegExp(
-				`^UsageError: --hash 0{64} is not G-1's payload hash, ${deployHash}; run gate show G-1 and check the payload again`,
-			),
-		);
-		const ledger = openLedger({ home, writer: false });
-		try {
-			expect(ledger.all().map((e) => e.kind)).toEqual(["GateRequested"]);
-		} finally {
-			ledger.close();
-		}
-	});
-
-	it("refuses a decision that both approves and rejects", () => {
-		requestedAgo([{ agoMs: 60_000, event: gateRequest("Deploy", deploy) }]);
-		const result = runCli([
-			"decide",
-			"G-1",
-			"--approve",
-			"--reject",
-			"--reason",
-			"unsure",
-		]);
-		expect(result.status).toBe(2);
-		expect(result.stderr).toMatch(/exactly one of --approve or --reject/);
+		await expect(
+			decide("--approve", "--reject", "--hash", deployHash),
+		).rejects.toThrow("gate decide takes exactly one of --approve or --reject");
 	});
 });

@@ -102,7 +102,7 @@ pnpm -C conductor cli --home /tmp/aliquot ledger verify
 
 The Org Projection folds the Agent Events (`AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`) into each Agent's current definition and its reporting tree. Every change is an Event; nothing is edited in place (ADR-0005).
 
-Every Agent Event the Operator or an Agent causes is appended by the Org lifecycle, `conductor/src/org/lifecycle.ts`, and `org seed` recruits through it too. It names the cause of each Event in `causation_id`, from the Org Projection: the Agent's previous Org Event, so a Recruitment names none. Only a cause outside the Org comes from the caller. The Conductor's tier Revisions are not the lifecycle's; the Ledger appends them (see [Vitality and Merit](#vitality-and-merit)).
+Every Agent Event the Operator or an Agent causes is appended by the Org lifecycle, `conductor/src/org/lifecycle.ts`, and `org seed` recruits through it too. It names the cause of each Event in `causation_id`, from the Org Projection: the Agent's previous Org Event, so a Recruitment names none, and for a retirement the `GateDecided` that approved its `RetireAgent` Gate. Only a cause outside the Org comes from the caller. The Conductor's tier Revisions are not the lifecycle's; the Ledger appends them (see [Vitality and Merit](#vitality-and-merit)).
 
 Recruit the eight-agent starting roster, all on `Probation`. A second run appends nothing.
 
@@ -212,11 +212,13 @@ pnpm -C conductor cli --home /tmp/aliquot gate list
 pnpm -C conductor cli --home /tmp/aliquot gate show G-1
 ```
 
-`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The command refuses with a usage error, and writes nothing, when that hash is not the Gate's stored `payload_hash`. Otherwise it records the decision and prints the decision Event.
+`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The Ledger refuses the decision, and writes nothing, when that hash is not the Gate's stored `payload_hash`. Otherwise the command records the decision, naming the Gate's request as its `causation_id`, and prints the decision Event.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
 ```
+
+One module, the Gate lifecycle (`conductor/src/gate/lifecycle.ts`), appends every Gate Event, and the `gate` commands call it. Only the Task lifecycle requests a Gate that blocks a Task, so `gate request --task` blocks the Task through `task/lifecycle.ts`, and the request names the Task's previous Event as its `causation_id`. The GritQL plugin `conductor/lint/no-gate-request-for-task.grit` refuses a call to the Gate lifecycle's `requestGateForTask` anywhere else.
 
 The Ledger signs a decision at the time it records it: `decided_at` is the Event's own `ts`, and an Event body that supplies `decided_at` is refused. The Ledger refuses a decision from any actor but the Operator, a decision on an unknown, decided, or expired Gate, and a decision whose payload hash differs from the requested payload. An approval covers one payload hash, so a changed payload needs a new Gate. An approved `PromoteToMentor` Gate covers one Promotion to `Mentor`, so the Ledger refuses a new `PromoteToMentor` request, and the approval of one already Open, for an Agent that holds an approved Gate no Promotion has used, naming the Agent and that Gate. The Operator may still reject it.
 

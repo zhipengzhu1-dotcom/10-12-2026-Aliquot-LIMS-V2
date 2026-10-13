@@ -1,0 +1,5 @@
+language js
+
+`requestGateForTask` as $name where {
+	register_diagnostic(span=$name, message="Only the Task lifecycle requests a Gate that blocks a Task: call block in task/lifecycle.ts, so the Task's own Event chain records the block.", severity="error")
+}

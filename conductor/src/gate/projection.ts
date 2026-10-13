@@ -1,5 +1,5 @@
 import type { PayloadOf } from "../events.js";
-import type { AgentId, GateId, IsoTime, Sha256, TaskId } from "../ids.js";
+import type { AgentId, GateId, IsoTime, Seq, Sha256, TaskId } from "../ids.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { EventActor } from "../types/actor.js";
 import type { GateDecision, GateKind, GateState } from "../types/gate.js";
@@ -10,11 +10,14 @@ export type Gate = {
 	readonly kind: GateKind;
 	readonly requester: EventActor;
 	readonly requested_at: IsoTime;
+	/** The seq of the GateRequested, which the decision names as its cause. */
+	readonly requested_seq: Seq;
 	readonly task_id?: TaskId;
 	readonly payload: PayloadOf<"GateRequested">["payload"];
 	readonly payload_hash: Sha256;
 	readonly lifetime_s: number;
-	readonly decision?: GateDecision;
+	/** The Operator's signed decision, and the seq of its GateDecided. */
+	readonly decision?: GateDecision & { readonly seq: Seq };
 };
 
 export type Gates = {
@@ -42,6 +45,7 @@ export const GateProjection: Projection<Gates> = {
 					kind: p.kind,
 					requester: event.actor,
 					requested_at: event.ts,
+					requested_seq: event.seq,
 					...(event.task_id === undefined ? {} : { task_id: event.task_id }),
 					payload: p.payload,
 					payload_hash: p.payload_hash,
@@ -51,10 +55,8 @@ export const GateProjection: Projection<Gates> = {
 			}
 			case "GateDecided": {
 				const d = event.payload;
-				const gate = state.gates.get(d.gate_id);
-				if (gate === undefined) {
-					return new Refusal(`no Gate ${d.gate_id} was requested`);
-				}
+				const gate = requestedGate(state, d.gate_id);
+				if (gate instanceof Refusal) return gate;
 				if (gate.decision !== undefined) {
 					return new Refusal(
 						`${gate.id} is already ${gateState(gate, new Date(event.ts))}`,
@@ -68,7 +70,7 @@ export const GateProjection: Projection<Gates> = {
 				return {
 					gates: new Map(state.gates).set(gate.id, {
 						...gate,
-						decision: event.payload,
+						decision: { ...event.payload, seq: event.seq },
 					}),
 				};
 			}
@@ -77,6 +79,10 @@ export const GateProjection: Projection<Gates> = {
 		}
 	},
 };
+
+/** The Gate requested as `gate_id`, or the refusal of deciding one never requested. */
+export const requestedGate = (gates: Gates, gate_id: GateId): Gate | Refusal =>
+	gates.gates.get(gate_id) ?? new Refusal(`no Gate ${gate_id} was requested`);
 
 /** The first instant at which an undecided Gate counts as Expired. */
 export const expiresAt = (gate: Gate): Date =>
