@@ -164,8 +164,9 @@ An Artifact is a content-addressed file. Its Lineage lists the Artifacts it was 
 
 ```ts
 type ArtifactType =
-	| "SubmissionForm" | "SubmissionRecord" | "ReceivingLogRow" | "WorkOrder"
-	| "ResultWorksheet" | "VerificationRecord" | "ReportOfAnalysis" | "Other";
+	| "SubmissionForm" | "SubmissionRecord" | "ReceivingLogRow" | "LimsDatabase"
+	| "WorkOrder" | "ResultWorksheet" | "VerificationRecord" | "ReportOfAnalysis"
+	| "Other";
 
 type Artifact = {
 	id: ArtifactId;
@@ -178,6 +179,8 @@ type Artifact = {
 ```
 
 `sandbox lineage <artifact id>` walks an Artifact's Lineage back to the Artifacts that have none, one line per production, each naming the Run and Script version that produced it. The Auditor's Lineage check reads this walk.
+
+A `LimsDatabase` Artifact is one version of the toy LIMS database (see "Toy System of record"), stored as `application/vnd.sqlite3`. Its Lineage names the record that changed it and the version before it, so the walk from any version reaches every Submission Form behind its rows.
 
 ### 5. Script and Run
 
@@ -340,6 +343,20 @@ Five parts run on the Operator's Mac. Cloudflare carries only the Operator's bro
 
 **Toy System of record.** A SQLite database in the Sandbox stands in for the lab's LIMS tables (samples, lots, work orders, results, and reports). It is synthetic, so it is not a System of record and Agents write to it without a Gate. Each data source declares in configuration whether it is a System of record. Connecting a real database turns the `WriteSystemOfRecord` Gate on by configuration, with no code change.
 
+The toy LIMS database is an Artifact, never a mutable file. It is one SQLite file, `lims.sqlite`, of type `LimsDatabase`. A stage that changes it carries the latest `LimsDatabase` Artifact in the Ledger as an input, copies it inside the container, writes its rows, and outputs the next version. The Run's Lineage makes each version name the version before it and the record that changed it. When the Ledger holds no version, stage 2 (`log_receipt`) creates the database. The five tables' schema lives in one module, `sandbox/scripts/log_receipt/lims_schema.py`. It sits in that Script's directory because a container mounts only its own Script; later stages find the tables in the database they carry, and they add rows, not tables. The module sets `PRAGMA user_version` to the schema version, 1, and `log_receipt` refuses a carried database of another version.
+
+Every table is `STRICT`. Every row's `source_artifact` holds the Artifact id of the document that produced the row, so a Lineage query can start from a row. Dates are ISO 8601 text (`YYYY-MM-DD`) and times are `HH:MM`.
+
+| Table | Key | Columns | Written by |
+|---|---|---|---|
+| `lots` | `lot` | `product_code`, `product_name` (the Sample Description), `product_type`, `client` (the Submitted By company), `exp_date` (empty: the Submission Form gives no expiry), `source_artifact` | Stage 2, one row per Lot; a Lot already in the table keeps its first row |
+| `samples` | `lab_reference` | `lot` (references `lots`), `container` (1, 2, 3 in the record's order), `qty_received` (1), `sample_type`, `tat_code`, `tat_class`, `date_submitted`, `date_received`, `time_received`, `received_by`, the six Submission Form fields (`company`, `contact`, `address`, `city`, `phone`, `email`) of each party as `submitted_by_*`, `bill_to_*` and `report_to_*`, `source_artifact` | Stage 2, one row per container |
+| `work_orders` | `work_order`, `lab_reference`, `test` | `lab_reference` (references `samples`), `test`, `due_date`, `source_artifact` | Stage 3 |
+| `results` | `lab_reference`, `test` | `value` (a real number), `unit`, `source_artifact` | Stage 4 |
+| `reports` | `lab_reference` | `issued_date`, `document_revision`, `source_artifact` | Stage 6 |
+
+Stage 2 assigns each container a Lab Reference at receipt, `LR-<year received>-<n>` with n written as four digits or more. n is one more than the highest n for that year in `samples`, so the numbering continues from the carried version, and a container numbered in one version is never numbered again.
+
 **Interface.** The Conductor serves a single-page application. Cloudflare Tunnel exposes it at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the Operator's email. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
 
 **Cost.** Everything on Cloudflare stays on the free tier, which covers Tunnel, Access for up to 50 users, and DNS. There is no Workers paid plan, no Containers, and no R2 beyond the free tier. The Ledger and the Artifact store stay on the Mac.
@@ -368,13 +385,13 @@ A synthetic generator invents Clients, products, Lots, and dates in the shape of
 | Stage | Input Artifact | Script | Output Artifact | Evaluation |
 |---|---|---|---|---|
 | 1. Submission | Synthetic Submission Form (docx) | `parse_submission` | Structured submission record (`SubmissionRecord`) | Every required field is present and every TAT code is valid. |
-| 2. Receipt | Submission record | `log_receipt` | Receiving Log row (xlsx) and toy LIMS Sample rows | One row per container, and the Lot and Product Code match the Submission Form. |
+| 2. Receipt | Submission record, and the toy LIMS database it carries | `log_receipt` | Receiving Log row (`ReceivingLogRow`, xlsx) and the next toy LIMS database version (`LimsDatabase`) with the Sample rows | One row per container, the Lot and Product Code on every row match the record, the database has a `samples` row per row's Lab Reference and one `lots` row for the Lot, and every Lab Reference is new in this version. |
 | 3. Work Order | Sample rows | `create_work_order` | Work Order (xlsx) with Tests and a due date from TAT | The due date arithmetic is correct and every Sample has Tests. |
 | 4. Results | Work Order and synthetic weighings | `compute_results` | Result Worksheet (xlsx with `=F/20` style formulas) | The formulas are present and agree with the values. |
 | 5. Verification | Result Worksheet | `verify_results`, run by a different Agent than stage 4 | Verification Record | The independent recomputation agrees within tolerance. |
 | 6. Report | Verification Record and metadata | `render_roa` | Report of Analysis (xlsx and PDF) | Every metadata field traces to the Receiving Log row, and no field is typed by hand. |
 
-The workflow is one table of stages in code (`workflow/stages.ts`). A row names the stage number and name, the Script, the input Artifact types the stage takes from the previous stage's outputs, the types it carries from the Ledger instead (the latest Artifact of that type, such as the toy LIMS database from stage 2), its output types, the Agent that works it, the Agent that reviews it, and the Evaluation that scores the Run's outputs. Adding a stage is adding a row, a Script directory, and an Evaluation. The table is refused at load when its rows are not stages 1, 2, 3 in order, or when stage 5 is worked by the Agent that works stage 4. The rows planned for slice 1:
+The workflow is one table of stages in code (`workflow/stages.ts`). A row names the stage number and name, the Script, the input Artifact types the stage takes from the previous stage's outputs, the types it carries from the Ledger instead (the latest Artifact of that type, such as the toy LIMS database from stage 2), its output types, the Agent that works it, the Agent that reviews it, and the Evaluation that scores the Run. An Evaluation reads the Run's input Artifacts and every Artifact the Run wrote, so stage 2 checks its rows against the record it read and its Lab References against the database version it carried. Adding a stage is adding a row, a Script directory, and an Evaluation. The table is refused at load when its rows are not stages 1, 2, 3 in order, or when stage 5 is worked by the Agent that works stage 4. The rows planned for slice 1:
 
 | Stage | Script | Worked by | Reviewed by |
 |---|---|---|---|
@@ -386,6 +403,8 @@ The workflow is one table of stages in code (`workflow/stages.ts`). A row names 
 | 6 Report | `render_roa` | Ines | Anselm |
 
 The workflow tracer (`workflow/tracer.ts`) runs the table on a Submission Form Fixture. Each stage is a Task worked by the stage's Agent, on the previous stage's outputs chosen by Artifact type, until the table ends or a Task fails. A stage whose input type is missing is refused before its Task is proposed. Each stage's `TaskProposed` names the previous stage's last `TaskCompleted` as its cause, so the causal chain runs unbroken from the Fixture to the last stage.
+
+Stage 2's Script writes a third file, `receipt.json` (typed `Other`): the Receiving Log sheet as the Script reads it back from the xlsx it saved. The Conductor has no xlsx reader and takes no new dependency for one, so the stage 2 Evaluation reads the rows from this read-back. It reads the record and both database versions itself, with `node:sqlite`.
 
 The workflow lifecycle (`workflow/lifecycle.ts`) appends every `EvaluationRecorded`. It mints the Evaluation id from the Projections, records the stage the Evaluation scores, and names the `RunFinished` of the Run it scores as the Event's cause. It refuses an Evaluation of a Run that has not finished, or for a Task that is no longer live, before it builds the Event, in the words of the workflow guard. The guard also refuses a new Evaluation that names no stage; one recorded before Evaluations named their stage still loads (ADR-0012). The workflow tracer appends nothing itself: it calls the Sandbox, the Task lifecycle, and this lifecycle.
 
