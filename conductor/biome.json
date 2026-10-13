@@ -40,6 +40,14 @@
 		{
 			"path": "./lint/no-append-in-task-commands.grit",
 			"includes": ["**/src/task/commands.ts"]
+		},
+		{
+			"path": "./lint/no-gate-request-for-task.grit",
+			"includes": [
+				"**/src/**/*.ts",
+				"!**/src/gate/lifecycle.ts",
+				"!**/src/task/lifecycle.ts"
+			]
 		}
 	],
 	"overrides": [

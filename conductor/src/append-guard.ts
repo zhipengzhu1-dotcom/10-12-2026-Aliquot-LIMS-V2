@@ -1,5 +1,6 @@
-import type { Event, NewEvent } from "./events.js";
+import type { Event, EventKind, NewEvent } from "./events.js";
 import type { Projections } from "./projections.js";
+import { Refusal } from "./reduce.js";
 
 // Domain guards import from here, not from guards.ts: guards.ts imports every
 // domain's guards, so importing it back from a domain would be a cycle.
@@ -37,3 +38,14 @@ export class AppendRefused extends Error {
 /** The one wording of every refusal: `<Kind> refused: <reason>`. */
 export const refusalText = (kind: string, reason: string) =>
 	`${kind} refused: ${reason}`;
+
+/**
+ * The value, or the refusal of `kind` thrown before anything is appended, for
+ * a lifecycle verb that needs the value to build its Event.
+ */
+export const orRefuse = <T>(kind: EventKind, value: T | Refusal): T => {
+	if (value instanceof Refusal) {
+		throw new AppendRefused(refusalText(kind, value.reason));
+	}
+	return value;
+};

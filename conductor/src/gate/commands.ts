@@ -14,11 +14,11 @@ import {
 	UsageError,
 } from "../command.js";
 import { canonicalJson } from "../hash.js";
-import { GateId, TaskId } from "../ids.js";
+import { GateId, Sha256, TaskId } from "../ids.js";
 import { block } from "../task/lifecycle.js";
 import { GateKind } from "../types/gate.js";
+import { DEFAULT_LIFETIME_S, decideGate, requestGate } from "./lifecycle.js";
 import { expiresAt, type Gate, type Gates, gateState } from "./projection.js";
-import { DEFAULT_LIFETIME_S, gateDecision, requestGate } from "./request.js";
 
 const SUMMARY_WIDTH = 60;
 
@@ -143,16 +143,16 @@ const requestCommand = async (args: string[], ctx: CommandContext) => {
 
 	return withLedger(ctx.home, true, (ledger) => {
 		const request = { actor, kind, payload, lifetime_s };
-		const { gate_id, payload_hash } =
+		const { gate } =
 			task_id === undefined
 				? requestGate(ledger, request)
 				: block(ledger, { ...request, task_id });
-		ctx.stdout.write(`${gate_id} ${payload_hash}\n`);
+		ctx.stdout.write(`${gate.id} ${gate.payload_hash}\n`);
 		return 0;
 	});
 };
 
-const decideGate = async (args: string[], ctx: CommandContext) => {
+const decideCommand = async (args: string[], ctx: CommandContext) => {
 	const { values, positionals } = parseArgs({
 		args,
 		allowPositionals: true,
@@ -181,19 +181,19 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 		);
 	}
 
-	const { hash, reason } = values;
+	const decision = {
+		gate_id: parseOrUsage(GateId, id, "the gate id must look like G-1"),
+		payload_hash: parseOrUsage(
+			Sha256,
+			values.hash,
+			"--hash must be a sha256 payload hash, as gate show prints it",
+		),
+		meaning: values.approve ? "approve" : "reject",
+		reason: values.reason,
+	} as const;
 	const decided = withLedger(ctx.home, true, (ledger) => {
-		const gate = gateOf(ledger.projections.gates, id);
-		// The signature binds the payload the Operator looked at: refuse here,
-		// before anything is written, when it is not the one stored.
-		if (hash !== gate.payload_hash) {
-			throw new UsageError(
-				`--hash ${hash} is not ${gate.id}'s payload hash, ${gate.payload_hash}; run gate show ${gate.id} and check the payload again`,
-			);
-		}
-		return ledger.append(
-			gateDecision(gate, values.approve ? "approve" : "reject", reason),
-		);
+		const { seq } = decideGate(ledger, decision);
+		return ledger.all().find((event) => event.seq === seq);
 	});
 	ctx.stdout.write(`${canonicalJson(decided)}\n`);
 	return 0;
@@ -257,6 +257,6 @@ export const gateCommands: CommandTable = {
 		args: "<gate id> --approve|--reject --hash <sha256> --reason <text>",
 		describe:
 			"Sign the Operator's decision on an open Gate, for the payload hash the Operator checked",
-		run: decideGate,
+		run: decideCommand,
 	},
 };

@@ -1,14 +1,13 @@
-import { AppendRefused, refusalText } from "../append-guard.js";
+import { orRefuse } from "../append-guard.js";
 import type { EventBody, EventKind, NewEvent, PayloadOf } from "../events.js";
-import { type GateRequest, requestGate } from "../gate/request.js";
+import { type GateRequest, requestGateForTask } from "../gate/lifecycle.js";
+import type { Gate } from "../gate/projection.js";
 import {
 	type AgentId,
 	type ArtifactId,
-	type GateId,
 	nextId,
 	RubricId,
 	type Seq,
-	type Sha256,
 	TaskId,
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
@@ -71,14 +70,6 @@ export const taskOf = (projections: Projections, task_id: TaskId): Task => {
 	const task = projections.tasks.tasks.get(task_id);
 	if (task === undefined) throw new Error(`${task_id} vanished`);
 	return task;
-};
-
-/** The value, or the refusal of `kind` thrown before anything is appended. */
-const orRefuse = <T>(kind: EventKind, value: T | Refusal): T => {
-	if (value instanceof Refusal) {
-		throw new AppendRefused(refusalText(kind, value.reason));
-	}
-	return value;
 };
 
 /**
@@ -309,18 +300,16 @@ export const fail = (
  */
 export const block = (
 	ledger: Ledger,
-	request: GateRequest & { readonly task_id: TaskId },
-): Recorded & { readonly gate_id: GateId; readonly payload_hash: Sha256 } => {
-	const { task_id } = request;
-	const { gate_id, payload_hash, seq } = requestGate(ledger, {
+	{
+		task_id,
+		causation_id,
+		...request
+	}: Origin & GateRequest & { readonly task_id: TaskId },
+): Recorded & { readonly gate: Gate } => {
+	const { gate, seq } = requestGateForTask(ledger, {
 		...request,
-		causation_id:
-			request.causation_id ?? ledger.projections.tasks.lastSeq.get(task_id),
+		task_id,
+		causation_id: causation_id ?? ledger.projections.tasks.lastSeq.get(task_id),
 	});
-	return {
-		task: taskOf(ledger.projections, task_id),
-		seq,
-		gate_id,
-		payload_hash,
-	};
+	return { task: taskOf(ledger.projections, task_id), gate, seq };
 };

@@ -169,9 +169,10 @@ describe("GateDecided", () => {
 			decided_at: "2026-10-12T09:10:00.000Z",
 			payload_hash: hashOf(payload),
 		});
-		expect(ledger.projections.gates.gates.get(g1)?.decision).toEqual(
-			decided.payload,
-		);
+		expect(ledger.projections.gates.gates.get(g1)?.decision).toEqual({
+			...decided.payload,
+			seq: decided.seq,
+		});
 	});
 
 	it("is refused when its task_id is not the Task that requested the Gate", () => {

@@ -65,7 +65,7 @@ The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`,
 
 An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it.
 
-One module, the Org lifecycle (`org/lifecycle.ts`), appends every Agent Event that the Operator or an Agent causes: it recruits, revises, pauses, resumes, and retires an Agent, and the seed recruits the starting roster through it. Each verb returns the Agent as the Event left it and the seq it appended. Each verb names the Event's cause in `causation_id`: the Agent's previous Org Event, which the Org Projection keeps, so a Recruitment names none. A caller names a cause only when it lies outside the Org. A retirement's reason defaults to the one in its `RetireAgent` Gate's payload. The Conductor's tier Revisions stay Ledger follow-ons (ADR-0011).
+One module, the Org lifecycle (`org/lifecycle.ts`), appends every Agent Event that the Operator or an Agent causes: it recruits, revises, pauses, resumes, and retires an Agent, and the seed recruits the starting roster through it. Each verb returns the Agent as the Event left it and the seq it appended. Each verb names the Event's cause in `causation_id`: the Agent's previous Org Event, which the Org Projection keeps, so a Recruitment names none, and for a retirement the `GateDecided` that approved its `RetireAgent` Gate, which the Gate Projection keeps. A caller names a cause only when it lies outside the Org. A retirement's reason defaults to the one in its `RetireAgent` Gate's payload. The Conductor's tier Revisions stay Ledger follow-ons (ADR-0011).
 
 ```ts
 type Role = "Director" | "Steward" | "Auditor" | "Supervisor" | "Specialist" | "Developer" | "Tester";
@@ -232,6 +232,8 @@ type TrustTier = "Probation" | "Trusted" | "Senior" | "Mentor";
 ### 8. Gate
 
 A Gate is a request for an Operator decision. Only the Operator emits `GateDecided`. The decision is the electronic signature record. The Ledger stamps `decided_at` with the decision Event's own `ts`, so the caller supplies no time and the signature time is the time the decision is recorded (ADR-0006).
+
+One module, the Gate lifecycle (`gate/lifecycle.ts`), appends every Gate Event: it requests a Gate under the next free gate id and records the Operator's decision on it, and each verb returns the Gate and the seq it appended. A decision names the Gate's request as its `causation_id` and carries the payload hash the Operator checked, which the Ledger refuses, writing nothing, when it is not the stored one. A request that blocks a Task comes only from the Task lifecycle's `block`, which names the Task's previous Event as the request's cause. Biome refuses a call to the Gate lifecycle's `requestGateForTask` in any other module.
 
 ```ts
 type GateKind = "Deploy" | "WriteSystemOfRecord" | "ExternalMessage" | "RetireAgent" | "PromoteToMentor";
