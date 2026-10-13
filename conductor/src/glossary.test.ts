@@ -128,13 +128,16 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "Tasks grouped by state in a listing",
 	},
 	{ phrase: "ask", in: "org/seed.ts", reason: "a Persona's quirk text" },
-	...["types/skill.ts", "training/commands.ts", "tools/table.ts"].map(
-		(file) => ({
-			phrase: "lesson",
-			in: file,
-			reason: "the Memory note field the glossary names",
-		}),
-	),
+	...[
+		"types/skill.ts",
+		"training/commands.ts",
+		"tools/table.ts",
+		"turn/prompt.ts",
+	].map((file) => ({
+		phrase: "lesson",
+		in: file,
+		reason: "the Memory note field the glossary names",
+	})),
 	...["training/commands.ts", "serve/actions.ts"].map((file) => ({
 		phrase: "coach",
 		in: file,
@@ -163,6 +166,12 @@ const ALLOWED: readonly Exemption[] = [
 		in: "tools/sdk.ts",
 		reason: "the Agent SDK's type of an in-process MCP server",
 	},
+	...["systemPrompt", "strictMcpConfig", "dontAsk", '"user"'].map((phrase) => ({
+		phrase,
+		in: "tools/sdk.ts",
+		reason:
+			"names in the Agent SDK's query options and the Messages API's role of the prompt that opens a Turn",
+	})),
 	{
 		phrase: "server",
 		in: "tools/",
