@@ -5,8 +5,7 @@ import { sha256Hex } from "../hash.js";
 import {
 	type AgentId,
 	type ArtifactId,
-	EvaluationId,
-	nextId,
+	type EvaluationId,
 	ScriptId,
 	type Sha256,
 	type TaskId,
@@ -33,6 +32,7 @@ import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
 import { evaluateSubmission, type SubmissionEvaluation } from "./evaluate.js";
+import { recordEvaluation } from "./lifecycle.js";
 
 const OPERATOR: Actor = { tag: "Operator" };
 const SCRIPT_NAME = "parse_submission";
@@ -208,20 +208,14 @@ export const runStage1 = async (options: {
 			causation_id: started.seq,
 			timeoutMs: options.timeoutMs,
 		});
-		const finished = ledger.projections.runs.runs.get(run.id)?.finished;
-		if (!finished) throw new Error(`no RunFinished for ${run.id}`);
-
 		const { record, evaluation } = evaluateRun(ledger, home, run);
-		const eval_id = EvaluationId.parse(
-			nextId("E", ledger.projections.work.evaluations.keys()),
-		);
-		const evaluated = ledger.append({
+		const evaluated = recordEvaluation(ledger, {
 			actor: OPERATOR,
 			task_id,
-			causation_id: finished.seq,
-			kind: "EvaluationRecorded",
-			payload: { eval_id, run_id: run.id, task_id, ...evaluation },
+			run_id: run.id,
+			...evaluation,
 		});
+		const { eval_id } = evaluated.evaluation;
 		if (evaluation.passed) {
 			const completed = complete(ledger, {
 				actor: ownerActor,

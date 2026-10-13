@@ -3,7 +3,6 @@ import { decideGate, requestGate } from "../gate/lifecycle.js";
 import {
 	AgentId,
 	ArtifactId,
-	EvaluationId,
 	type GateId,
 	RunId,
 	ScriptId,
@@ -16,7 +15,9 @@ import {
 	openLedger,
 	openMemoryLedger,
 } from "../ledger.js";
+import { retire as retireAgent } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
+import { recordEvaluation } from "../stage1/lifecycle.js";
 import type { Storage } from "../storage.js";
 import {
 	assign,
@@ -223,18 +224,13 @@ export const scenario = (
 			},
 		});
 		if (score === undefined) return;
-		ledger.append({
+		recordEvaluation(ledger, {
 			actor: operator,
 			task_id,
-			kind: "EvaluationRecorded",
-			payload: {
-				eval_id: EvaluationId.parse(`E-${runs}`),
-				run_id: id,
-				task_id,
-				score,
-				passed: score >= 0.5,
-				findings: [],
-			},
+			run_id: id,
+			score,
+			passed: score >= 0.5,
+			findings: [],
 		});
 	};
 
@@ -271,14 +267,11 @@ export const scenario = (
 
 	/** Retire `agent` through an approved RetireAgent Gate. */
 	const retire = (agent: AgentId, reason: string) =>
-		appendNonTask({
+		retireAgent(ledger, {
 			actor: operator,
-			kind: "AgentRetired",
-			payload: {
-				agent_id: agent,
-				reason,
-				gate_id: gate("RetireAgent", { agent_id: agent }),
-			},
+			agent_id: agent,
+			gate_id: gate("RetireAgent", { agent_id: agent }),
+			reason,
 		});
 
 	return {

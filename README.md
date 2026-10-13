@@ -102,6 +102,8 @@ pnpm -C conductor cli --home /tmp/aliquot ledger verify
 
 The Org Projection folds the Agent Events (`AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`) into each Agent's current definition and its reporting tree. Every change is an Event; nothing is edited in place (ADR-0005).
 
+Every Agent Event the Operator or an Agent causes is appended by the Org lifecycle, `conductor/src/org/lifecycle.ts`, and `org seed` recruits through it too. It names the cause of each Event in `causation_id`, from the Org Projection: the Agent's previous Org Event, so a Recruitment names none. Only a cause outside the Org comes from the caller. The Conductor's tier Revisions are not the lifecycle's; the Ledger appends them (see [Vitality and Merit](#vitality-and-merit)).
+
 Recruit the eight-agent starting roster, all on `Probation`. A second run appends nothing.
 
 ```sh
@@ -305,7 +307,7 @@ The command does these steps in one process:
 4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
 5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
 6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
-7. It records `EvaluationRecorded`. When the Evaluation failed, it records `TaskFailed` with the findings.
+7. It records `EvaluationRecorded` through the stage 1 lifecycle (`conductor/src/stage1/lifecycle.ts`), which mints the Evaluation id and names the Run's `RunFinished` as the cause. When the Evaluation failed, it records `TaskFailed` with the findings.
 8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
 The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
