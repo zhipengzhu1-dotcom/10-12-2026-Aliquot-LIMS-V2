@@ -9,7 +9,7 @@ Aliquot LIMS is a society of AI Agents that does the paperwork and computation o
 
 ## Layout
 
-- `conductor/` is the Conductor, a TypeScript package (pnpm, Node 24). The `aliquot` command line starts at `conductor/src/cli.ts`.
+- `conductor/` is the Conductor, a TypeScript package (pnpm, Node 24). The `aliquot` command line starts at `conductor/src/cli.ts`. The interface that `aliquot serve` serves is in `conductor/ui/`.
 - `sandbox/` holds the Sandbox Scripts and their tests, a Python project managed by uv (Python 3.13 or later).
 - `fixtures/` holds the Fixture Artifacts committed to git. Every Fixture is synthetic.
 - `Templates/` is ignored by git and stays out of the repository (ADR-0009).
@@ -37,9 +37,9 @@ tools/check.sh
 | Install dependencies | `pnpm -C conductor install` |
 | Lint and check formatting (Biome) | `pnpm -C conductor lint` |
 | Fix lint and formatting | `pnpm -C conductor exec biome check --write .` |
-| Typecheck (`tsc --noEmit`) | `pnpm -C conductor typecheck` |
+| Typecheck the Conductor and the interface (`tsc --noEmit`) | `pnpm -C conductor typecheck` |
 | Test (vitest) | `pnpm -C conductor test` |
-| Build to `conductor/dist/` | `pnpm -C conductor build` |
+| Build the Conductor and the interface to `conductor/dist/` | `pnpm -C conductor build` |
 | Run the `aliquot` command line | `pnpm -C conductor cli <args>`, or `tools/aliquot <args>` from any directory |
 
 A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either. The GritQL plugin `conductor/lint/no-append-outside-lifecycle.grit` refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a domain's `lifecycle.ts`, `ledger.ts` and the test scenario in `test-support/`, so only a lifecycle module appends Events; `conductor/src/append-rule.test.ts` checks which files it refuses.
@@ -81,7 +81,7 @@ Off CI, a test that needs a missing prerequisite skips with a notice: the Docker
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
-No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `room`, `gate`, `sandbox`, `vitality`, `stage1`), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
+No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `room`, `gate`, `sandbox`, `vitality`, `stage1`) and the actions of `aliquot serve` (see [Serve](#serve)), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
@@ -332,3 +332,93 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 | 22 | TaskCompleted (Reviewed), as A-pia | T-1 | 21 |
 
 `task list` shows T-1 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage and the record with a Lineage of the Fixture. CI runs `stage1 run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
+
+## Serve
+
+`aliquot serve` is the long-running Conductor. It opens the Ledger for writing and holds the writer lock until it stops. While it runs, a command that writes exits 1 with `LedgerLocked: <home>/ledger.sqlite.lock held by pid <pid>`, and a command that only reads still works. On SIGINT or SIGTERM it closes the Ledger, which releases the lock, and exits 0.
+
+```sh
+pnpm -C conductor build                   # compiles the interface
+tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0.0.1:8787
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--port <n>` | `8787` | The port. `0` lets the system choose one. |
+| `--bind <address>` | `127.0.0.1` | The address. Any other address needs Cloudflare Access; without it, the command exits 2. |
+| `--access-team <team>` `--access-aud <aud>` `--operator-email <email>` | none | Cloudflare Access. Give all three or none. |
+
+`--home` works before or after `serve`.
+
+### Routes
+
+| Route | Answers |
+|---|---|
+| `GET /` | The interface, from `conductor/dist/ui/`. |
+| `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts` | The Projection as JSON. Each map is an object keyed by id. |
+| `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
+| `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
+| `GET /api/ledger?from=<seq>&limit=<n>` | `{events, next}`: the Events from seq `from` (default 1), at most `limit` (default 100, at most 1000). `next` is the seq the next page starts from, or `null` after the last Event. |
+| `GET /api/ledger/verify` | The chain check as `{ok: true, count}` or `{ok: false, seq, reason}`, the verdict `ledger verify` prints. |
+| `GET /api/events` | The Ledger's Events as Server-Sent Events. |
+| `POST /api/actions/<verb>` | One of the Operator's actions. |
+
+The `turns` and `training` routes and the `coach` action wait for the Turn and Training Projections (#46).
+
+### Events
+
+`/api/events` sends one Server-Sent Event for each Event the Ledger appends, follow-ons included. The event id is the Event's seq, and the data is the Event as JSON. A client that reconnects with a `Last-Event-ID` header first receives every Event after that seq, read from the Ledger, so it misses nothing. An `EventSource` sends that header when it reconnects by itself. A page that opens a new `EventSource` passes `?lastEventId=<seq>` instead. A comment line every 30 seconds keeps the connection open through Cloudflare Tunnel. No view polls.
+
+```sh
+curl -N localhost:8787/api/events
+```
+
+### Actions
+
+Each action runs the lifecycle verb its command runs, always as the Operator. No body takes `--as`, and the Operator opens a Room that `room-open` opens. Send the body as JSON with `content-type: application/json`.
+
+| Verb | Command | Body |
+|---|---|---|
+| `pause` | `org pause` | `{agent_id, reason}` |
+| `resume` | `org resume` | `{agent_id}` |
+| `revise` | `org revise` | `{definition}`, the full next version |
+| `retire-request` | `org retire` without `--gate` | `{agent_id, reason}`; requests a `RetireAgent` Gate |
+| `gate-decide` | `gate decide` | `{gate_id, decision: "approve" or "reject", hash, reason}` |
+| `task-assign` | `task assign` | `{task_id, assignee}` |
+| `task-handoff` | `task handoff` | `{task_id, to, reason}` |
+| `task-review` | `vitality review` | `{task_id, quality, traceability, boundary_adherence, collaboration, timeliness, note}` |
+| `room-say` | `room say` | `{room_id, body, reply_to?}` |
+| `room-open` | `room open` | The Room without `opened_by` |
+| `rest-order` | `vitality rest` | `{agent_id, action: "begin" or "end", reason}` |
+
+The answer is one of these:
+
+- 200 and the Event the verb appended. Its follow-ons arrive on `/api/events`.
+- 409 and the refusal, such as `AgentResumed refused: A-bram is not paused`. The command prints the same text after `AppendRefused: `.
+- 400 and the reason for a body that is not JSON, is not sent as JSON, or does not fit the verb. A page on another site can send JSON only after a CORS preflight, which the Conductor does not grant, so it cannot run an action.
+- 404 for an unknown verb.
+
+```sh
+curl -s -X POST -H 'content-type: application/json' \
+  -d '{"agent_id": "A-rin", "reason": "Too many retries"}' \
+  localhost:8787/api/actions/pause
+```
+
+### Access
+
+Without `--access-team`, the Conductor serves `127.0.0.1` only. It answers 403 to a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>`, so a page that rebinds its own hostname to `127.0.0.1` cannot reach it.
+
+With `--access-team`, `--access-aud` and `--operator-email`, every request must carry a `Cf-Access-Jwt-Assertion` that meets all of these conditions. Otherwise the answer is 401 with no body.
+
+- An RS256 signature by one of the team's keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. The Conductor fetches the keys on the first request and keeps them for the `max-age` of that response, or for an hour without one.
+- An `aud` that includes `--access-aud`.
+- An `email` equal to `--operator-email`, ignoring case.
+- An `exp` in the future.
+
+Node's `crypto` verifies the token, so Access needs no dependency.
+
+### Interface
+
+The interface is plain TypeScript in `conductor/ui/`, with no framework and no bundler. `pnpm -C conductor build` compiles it with `ui/tsconfig.build.json` to ES modules in `conductor/dist/ui/`, and copies `ui/index.html` beside them. `pnpm -C conductor lint` and `typecheck` cover `ui/`. Without a build, `aliquot serve` says so on stderr and serves the API only.
+
+The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and shows them as JSON. It fetches them again on every Event from `/api/events`. In `ui/views.ts`, each view is a pure function from Projection JSON to markup, so its ticket replaces that function and tests it without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body.
