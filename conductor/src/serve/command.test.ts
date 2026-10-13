@@ -3,7 +3,13 @@ import {
 	spawn,
 	spawnSync,
 } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -11,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
+import { LAB_ROOM, seedRooms } from "../room/seed.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const env = { ...process.env, ALIQUOT_HOME: "" };
@@ -177,6 +184,62 @@ describe("aliquot serve", () => {
 			"outcome=open",
 		);
 		expect(aliquot("ledger", "verify").status).toBe(0);
+	});
+
+	it("a Message said while serving as tools/serve.sh serves leads to a TurnStarted", async () => {
+		const serveSh = readFileSync(
+			fileURLToPath(new URL("../../../tools/serve.sh", import.meta.url)),
+			"utf8",
+		);
+		const serveFlags = /^node .* serve (.*)$/m.exec(serveSh)?.[1] ?? "";
+		const ledger = openLedger({ home, writer: true });
+		seedRooms(ledger);
+		ledger.close();
+		const model = join(home, "scripted.json");
+		writeFileSync(
+			model,
+			JSON.stringify({
+				calls: [],
+				usage_per_round: {
+					input_tokens: 10,
+					output_tokens: 1,
+					cache_creation_tokens: 0,
+					cache_read_tokens: 0,
+					cost_usd: 0,
+				},
+				stop: { tag: "Completed" },
+			}),
+		);
+		const { url, stopped } = await startServe(
+			["--tick", "200ms", "--concurrency", "8"],
+			{ ALIQUOT_SCRIPTED_MODEL: model },
+		);
+
+		const said = await fetch(`${url}/api/actions/room-say`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ room_id: LAB_ROOM.id, body: "Morning, all" }),
+		});
+		let decisions = "";
+		for (let i = 0; i < 100 && !decisions.includes("new Message"); i += 1) {
+			await new Promise((done) => setTimeout(done, 100));
+			decisions += await (await fetch(`${url}/api/scheduler`)).text();
+		}
+		child?.kill("SIGTERM");
+		const exit = await stopped;
+
+		expect(
+			serveFlags.replace("${no_schedule:+--no-schedule}", ""),
+			"serve.sh passes --no-schedule only when its own flag asks",
+		).not.toContain("--no-schedule");
+		expect(said.status).toBe(200);
+		const started = /^scheduler \S+ (A-\w+) start .*new Message/m.exec(
+			exit.stdout,
+		)?.[1];
+		expect(started).toBeDefined();
+		expect(aliquot("turn", "list", "--agent", started ?? "").stdout).toMatch(
+			new RegExp(`^TN-\\d+ ${started} `, "m"),
+		);
 	});
 
 	it("--no-schedule serves without scheduling: no Turn, and /api/scheduler says the Scheduler is off", async () => {
