@@ -19,15 +19,19 @@ const ines = AgentId.parse("A-ines");
 
 let home: string;
 
-const aliquot = (...args: string[]) =>
+/** Run the command line with `input` on stdin. */
+const withStdin = (input: string, ...args: string[]) =>
 	spawnSync(
 		process.execPath,
 		["--import", "tsx", cli, "--home", home, ...args],
 		{
 			encoding: "utf8",
 			env: { ...process.env, ALIQUOT_HOME: "" },
+			input,
 		},
 	);
+
+const aliquot = (...args: string[]) => withStdin("", ...args);
 
 /** Run a command that must succeed and return its stdout. */
 const ok = (...args: string[]) => {
@@ -324,6 +328,53 @@ describe("aliquot task", () => {
 				"  T-2  Task 2  TAT Regular  priority 1  assignee A-rin",
 				"Done (1)",
 				"  T-1  Task 1  TAT Regular  priority 1  assignee A-rin",
+				"",
+			].join("\n"),
+		);
+	});
+});
+
+describe("aliquot task help", () => {
+	it("is refused for an Agent the Task is not assigned to, and the assignee's request shows in task list on its Task", () => {
+		seeded((s) => s.task(rin));
+		const before = events().length;
+
+		const stranger = withStdin(
+			"Which column holds the TAT code?\n",
+			...["task", "help", "T-1", "--to", "Operator", "--as", "A-pia"],
+		);
+
+		expect(stranger.status, "a stranger's request fails").toBe(1);
+		expect(stranger.stderr).toBe(
+			"AppendRefused: HelpRequested refused: only A-rin, the assignee of T-1, requests help on it; the actor is A-pia\n",
+		);
+		expect(events(), "nothing is appended").toHaveLength(before);
+
+		const asked = withStdin(
+			"Which column holds the TAT code?\n",
+			...["task", "help", "T-1", "--to", "A-pia", "--as", "A-rin"],
+		);
+
+		expect(asked.stderr).toBe("");
+		expect(asked.stdout).toBe(
+			`${before + 1}  A-rin requests help on T-1 from A-pia\n`,
+		);
+		expect(lastEvent()).toMatchObject({
+			actor: { tag: "Agent", id: "A-rin" },
+			task_id: "T-1",
+			causation_id: before,
+			kind: "HelpRequested",
+			payload: {
+				task_id: "T-1",
+				to: { tag: "Agent", id: "A-pia" },
+				question: "Which column holds the TAT code?",
+			},
+		});
+		expect(ok("task", "list")).toBe(
+			[
+				"InProgress (1)",
+				"  T-1  Task 1  TAT Regular  priority 1  assignee A-rin",
+				`    help ${before + 1}  A-rin to A-pia: Which column holds the TAT code?`,
 				"",
 			].join("\n"),
 		);

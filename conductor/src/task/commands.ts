@@ -5,6 +5,7 @@ import {
 	actorText,
 	parseActor,
 	parseOrUsage,
+	readAll,
 	withLedger,
 } from "../cli-support.js";
 import {
@@ -23,9 +24,14 @@ import {
 	fail,
 	handOff,
 	propose,
+	requestHelp,
 	start,
 } from "./lifecycle.js";
-import { TaskProjection, type TaskView } from "./projection.js";
+import {
+	type HelpRequest,
+	TaskProjection,
+	type TaskView,
+} from "./projection.js";
 
 const agentId = (text: string, what: string) =>
 	parseOrUsage(AgentId, text, `${what} must be an Agent id like A-odile`);
@@ -86,6 +92,9 @@ const listLine = (task: Task) =>
 		`priority ${task.priority}`,
 		...("assignee" in task.state ? [`assignee ${task.state.assignee}`] : []),
 	].join("  ");
+
+const helpLine = (help: HelpRequest) =>
+	`    help ${help.seq}  ${help.from} to ${actorText(help.to)}: ${help.question}`;
 
 const byNumber = (a: Task, b: Task) =>
 	Number(a.id.slice(2)) - Number(b.id.slice(2));
@@ -311,19 +320,51 @@ export const taskCommands: CommandTable = {
 			);
 		},
 	},
+	help: {
+		args: "<task id> --to <Operator|agent id> [--as <agent>]",
+		describe:
+			"Request help on a Task from the Operator or an Agent, as its assignee; the question is stdin",
+		run: async (args, ctx) => {
+			const { values, positionals } = parseArgs({
+				args,
+				options: { to: { type: "string" }, ...asOption },
+				allowPositionals: true,
+			});
+			const [id] = expectPositionals(positionals, ["<task id>"], "help");
+			const task_id = taskId(id as string);
+			const to = parseActor(required(values.to, "--to"), "--to");
+			const actor = parseActor(values.as);
+			const question = (await readAll(ctx.stdin)).replace(/\n$/, "");
+			if (question === "") {
+				throw new UsageError("task help reads the question from stdin");
+			}
+			const { seq } = recordUnderWriterLock(ctx, (ledger) =>
+				requestHelp(ledger, { actor, task_id, to, question }),
+			);
+			ctx.stdout.write(
+				`${seq}  ${actorText(actor)} requests help on ${task_id} from ${actorText(to)}\n`,
+			);
+			return 0;
+		},
+	},
 	list: {
-		describe: "List Tasks grouped by state",
+		describe: "List Tasks grouped by state, with each Task's Help requests",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const tasks = [...readView(ctx.home).tasks.values()];
+			const view = readView(ctx.home);
+			const tasks = [...view.tasks.values()];
 			if (tasks.length === 0) {
 				ctx.stdout.write("No Tasks\n");
 				return 0;
 			}
+			const taskLines = (task: Task) => [
+				listLine(task),
+				...(view.help.get(task.id) ?? []).map(helpLine),
+			];
 			const lines = STATE_ORDER.flatMap((tag) => {
 				const group = tasks.filter((t) => t.state.tag === tag).sort(byNumber);
 				return group.length
-					? [`${tag} (${group.length})`, ...group.map(listLine)]
+					? [`${tag} (${group.length})`, ...group.flatMap(taskLines)]
 					: [];
 			});
 			ctx.stdout.write(`${lines.join("\n")}\n`);

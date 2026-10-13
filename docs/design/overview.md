@@ -82,19 +82,20 @@ Only a domain's lifecycle module appends Events, and no command appends a raw on
 | Lifecycle module | Event kinds |
 |---|---|
 | `org/lifecycle.ts` | `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired` |
-| `task/lifecycle.ts` | `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `ReviewRecorded` |
+| `task/lifecycle.ts` | `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `ReviewRecorded`, `HelpRequested` |
 | `gate/lifecycle.ts` | `GateRequested`, `GateDecided`; only the Task lifecycle's `block` requests a Gate that blocks a Task |
 | `room/lifecycle.ts` | `RoomOpened`, `MessageSent` |
 | `sandbox/lifecycle.ts` | `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored` |
 | `vitality/lifecycle.ts` | `VitalitySampled`, `RestOrdered` |
 | `turn/lifecycle.ts` | `TurnStarted`, `TurnFinished`, always as the Conductor (ADR-0013) |
 | `workflow/lifecycle.ts` | `EvaluationRecorded` |
+| `training/lifecycle.ts` | `MemoryNoted`, `SkillPublished`, `HumanCoached` |
 
-The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). No lifecycle appends `HelpRequested`, `HumanCoached`, `MemoryNoted` or `SkillPublished` yet. Those kinds are reserved for a later slice, and no command writes them. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
+The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). Every kind has a lifecycle that appends it; none is reserved. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
 
 ### 2. Agent definition
 
-An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it.
+An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it. Granting a Skill is a Revision that adds its id to `skills`, and the Ledger refuses a Recruitment or a Revision whose `skills` names an id that no `SkillPublished` has published, naming that id.
 
 One module, the Org lifecycle (`org/lifecycle.ts`), appends every Agent Event that the Operator or an Agent causes: it recruits, revises, pauses, resumes, and retires an Agent, and the seed recruits the starting roster through it. Each verb returns the Agent as the Event left it and the seq it appended. Each verb names the Event's cause in `causation_id`: the Agent's previous Org Event, which the Org Projection keeps, so a Recruitment names none, and for a retirement the `GateDecided` that approved its `RetireAgent` Gate, which the Gate Projection keeps. A caller names a cause only when it lies outside the Org; a retirement takes none, since its cause is always the approving decision. `retire` refuses an Agent that is not live, an actor other than the Operator, and a Gate that is unknown, undecided, rejected, of another kind or naming another Agent, before it builds the Event, through the predicate the Org guard uses. A retirement's reason defaults to the one in its `RetireAgent` Gate's payload, and is refused when neither gives one. The Conductor's tier Revisions stay Ledger follow-ons (ADR-0011).
 
@@ -131,6 +132,8 @@ Two rules from `docs/design/vitality-and-merit.md` decide who takes a Task and w
 - The reviewer rule (`vitality/reviewers.ts`). The role of the assignee decides the reviewer: either Supervisor for a Specialist, the Director for a Supervisor, and the Operator for the Director, the Steward, and the Auditor. The Auditor may review any Task, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`. No one reviews their own Task. One predicate decides both the reviewer that a `TaskCompleted` names and the actor of a `ReviewRecorded`, so the two cannot disagree. A refusal names the assignee, its role, and who may review it. The design names no reviewer for the Developer and the Tester, so until they join in slice 2 they take the Specialists' rule.
 - The Mood rule. A `TaskAssigned` or a `TaskHandedOff` is refused when the Policy of the new assignee's Mood does not let it accept Tasks: when it is `strained`, `overloaded`, `discouraged`, or `resting`. The refusal names the Agent and its Mood. The Mood comes from the Agent's latest `VitalitySampled`, with Rest and Tasks `InProgress` read from the Ledger as it stands. A guard reads no clock, so it cannot take a new sample. An Agent with no sample counts as one with no work, so it is `fresh` unless Rest or a Task `InProgress` changes that. A new sample or the end of Rest lifts the refusal.
 
+A Help request is a `HelpRequested` Event with payload `{ task_id, to: Actor, question }`, by the assignee of a live Task (`Assigned`, `InProgress`, `UnderReview` or `Blocked`), to the Operator or a live Agent. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Task Projection refuses a Help request from anyone but the assignee, and on a Task with no assignee or that is no longer live. It keeps each Task's Help requests as `{ seq, from, to, question }[]`, and every Agent each Task has been assigned to, which the Training guard reads for a Memory note. A reply is a Message in a Room, not an Event kind of its own.
+
 ```ts
 type TaskState =
 	| { tag: "Proposed" }
@@ -164,8 +167,9 @@ An Artifact is a content-addressed file. Its Lineage lists the Artifacts it was 
 
 ```ts
 type ArtifactType =
-	| "SubmissionForm" | "SubmissionRecord" | "ReceivingLogRow" | "WorkOrder"
-	| "ResultWorksheet" | "VerificationRecord" | "ReportOfAnalysis" | "Other";
+	| "SubmissionForm" | "SubmissionRecord" | "ReceivingLogRow" | "LimsDatabase"
+	| "WorkOrder" | "ResultWorksheet" | "VerificationRecord" | "ReportOfAnalysis"
+	| "Other";
 
 type Artifact = {
 	id: ArtifactId;
@@ -178,6 +182,8 @@ type Artifact = {
 ```
 
 `sandbox lineage <artifact id>` walks an Artifact's Lineage back to the Artifacts that have none, one line per production, each naming the Run and Script version that produced it. The Auditor's Lineage check reads this walk.
+
+A `LimsDatabase` Artifact is one version of the toy LIMS database (see "Toy System of record"), stored as `application/vnd.sqlite3`. Its Lineage names the record that changed it and the version before it, so the walk from any version reaches every Submission Form behind its rows.
 
 ### 5. Script and Run
 
@@ -294,12 +300,22 @@ type GateDecision = {
 
 ### 9. Skill and Memory note
 
-A Skill is a versioned Markdown procedure that any Agent can be granted. A Memory note is a private lesson that one Agent reads before similar Tasks. Both are Events, so Training is auditable.
+A Skill is a versioned Markdown procedure that any Agent can be granted. A Memory note is a private lesson that one Agent reads before similar Tasks. Coaching is the Operator's guidance to one Agent. All three are Events, so Training is auditable.
+
+One module, the Training lifecycle (`training/lifecycle.ts`), appends `MemoryNoted`, `SkillPublished` and `HumanCoached`. Each verb decides its refusals before it builds the Event, through the predicate the Training guard uses, and returns what it recorded with the seq it appended.
+
+- A Memory note is the Agent's own, on a Task the Agent has been assigned at some point, which the Task Projection keeps. The Ledger refuses a note by any other actor, and a note on a Task the Agent was never assigned. The note names the Task's previous Event, the outcome it learned from, as its cause.
+- Publishing a Skill id appends its next version, starting at 1, with the actor as `author`. A version after the first names the version before it as its cause. The Ledger refuses a version that skips one, an author other than the actor, and a later version that names any other cause. A Skill id is a name the publisher chooses.
+- Coaching is a `HumanCoached` Event with payload `{ agent_id, task_id?, note }`, by the Operator only, to an Agent in the Org. With a Task, it names the Task's previous Event as its cause.
+
+The Training Projection (`training/projection.ts`) keeps each Agent's Memory notes and Coaching, and every version of each Skill, each with its seq.
 
 ```ts
 type Skill = { id: SkillId; version: number; title: string; body_md: string; author: Actor };
 
 type MemoryNote = { agent: AgentId; task_id: TaskId; lesson: string; applies_to: string[] };
+
+type Coaching = { agent_id: AgentId; task_id?: TaskId; note: string };
 ```
 
 ### 10. Room and Message
@@ -340,6 +356,20 @@ Five parts run on the Operator's Mac. Cloudflare carries only the Operator's bro
 
 **Toy System of record.** A SQLite database in the Sandbox stands in for the lab's LIMS tables (samples, lots, work orders, results, and reports). It is synthetic, so it is not a System of record and Agents write to it without a Gate. Each data source declares in configuration whether it is a System of record. Connecting a real database turns the `WriteSystemOfRecord` Gate on by configuration, with no code change.
 
+The toy LIMS database is an Artifact, never a mutable file. It is one SQLite file, `lims.sqlite`, of type `LimsDatabase`. A stage that changes it carries the latest `LimsDatabase` Artifact in the Ledger as an input, copies it inside the container, writes its rows, and outputs the next version. The Run's Lineage makes each version name the version before it and the record that changed it. When the Ledger holds no version, stage 2 (`log_receipt`) creates the database. The five tables' schema lives in one module, `sandbox/scripts/log_receipt/lims_schema.py`. It sits in that Script's directory because a container mounts only its own Script; later stages find the tables in the database they carry, and they add rows, not tables. The module sets `PRAGMA user_version` to the schema version, 1, and `log_receipt` refuses a carried database of another version.
+
+Every table is `STRICT`. Every row's `source_artifact` holds the Artifact id of the document that produced the row, so a Lineage query can start from a row. Dates are ISO 8601 text (`YYYY-MM-DD`) and times are `HH:MM`.
+
+| Table | Key | Columns | Written by |
+|---|---|---|---|
+| `lots` | `lot` | `product_code`, `product_name` (the Sample Description), `product_type`, `client` (the Submitted By company), `exp_date` (empty: the Submission Form gives no expiry), `source_artifact` | Stage 2, one row per Lot; a Lot already in the table keeps its first row |
+| `samples` | `lab_reference` | `lot` (references `lots`), `container` (1, 2, 3 in the record's order), `qty_received` (1), `sample_type`, `tat_code`, `tat_class`, `date_submitted`, `date_received`, `time_received`, `received_by`, the six Submission Form fields (`company`, `contact`, `address`, `city`, `phone`, `email`) of each party as `submitted_by_*`, `bill_to_*` and `report_to_*`, `source_artifact` | Stage 2, one row per container |
+| `work_orders` | `work_order`, `lab_reference`, `test` | `lab_reference` (references `samples`), `test`, `due_date`, `source_artifact` | Stage 3 |
+| `results` | `lab_reference`, `test` | `value` (a real number), `unit`, `source_artifact` | Stage 4 |
+| `reports` | `lab_reference` | `issued_date`, `document_revision`, `source_artifact` | Stage 6 |
+
+Stage 2 assigns each container a Lab Reference at receipt, `LR-<year received>-<n>` with n written as four digits or more. n is one more than the highest n for that year in `samples`, so the numbering continues from the carried version, and a container numbered in one version is never numbered again.
+
 **Interface.** `aliquot serve` is the Conductor process. It holds the Ledger's writer for its lifetime. On Node's built-in `http`, with no framework, it serves four things: every Projection as JSON under `/api/`, the Ledger's Events as Server-Sent Events at `/api/events` with each Event's seq as its id, the Operator's actions at `POST /api/actions/<verb>`, and a single-page application. An action runs the lifecycle verb its command runs, as the Operator, and answers with the Event it appended or the Ledger's refusal. The application is plain TypeScript in `conductor/ui/`, compiled to ES modules with no bundler. Without Cloudflare Access, the Conductor serves `127.0.0.1` only. With Access, it admits only a request whose `Cf-Access-Jwt-Assertion` is signed by one of the team's published keys and names the application's audience and the Operator's email. README.md's Serve section lists the routes. Cloudflare Tunnel exposes the application at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the Operator's email. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
 
 **Cost.** Everything on Cloudflare stays on the free tier, which covers Tunnel, Access for up to 50 users, and DNS. There is no Workers paid plan, no Containers, and no R2 beyond the free tier. The Ledger and the Artifact store stay on the Mac.
@@ -368,13 +398,13 @@ A synthetic generator invents Clients, products, Lots, and dates in the shape of
 | Stage | Input Artifact | Script | Output Artifact | Evaluation |
 |---|---|---|---|---|
 | 1. Submission | Synthetic Submission Form (docx) | `parse_submission` | Structured submission record (`SubmissionRecord`) | Every required field is present and every TAT code is valid. |
-| 2. Receipt | Submission record | `log_receipt` | Receiving Log row (xlsx) and toy LIMS Sample rows | One row per container, and the Lot and Product Code match the Submission Form. |
+| 2. Receipt | Submission record, and the toy LIMS database it carries | `log_receipt` | Receiving Log row (`ReceivingLogRow`, xlsx) and the next toy LIMS database version (`LimsDatabase`) with the Sample rows | One row per container, the Lot and Product Code on every row match the record, the database has a `samples` row per row's Lab Reference and one `lots` row for the Lot, and every Lab Reference is new in this version. |
 | 3. Work Order | Sample rows | `create_work_order` | Work Order (xlsx) with Tests and a due date from TAT | The due date arithmetic is correct and every Sample has Tests. |
 | 4. Results | Work Order and synthetic weighings | `compute_results` | Result Worksheet (xlsx with `=F/20` style formulas) | The formulas are present and agree with the values. |
 | 5. Verification | Result Worksheet | `verify_results`, run by a different Agent than stage 4 | Verification Record | The independent recomputation agrees within tolerance. |
 | 6. Report | Verification Record and metadata | `render_roa` | Report of Analysis (xlsx and PDF) | Every metadata field traces to the Receiving Log row, and no field is typed by hand. |
 
-The workflow is one table of stages in code (`workflow/stages.ts`). A row names the stage number and name, the Script, the input Artifact types the stage takes from the previous stage's outputs, the types it carries from the Ledger instead (the latest Artifact of that type, such as the toy LIMS database from stage 2), its output types, the Agent that works it, the Agent that reviews it, and the Evaluation that scores the Run's outputs. Adding a stage is adding a row, a Script directory, and an Evaluation. The table is refused at load when its rows are not stages 1, 2, 3 in order, or when stage 5 is worked by the Agent that works stage 4. The rows planned for slice 1:
+The workflow is one table of stages in code (`workflow/stages.ts`). A row names the stage number and name, the Script, the input Artifact types the stage takes from the previous stage's outputs, the types it carries from the Ledger instead (the latest Artifact of that type, such as the toy LIMS database from stage 2), its output types, the Agent that works it, the Agent that reviews it, and the Evaluation that scores the Run. An Evaluation reads the Run's input Artifacts and every Artifact the Run wrote, so stage 2 checks its rows against the record it read and its Lab References against the database version it carried. Adding a stage is adding a row, a Script directory, and an Evaluation. The table is refused at load when its rows are not stages 1, 2, 3 in order, or when stage 5 is worked by the Agent that works stage 4. The rows planned for slice 1:
 
 | Stage | Script | Worked by | Reviewed by |
 |---|---|---|---|
@@ -386,6 +416,8 @@ The workflow is one table of stages in code (`workflow/stages.ts`). A row names 
 | 6 Report | `render_roa` | Ines | Anselm |
 
 The workflow tracer (`workflow/tracer.ts`) runs the table on a Submission Form Fixture. Each stage is a Task worked by the stage's Agent, on the previous stage's outputs chosen by Artifact type, until the table ends or a Task fails. A stage whose input type is missing is refused before its Task is proposed. Each stage's `TaskProposed` names the previous stage's last `TaskCompleted` as its cause, so the causal chain runs unbroken from the Fixture to the last stage.
+
+Stage 2's Script writes a third file, `receipt.json` (typed `Other`): the Receiving Log sheet as the Script reads it back from the xlsx it saved. The Conductor has no xlsx reader and takes no new dependency for one, so the stage 2 Evaluation reads the rows from this read-back. It reads the record and both database versions itself, with `node:sqlite`.
 
 The workflow lifecycle (`workflow/lifecycle.ts`) appends every `EvaluationRecorded`. It mints the Evaluation id from the Projections, records the stage the Evaluation scores, and names the `RunFinished` of the Run it scores as the Event's cause. It refuses an Evaluation of a Run that has not finished, or for a Task that is no longer live, before it builds the Event, in the words of the workflow guard. The guard also refuses a new Evaluation that names no stage; one recorded before Evaluations named their stage still loads (ADR-0012). The workflow tracer appends nothing itself: it calls the Sandbox, the Task lifecycle, and this lifecycle.
 

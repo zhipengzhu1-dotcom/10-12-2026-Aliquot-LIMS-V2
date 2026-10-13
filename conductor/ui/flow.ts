@@ -1,5 +1,5 @@
 import { DIMENSIONS, type Dimension } from "./csv.js";
-import { escapeHtml } from "./html.js";
+import { escapeHtml } from "./markup.js";
 import type { Sources } from "./views.js";
 
 const LEDGER = "ledger?limit=1000";

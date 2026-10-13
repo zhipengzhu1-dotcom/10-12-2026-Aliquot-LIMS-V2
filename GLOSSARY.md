@@ -97,7 +97,7 @@ The move of a Task up the reporting line because the assignee cannot finish it w
 _Avoid_: bump, raise
 
 **Help request**:
-A request in which an Agent asks another Agent for help or Coaching on a Task, recorded as a `HelpRequested` Event.
+A request in which the assignee of a live Task asks the Operator or another Agent for help on it, with a question, recorded as a `HelpRequested` Event. The reply is a Message in a Room.
 _Avoid_: ask, ping, SOS
 
 **Room**:
@@ -188,6 +188,10 @@ _Avoid_: phase, step
 A data source that the lab relies on as its official record. Writes to a System of record need a Gate. The toy LIMS database is not a System of record.
 _Avoid_: production database, real DB, LIMS
 
+**Toy LIMS database**:
+The synthetic SQLite database that stands in for the lab's LIMS tables in the toy workflow. It is an Artifact of type `LimsDatabase`, never a mutable file: a stage carries the latest version from the Ledger and outputs the next one, whose Lineage names the version before it. It is not a System of record.
+_Avoid_: lab database, live database
+
 ### Merit
 
 **Review**:
@@ -235,15 +239,15 @@ Any of the four ways an Agent improves: Skills, Revisions, Memory notes, and Coa
 _Avoid_: learning, fine-tuning
 
 **Skill**:
-A versioned Markdown procedure that any Agent can be granted, such as "parse a Submission Form".
+A versioned Markdown procedure that any Agent can be granted, such as "parse a Submission Form". Each version is a `SkillPublished` Event, and a Skill is granted by a Revision that lists its id.
 _Avoid_: playbook, recipe, SOP
 
 **Memory note**:
-A private lesson that an Agent attaches to a Task outcome and reads before similar Tasks.
+A private lesson that an Agent attaches to the outcome of a Task it worked and reads before similar Tasks, recorded as a `MemoryNoted` Event.
 _Avoid_: memory, lesson, journal
 
 **Coaching**:
-Direct guidance from the Operator to one Agent, recorded as a `HumanCoached` Event.
+Direct guidance from the Operator to one Agent, about a Task when there is one, recorded as a `HumanCoached` Event.
 _Avoid_: feedback, training, mentoring
 
 ## Lab
@@ -313,5 +317,5 @@ Turnaround time, coded on the Submission Form: 1 is regular, 2 is rush in 1 to 2
 _Avoid_: SLA, deadline, priority (priority is a separate Task field)
 
 **Lab Reference**:
-The lab's internal identifier for a received Sample, printed as "BNY REF#" on current templates.
+The lab's internal identifier for a received Sample, printed as "BNY REF#" on current templates. In the toy workflow, stage 2 assigns one to each container at receipt, as `LR-<year received>-<n>`.
 _Avoid_: ref number, BNY REF#, accession number

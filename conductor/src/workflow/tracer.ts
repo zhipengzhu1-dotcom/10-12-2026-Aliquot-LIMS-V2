@@ -37,7 +37,7 @@ import type { ArtifactType } from "../types/artifact.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
 import { recordEvaluation, type Scored } from "./lifecycle.js";
-import type { Stage, StageOutput } from "./stages.js";
+import type { RunArtifacts, Stage, StageArtifact } from "./stages.js";
 
 const OPERATOR: Actor = { tag: "Operator" };
 
@@ -99,8 +99,8 @@ export type StageRun = {
 	readonly stage: Stage;
 	readonly task_id: TaskId;
 	readonly run: Run;
-	/** The Run's Artifacts of the stage's output types. */
-	readonly outputs: readonly StageOutput[];
+	/** Every Artifact the Run wrote; the next stage takes those of its input types. */
+	readonly outputs: readonly StageArtifact[];
 	readonly eval_id: EvaluationId;
 	readonly evaluation: Scored;
 	/** Trust tier Revisions the stage's Review brought about. */
@@ -153,24 +153,26 @@ const latestOfType = (
 	return latest?.record.id;
 };
 
-/** The Run's Artifacts of the stage's output types, as this Run recorded them. */
-const outputsOf = (
-	ledger: Ledger,
-	home: string,
-	stage: Stage,
-	run: Run,
-): StageOutput[] => {
+/** The Run's input Artifacts and every Artifact it wrote, typed as this Run recorded them. */
+const artifactsOf = (ledger: Ledger, home: string, run: Run): RunArtifacts => {
 	const artifacts = openArtifacts({ ledger, home });
-	return run.outputs.flatMap((id) => {
-		const production = productionOf(ledger.projections.artifacts, id, {
+	const { projections } = ledger;
+	const inputs = run.inputs.flatMap((id) => {
+		const stored = projections.artifacts.artifacts.get(id);
+		if (!stored) return [];
+		const { artifact_type, filename } = stored;
+		return [{ id, artifact_type, filename, bytes: artifacts.read(id) }];
+	});
+	const outputs = run.outputs.flatMap((id) => {
+		const production = productionOf(projections.artifacts, id, {
 			tag: "Run",
 			id: run.id,
 		});
 		if (!production) return [];
 		const { artifact_type, filename } = production.record;
-		if (!stage.outputs.includes(artifact_type)) return [];
 		return [{ id, artifact_type, filename, bytes: artifacts.read(id) }];
 	});
+	return { inputs, outputs };
 };
 
 /**
@@ -180,7 +182,7 @@ const outputsOf = (
 const evaluateRun = (
 	stage: Stage,
 	run: Run,
-	outputs: readonly StageOutput[],
+	artifacts: RunArtifacts,
 ): Scored => {
 	const failed = (finding: string): Scored => ({
 		score: 0,
@@ -193,12 +195,12 @@ const evaluateRun = (
 		);
 	}
 	const missing = stage.outputs.filter(
-		(type) => !outputs.some((o) => o.artifact_type === type),
+		(type) => !artifacts.outputs.some((o) => o.artifact_type === type),
 	);
 	if (missing.length > 0) {
 		return failed(`${run.id} wrote no ${missing.join(", ")}`);
 	}
-	return stage.evaluate(outputs);
+	return stage.evaluate(artifacts);
 };
 
 /**
@@ -250,8 +252,9 @@ const runStage = async (options: {
 			causation_id: started.seq,
 			timeoutMs: options.timeoutMs,
 		});
-		const outputs = outputsOf(ledger, home, stage, run);
-		const evaluation = evaluateRun(stage, run, outputs);
+		const artifacts = artifactsOf(ledger, home, run);
+		const { outputs } = artifacts;
+		const evaluation = evaluateRun(stage, run, artifacts);
 		const evaluated = recordEvaluation(ledger, {
 			actor: OPERATOR,
 			stage: stage.number,

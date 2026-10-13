@@ -20,6 +20,13 @@ describe("the interface's views", () => {
 		);
 	});
 
+	it("routes a hash with parameters to its view and hands the view the parameters", () => {
+		expect(viewOf("#/ledger?before=51").name).toBe("ledger");
+		expect(viewOf("#/agent?id=A-rin").name).toBe("agent");
+		expect(paramsOf("#/ledger?before=51").get("before")).toBe("51");
+		expect(paramsOf("#/ledger").get("before")).toBeNull();
+	});
+
 	it("routes a hash with a query to its view and reads the query as the view's filter", () => {
 		expect(viewOf("#/flow?task=T-1&open=T-1").name).toBe("flow");
 		expect(Object.fromEntries(paramsOf("#/flow?task=T-1&lot=L%2042"))).toEqual({

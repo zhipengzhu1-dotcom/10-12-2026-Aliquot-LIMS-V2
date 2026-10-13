@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "267 Quarry Hill Road",
+    "city": "Tarrowfield, PA 19999",
+    "company": "Corvane Nutrition Co.",
+    "contact": "Delphine Thorne-Ames",
+    "email": "delphine.thorne-ames@corvane.example",
+    "phone": "(201) 555-0187"
+  },
+  "date_submitted": "2026-07-24",
+  "receipt": {
+    "date_received": "2026-07-27",
+    "received_by": "LG",
+    "time_received": "16:23"
+  },
+  "report_to": {
+    "address": "707 Quarry Hill Road",
+    "city": "Tarrowfield, PA 19999",
+    "company": "Corvane Nutrition Co.",
+    "contact": "Maren Quell",
+    "email": "maren.quell@corvane.example",
+    "phone": "(201) 555-0165"
+  },
+  "sample": {
+    "lot": "LT-269173",
+    "no": "1",
+    "no_of_containers": "3",
+    "product_code": "CVN-3239",
+    "product_type": "90 ct PET bottle",
+    "sample_description": "Corvane Elderberry Extract 300 mg Capsules",
+    "sample_type": "FP",
+    "tat_class": "Regular",
+    "tat_code": "1"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "379 Quarry Hill Road",
+    "city": "Tarrowfield, PA 19999",
+    "company": "Corvane Nutrition Co.",
+    "contact": "Maren Halloway",
+    "email": "maren.halloway@corvane.example",
+    "phone": "(201) 555-0195"
+  }
+}

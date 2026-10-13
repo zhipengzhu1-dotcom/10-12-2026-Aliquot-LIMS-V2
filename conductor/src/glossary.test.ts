@@ -46,6 +46,18 @@ const ALLOWED: readonly Exemption[] = [
 	{ phrase: "Memory note", reason: "a glossary term" },
 	{ phrase: "Receiving Log", reason: "a lab term" },
 	{ phrase: "of Analysis", reason: "Report of Analysis, a lab term" },
+	// Scoped to where the type is named, since its words also match the
+	// prose "toy LIMS database".
+	...["types/artifact.ts", "workflow/"].map((file) => ({
+		phrase: "LimsDatabase",
+		in: file,
+		reason: "the Artifact type of the toy LIMS database",
+	})),
+	{ phrase: "lims.sqlite", reason: "the toy LIMS database's filename" },
+	{
+		phrase: "log_receipt",
+		reason: "the stage 2 Script, which writes Receiving Log rows",
+	},
 	{
 		phrase: "toy LIMS",
 		reason: "the glossary's own name for the practice database",
@@ -111,10 +123,16 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "Tasks grouped by state in a listing",
 	},
 	{ phrase: "ask", in: "org/seed.ts", reason: "a Persona's quirk text" },
-	{
+	...["types/skill.ts", "training/commands.ts"].map((file) => ({
 		phrase: "lesson",
-		in: "types/skill.ts",
+		in: file,
 		reason: "the Memory note field the glossary names",
+	})),
+	{
+		phrase: "coach",
+		in: "training/commands.ts",
+		reason:
+			"the `training coach` command, by which the Operator gives Coaching",
 	},
 	{ phrase: "ticket", in: "events.ts", reason: "a GitHub issue, not a Task" },
 	{

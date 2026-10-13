@@ -23,6 +23,17 @@ describe("the routes the Flow and Performance views read", () => {
 				worked_by: "A-rin",
 				reviewed_by: "A-pia",
 			},
+			{
+				number: 2,
+				name: "Receipt",
+				script: "log_receipt",
+				script_id: "S-log_receipt",
+				inputs: ["SubmissionRecord"],
+				carried: ["LimsDatabase"],
+				outputs: ["ReceivingLogRow", "LimsDatabase"],
+				worked_by: "A-bram",
+				reviewed_by: "A-pia",
+			},
 		]);
 	});
 

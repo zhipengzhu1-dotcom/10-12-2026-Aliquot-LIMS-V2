@@ -1,5 +1,5 @@
 import { DIMENSIONS, type ReviewRow, reviewsCsv } from "./csv.js";
-import { escapeHtml } from "./html.js";
+import { escapeHtml } from "./markup.js";
 import type { Sources } from "./views.js";
 
 /** The routes the Performance view reads. */
@@ -161,7 +161,7 @@ const tasksByState = (json: PerformanceJson): string => {
 	return `<ul class="states">${[...counts]
 		.map(
 			([state, n]) =>
-				`<li data-state="${escapeHtml(state)}" data-count="${n}"><span>${escapeHtml(state)}</span><span class="track"><span class="fill" style="width: ${(100 * n) / most}%"></span></span><b>${n}</b></li>`,
+				`<li data-state="${escapeHtml(state)}" data-count="${n}"><span>${escapeHtml(state)}</span><span class="track"><span class="bar" style="width: ${(100 * n) / most}%"></span></span><b>${n}</b></li>`,
 		)
 		.join("")}</ul>`;
 };

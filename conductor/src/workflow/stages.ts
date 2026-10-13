@@ -1,14 +1,20 @@
 import { AgentId, type ArtifactId } from "../ids.js";
 import type { ArtifactType } from "../types/artifact.js";
-import { evaluateSubmissionRecord } from "./evaluate.js";
+import { evaluateReceipt, evaluateSubmissionRecord } from "./evaluate.js";
 import type { Scored } from "./lifecycle.js";
 
-/** One Artifact a stage's Run produced, as the stage's Evaluation reads it. */
-export type StageOutput = {
+/** One Artifact a stage's Run read or wrote, as the stage's Evaluation reads it. */
+export type StageArtifact = {
 	readonly id: ArtifactId;
 	readonly artifact_type: ArtifactType;
 	readonly filename?: string | undefined;
 	readonly bytes: Buffer;
+};
+
+/** What a stage's Evaluation scores: the Run's input Artifacts and every Artifact it wrote. */
+export type RunArtifacts = {
+	readonly inputs: readonly StageArtifact[];
+	readonly outputs: readonly StageArtifact[];
 };
 
 /** One row of the toy workflow. */
@@ -24,8 +30,8 @@ export type Stage = {
 	readonly outputs: readonly ArtifactType[];
 	readonly worked_by: AgentId;
 	readonly reviewed_by: AgentId;
-	/** Scores the Run's Artifacts of the stage's output types. */
-	readonly evaluate: (outputs: readonly StageOutput[]) => Scored;
+	/** Scores a Run that exited 0 and wrote an Artifact of each output type. */
+	readonly evaluate: (run: RunArtifacts) => Scored;
 };
 
 const RESULTS = 4;
@@ -64,5 +70,16 @@ export const STAGES: readonly Stage[] = checkStages([
 		worked_by: AgentId.parse("A-rin"),
 		reviewed_by: AgentId.parse("A-pia"),
 		evaluate: evaluateSubmissionRecord,
+	},
+	{
+		number: 2,
+		name: "Receipt",
+		script: "log_receipt",
+		inputs: ["SubmissionRecord"],
+		carried: ["LimsDatabase"],
+		outputs: ["ReceivingLogRow", "LimsDatabase"],
+		worked_by: AgentId.parse("A-bram"),
+		reviewed_by: AgentId.parse("A-pia"),
+		evaluate: evaluateReceipt,
 	},
 ]);

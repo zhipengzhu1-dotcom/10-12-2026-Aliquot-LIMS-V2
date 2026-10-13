@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Event } from "../events.js";
 import type { ArtifactId } from "../ids.js";
+import { tree } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { assigneeOf } from "../task/projection.js";
 import { tokensInWindow } from "../turn/projection.js";
@@ -66,11 +67,12 @@ const reviewRows = (p: Projections) => {
 
 /**
  * What `GET /api/<name>` serves: a Projection as of the Ledger's last Event.
- * `vitality` and `tiers` cover live Agents only, as `vitality show` and
- * `vitality tiers` print them.
+ * `org-tree` is the reporting tree `org tree` prints. `vitality` and `tiers`
+ * cover live Agents only, as `vitality show` and `vitality tiers` print them.
  */
 export const PROJECTION_ROUTES = {
 	org: (p: Projections) => p.org,
+	"org-tree": (p: Projections) => tree(p.org),
 	tasks: (p: Projections) => p.tasks,
 	gates: (p: Projections) => p.gates,
 	rooms: (p: Projections) => p.rooms,
