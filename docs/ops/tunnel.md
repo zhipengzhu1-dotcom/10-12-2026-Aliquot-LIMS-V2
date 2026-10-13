@@ -134,12 +134,13 @@ cf dns records delete -z 019c4fe577dfb3927725f44ef1bfba2e <dns record id> --forc
 tools/serve.sh
 ```
 
-The script builds the interface (`pnpm -C conductor build`). It then starts `aliquot serve` on `127.0.0.1` with the Access flags from `.aliquot/serve.json`, and `cloudflared tunnel --config tools/tunnel/config.yml run aliquot`. The Conductor's port comes from the tunnel's ingress rule in `tools/tunnel/config.yml`, 8787, so the two always agree.
+The script builds the interface (`pnpm -C conductor build`). It then starts `aliquot serve` on `127.0.0.1`, with the Scheduler on, and with the Access flags from `.aliquot/serve.json`, and `cloudflared tunnel --config tools/tunnel/config.yml run aliquot`. The Conductor's port comes from the tunnel's ingress rule in `tools/tunnel/config.yml`, 8787, so the two always agree.
 
 - Ctrl-C, or SIGTERM to the script, sends one SIGTERM to each process and waits for both to exit. The Conductor closes the Ledger and releases the writer lock.
 - When either process exits by itself, the script stops the other and exits 1.
 - `--home <dir>` names the data directory. The default is `$ALIQUOT_HOME`, else `.aliquot/` at the repository root.
 - `--no-tunnel` starts only the Conductor, still with the Access flags. Use it to test the script before the tunnel exists. Every request then gets 401, because only Access can sign one.
+- `--no-schedule` serves without the Scheduler, for a quiet demo: no Turn starts, so a Message said in the Chat view gets no answer. Without it, the Scheduler starts Turns on the subscription login, and the Energy budget is the limit.
 
 The script exits 2 without starting anything when `.aliquot/serve.json` is missing or a value is empty or still a `<placeholder>`.
 
