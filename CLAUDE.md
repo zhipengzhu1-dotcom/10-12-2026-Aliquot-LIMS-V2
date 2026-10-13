@@ -16,6 +16,10 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/ag
 
 Branches `ticket-<N>` off the slice branch, landed by `tools/land-ticket.sh`. See `docs/agents/workflow.md`.
 
+### Verify skill
+
+`/verify` drives the running app and writes a proof before a ticket's final push. See `docs/agents/verify.md`.
+
 ### Coding standards
 
 `CODING_STANDARDS.md` holds the judgement calls the reviewer checks.
