@@ -1,6 +1,10 @@
 import { AgentId, type ArtifactId } from "../ids.js";
 import type { ArtifactType } from "../types/artifact.js";
-import { evaluateReceipt, evaluateSubmissionRecord } from "./evaluate.js";
+import {
+	evaluateReceipt,
+	evaluateSubmissionRecord,
+	evaluateWorkOrder,
+} from "./evaluate.js";
 import type { Scored } from "./lifecycle.js";
 
 /** One Artifact a stage's Run read or wrote, as the stage's Evaluation reads it. */
@@ -25,7 +29,7 @@ export type Stage = {
 	readonly script: string;
 	/** Types taken from the previous stage's outputs; stage 1 takes the Fixture. */
 	readonly inputs: readonly ArtifactType[];
-	/** Types taken from the latest Artifact of that type in the Ledger, when there is one. */
+	/** Types taken from the latest Artifact of that type a Done Task's Run wrote, when there is one. */
 	readonly carried: readonly ArtifactType[];
 	readonly outputs: readonly ArtifactType[];
 	readonly worked_by: AgentId;
@@ -81,5 +85,16 @@ export const STAGES: readonly Stage[] = checkStages([
 		worked_by: AgentId.parse("A-bram"),
 		reviewed_by: AgentId.parse("A-pia"),
 		evaluate: evaluateReceipt,
+	},
+	{
+		number: 3,
+		name: "Work Order",
+		script: "create_work_order",
+		inputs: ["ReceivingLogRow"],
+		carried: ["LimsDatabase"],
+		outputs: ["WorkOrder", "LimsDatabase"],
+		worked_by: AgentId.parse("A-bram"),
+		reviewed_by: AgentId.parse("A-pia"),
+		evaluate: evaluateWorkOrder,
 	},
 ]);

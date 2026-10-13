@@ -171,6 +171,48 @@ const scriptWithWrongLot = (stage: Stage) => {
 	return dir;
 };
 
+/**
+ * create_work_order, except that a copy runs `patch` on the Script's module,
+ * imported as `original`, before its main.
+ */
+const workOrderCopy =
+	(name: string, patch: readonly string[]) => (stage: Stage) => {
+		if (stage.script !== "create_work_order") return scriptOf(stage);
+		const dir = join(home, name);
+		mkdirSync(dir, { recursive: true });
+		copyFileSync(
+			join(scriptsRoot, "create_work_order", "main.py"),
+			join(dir, "original.py"),
+		);
+		writeFileSync(
+			join(dir, "main.py"),
+			[
+				"import sys",
+				"from datetime import timedelta",
+				"",
+				"import original",
+				"",
+				...patch,
+				"sys.exit(original.main())",
+				"",
+			].join("\n"),
+		);
+		return dir;
+	};
+
+const dueDateOneDayLate = workOrderCopy("due_date_one_day_late", [
+	"due_date = original.due_date",
+	"original.due_date = lambda on, tat: due_date(on, tat) + timedelta(days=1)",
+]);
+
+const lastSampleWithoutTest = workOrderCopy("last_sample_without_test", [
+	"tests_of = original.tests_of",
+	"original.tests_of = lambda samples: [",
+	"    (ref, test) for ref, test in tests_of(samples)",
+	"    if ref != samples[-1].lab_reference",
+	"]",
+]);
+
 const secondFixture = fileURLToPath(
 	new URL("../../../fixtures/submission-form-seed2.docx", import.meta.url),
 );
@@ -184,8 +226,8 @@ const ofType = (
 	return found;
 };
 
-/** Every Lab Reference in a toy LIMS database version, in order. */
-const labReferences = (database: StageArtifact): string[] => {
+/** The rows `sql` selects from a toy LIMS database version, each as its column values. */
+const query = (database: StageArtifact, sql: string): unknown[][] => {
 	const dir = mkdtempSync(join(tmpdir(), "aliquot-tracer-db-"));
 	try {
 		const path = join(dir, "lims.sqlite");
@@ -193,9 +235,9 @@ const labReferences = (database: StageArtifact): string[] => {
 		const db = new DatabaseSync(path, { readOnly: true });
 		try {
 			return db
-				.prepare("SELECT lab_reference FROM samples ORDER BY lab_reference")
+				.prepare(sql)
 				.all()
-				.map((row) => String(row.lab_reference));
+				.map((row) => Object.values(row));
 		} finally {
 			db.close();
 		}
@@ -203,6 +245,13 @@ const labReferences = (database: StageArtifact): string[] => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 };
+
+/** Every Lab Reference in a toy LIMS database version, in order. */
+const labReferences = (database: StageArtifact): string[] =>
+	query(
+		database,
+		"SELECT lab_reference FROM samples ORDER BY lab_reference",
+	).map(([ref]) => String(ref));
 
 describe("the workflow tracer without Docker", () => {
 	it("refuses a stage before proposing its Task when nothing gave it an input type, naming the stage and the type", async () => {
@@ -387,39 +436,70 @@ describe.skipIf(!requireDocker())(suite, () => {
 		).toHaveLength(2);
 	}, 600_000);
 
-	it("gives a stage the latest Artifact of each carried type, and none while the Ledger holds no Artifact of that type", async () => {
-		const carrying: Stage = { ...submission, carried: ["ReceivingLogRow"] };
+	it("gives a stage the latest Artifact of each carried type that a Done Task's Run wrote, none while there is none, and never one the Operator stored", async () => {
+		const carrying: Stage = { ...submission, carried: ["SubmissionRecord"] };
+		const secondFixtureId = ArtifactId.parse(
+			sha256Hex(readFileSync(secondFixture)),
+		);
 
 		const [without] = (await trace({ stages: [carrying] })).stages;
-		const artifacts = openArtifacts({ ledger: s.ledger, home });
-		const row = (text: string) =>
-			artifacts.store(
-				Buffer.from(text),
-				{
-					artifact_type: "ReceivingLogRow",
-					media_type: "text/csv",
-					produced_by: { tag: "Operator" },
-					lineage: [],
-				},
-				{ actor: { tag: "Operator" } },
-			).artifact.id;
-		row("LT-0001,1\n");
-		const latest = row("LT-0002,2\n");
-		const [withRow] = (await trace({ stages: [carrying] })).stages;
+		const record1 = ofType(without?.outputs, "SubmissionRecord");
+		const [second] = (
+			await trace({ stages: [carrying], formPath: secondFixture })
+		).stages;
+		const record2 = ofType(second?.outputs, "SubmissionRecord");
+		openArtifacts({ ledger: s.ledger, home }).store(
+			Buffer.from("{}"),
+			{
+				artifact_type: "SubmissionRecord",
+				media_type: "application/json",
+				produced_by: { tag: "Operator" },
+				lineage: [],
+			},
+			{ actor: { tag: "Operator" } },
+		);
+		const [third] = (await trace({ stages: [carrying] })).stages;
 
 		expect(proposed(without?.task_id ?? "")?.payload).toMatchObject({
 			inputs: [fixtureId],
 		});
 		expect(without?.run.inputs).toEqual([fixtureId]);
-		expect(proposed(withRow?.task_id ?? "")?.payload).toMatchObject({
-			inputs: [fixtureId, latest],
+		expect(second?.run.inputs).toEqual([secondFixtureId, record1.id]);
+		expect(
+			proposed(third?.task_id ?? "")?.payload,
+			"the later of two Done records, not the Operator's",
+		).toMatchObject({ inputs: [fixtureId, record2.id] });
+		expect(third?.run.inputs).toEqual([fixtureId, record2.id]);
+		expect(third?.state.tag).toBe("Done");
+	}, 600_000);
+
+	it("carries the LimsDatabase of the last stage 2 Task that ended Done, not a later version whose Task failed its Evaluation", async () => {
+		const receipt = STAGES.slice(0, 2);
+		const first = await trace({ stages: receipt });
+		const version1 = ofType(first.stages[1]?.outputs, "LimsDatabase");
+		const failed = await trace({
+			stages: receipt,
+			source: scriptWithWrongLot,
+			formPath: secondFixture,
 		});
-		expect(withRow?.run.inputs).toEqual([fixtureId, latest]);
-		expect(withRow?.state.tag).toBe("Done");
+		expect(failed.stages[1]?.state.tag).toBe("Failed");
+		const rejected = ofType(failed.stages[1]?.outputs, "LimsDatabase");
+		expect(rejected.id).not.toBe(version1.id);
+
+		const again = await trace({ stages: receipt, formPath: secondFixture });
+
+		const [submittedAgain, receiptAgain] = again.stages;
+		const record2 = ofType(submittedAgain?.outputs, "SubmissionRecord");
+		expect(
+			receiptAgain?.run.inputs,
+			"the version the failed Task's Run wrote is not carried",
+		).toEqual([record2.id, version1.id]);
+		expect(receiptAgain?.state.tag).toBe("Done");
 	}, 600_000);
 
 	it("runs stage 2 on stage 1's record to a Done Task worked by Bram, whose LimsDatabase has the record as its Lineage, and carries that database into the next Fixture's stage 2", async () => {
-		const first = await trace();
+		const receiptStages = STAGES.slice(0, 2);
+		const first = await trace({ stages: receiptStages });
 
 		expect(first.stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
 			[1, "Done"],
@@ -452,7 +532,10 @@ describe.skipIf(!requireDocker())(suite, () => {
 		).toEqual([record.id]);
 		expect(labReferences(version1)).toEqual(["LR-2026-0001", "LR-2026-0002"]);
 
-		const second = await trace({ formPath: secondFixture });
+		const second = await trace({
+			stages: receiptStages,
+			formPath: secondFixture,
+		});
 
 		const [submittedAgain, receiptAgain] = second.stages;
 		if (!submittedAgain || !receiptAgain)
@@ -497,5 +580,91 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const failed = s.events().at(-1);
 		expect(failed?.kind).toBe("TaskFailed");
 		expect(failed?.task_id).toBe(receipt?.task_id);
+	}, 600_000);
+
+	it("runs stage 3 on stage 2's Receiving Log row and the database it wrote to a Done Task worked by Bram, whose Work Order lists each Sample's Test and the due date 4 business days after receipt", async () => {
+		const { stages } = await trace();
+
+		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
+			[1, "Done"],
+			[2, "Done"],
+			[3, "Done"],
+		]);
+		const [, receipt, workOrder] = stages;
+		if (!receipt || !workOrder) throw new Error("a stage did not run");
+		expect(workOrder.state).toEqual({ tag: "Done", assignee: bram });
+		expect(workOrder.evaluation).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+		expect(workOrder.outputs.map((o) => [o.artifact_type, o.filename])).toEqual(
+			[
+				["LimsDatabase", "lims.sqlite"],
+				["Other", "work_order.json"],
+				["WorkOrder", "work_order.xlsx"],
+			],
+		);
+		const row = ofType(receipt.outputs, "ReceivingLogRow");
+		const version1 = ofType(receipt.outputs, "LimsDatabase");
+		expect(workOrder.run.inputs).toEqual([row.id, version1.id]);
+		const document = ofType(workOrder.outputs, "WorkOrder");
+		expect(
+			lineageOf(s.ledger.projections.artifacts, document.id, {
+				tag: "Run",
+				id: workOrder.run.id,
+			}),
+		).toEqual([row.id, version1.id]);
+		expect(
+			query(
+				ofType(workOrder.outputs, "LimsDatabase"),
+				"SELECT * FROM work_orders ORDER BY lab_reference",
+			),
+			"seed 1 is Rush3to4Days, received Tuesday 2026-01-06",
+		).toEqual(
+			["LR-2026-0001", "LR-2026-0002"].map((ref) => [
+				"WO-2026-0001",
+				ref,
+				"Average capsule weight",
+				"2026-01-12",
+				row.id,
+			]),
+		);
+	}, 600_000);
+
+	it("fails stage 3's Evaluation and Task when a copy of create_work_order writes a due date one day late", async () => {
+		const { stages } = await trace({ source: dueDateOneDayLate });
+
+		const [, , workOrder] = stages;
+		expect(workOrder?.evaluation).toMatchObject({
+			passed: false,
+			findings: ["LR-2026-0001", "LR-2026-0002"].map(
+				(ref) =>
+					`${ref}: due date 2026-01-13 is not 2026-01-12, 4 business days after 2026-01-06 for TAT class Rush3to4Days`,
+			),
+		});
+		expect(workOrder?.state).toMatchObject({
+			tag: "Failed",
+			reason: expect.stringContaining("due date 2026-01-13"),
+		});
+		expect(s.events().at(-1)).toMatchObject({
+			kind: "TaskFailed",
+			task_id: workOrder?.task_id,
+		});
+	}, 600_000);
+
+	it("fails stage 3's Evaluation and Task when a copy of create_work_order gives a Sample no Test", async () => {
+		const { stages } = await trace({ source: lastSampleWithoutTest });
+
+		const [, , workOrder] = stages;
+		expect(workOrder?.evaluation).toMatchObject({
+			passed: false,
+			findings: ["LR-2026-0002: the Work Order has no Test for it"],
+		});
+		expect(workOrder?.state.tag).toBe("Failed");
+		expect(s.events().at(-1)).toMatchObject({
+			kind: "TaskFailed",
+			task_id: workOrder?.task_id,
+		});
 	}, 600_000);
 });

@@ -13,8 +13,8 @@ import {
 import type { Ledger } from "../ledger.js";
 import { revisedBetween } from "../org/projection.js";
 import { seedOrg } from "../org/seed.js";
+import type { Projections } from "../projections.js";
 import {
-	type ArtifactProjection,
 	openArtifacts,
 	type Production,
 	productionOf,
@@ -137,15 +137,31 @@ const inputsFor = (
 		.map((a) => a.id);
 };
 
-/** The most recently stored Artifact of `type`, if the Ledger holds one. */
-const latestOfType = (
-	projection: ArtifactProjection,
+/**
+ * The Artifact of `type` most recently written by a Run whose Task is Done,
+ * if there is one. A version a failed Task's Run wrote, which no Evaluation
+ * accepted, never becomes the one a later stage carries.
+ */
+const latestAccepted = (
+	projections: Projections,
 	type: ArtifactType,
 ): ArtifactId | undefined => {
+	const done = ({ record }: Production) => {
+		if (record.produced_by.tag !== "Run") return false;
+		const task_id = projections.runs.runs.get(record.produced_by.id)?.task_id;
+		return (
+			task_id !== undefined &&
+			projections.tasks.tasks.get(task_id)?.state.tag === "Done"
+		);
+	};
 	let latest: Production | undefined;
-	for (const productions of projection.productions.values()) {
+	for (const productions of projections.artifacts.productions.values()) {
 		for (const p of productions) {
-			if (p.record.artifact_type === type && (!latest || p.seq > latest.seq)) {
+			if (
+				p.record.artifact_type === type &&
+				(!latest || p.seq > latest.seq) &&
+				done(p)
+			) {
 				latest = p;
 			}
 		}
@@ -223,7 +239,7 @@ const runStage = async (options: {
 	const { stage } = plan;
 	const agent: Actor = { tag: "Agent", id: stage.worked_by };
 	const carried = stage.carried.flatMap(
-		(type) => latestOfType(ledger.projections.artifacts, type) ?? [],
+		(type) => latestAccepted(ledger.projections, type) ?? [],
 	);
 	const inputs = [...options.inputs, ...carried];
 

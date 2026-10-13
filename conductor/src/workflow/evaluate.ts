@@ -9,6 +9,11 @@
  * Stage 2: the Receiving Log rows and the next toy LIMS database version
  * that `sandbox/scripts/log_receipt/main.py` writes match the record the
  * Run read.
+ *
+ * Stage 3: the Work Order that `sandbox/scripts/create_work_order/main.py`
+ * writes has the due date this module computes on its own, a Test for
+ * every Sample on the Receiving Log row, and `work_orders` rows that agree
+ * with it.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -17,7 +22,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { ArtifactType } from "../types/artifact.js";
-import { TAT_CODES } from "../types/task.js";
+import { TAT_CODES, TatClass } from "../types/task.js";
 import type { Scored } from "./lifecycle.js";
 import type { RunArtifacts, StageArtifact } from "./stages.js";
 
@@ -197,32 +202,18 @@ const readJson = <T>(
 	return parsed.data;
 };
 
-type DatabaseVersion = {
-	/** Each `samples` row's Lot, by Lab Reference. */
-	readonly samples: ReadonlyMap<string, string>;
-	readonly lots: readonly string[];
-};
-
-/** Read one toy LIMS database version, opened read-only from a scratch copy. */
-const readDatabase = (artifact: StageArtifact): DatabaseVersion => {
+/** Query one toy LIMS database version, opened read-only from a scratch copy. */
+const queryDatabase = <T>(
+	artifact: StageArtifact,
+	query: (db: DatabaseSync) => T,
+): T => {
 	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluation-"));
 	try {
 		const path = join(dir, "lims.sqlite");
 		writeFileSync(path, artifact.bytes);
 		const db = new DatabaseSync(path, { readOnly: true });
 		try {
-			return {
-				samples: new Map(
-					db
-						.prepare("SELECT lab_reference, lot FROM samples")
-						.all()
-						.map((row) => [String(row.lab_reference), String(row.lot)]),
-				),
-				lots: db
-					.prepare("SELECT lot FROM lots")
-					.all()
-					.map((row) => String(row.lot)),
-			};
+			return query(db);
 		} finally {
 			db.close();
 		}
@@ -234,6 +225,26 @@ const readDatabase = (artifact: StageArtifact): DatabaseVersion => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 };
+
+type DatabaseVersion = {
+	/** Each `samples` row's Lot, by Lab Reference. */
+	readonly samples: ReadonlyMap<string, string>;
+	readonly lots: readonly string[];
+};
+
+const readDatabase = (artifact: StageArtifact): DatabaseVersion =>
+	queryDatabase(artifact, (db) => ({
+		samples: new Map(
+			db
+				.prepare("SELECT lab_reference, lot FROM samples")
+				.all()
+				.map((row) => [String(row.lab_reference), String(row.lot)]),
+		),
+		lots: db
+			.prepare("SELECT lot FROM lots")
+			.all()
+			.map((row) => String(row.lot)),
+	}));
 
 const ofType = (artifacts: readonly StageArtifact[], type: ArtifactType) =>
 	artifacts.find((a) => a.artifact_type === type);
@@ -305,6 +316,166 @@ export const evaluateReceipt = ({ inputs, outputs }: RunArtifacts): Scored => {
 		check(
 			lots === 1,
 			`the database has ${lots} lots rows for Lot ${sample.lot}, not 1`,
+		);
+
+		return {
+			score: (checks - findings.length) / checks,
+			passed: findings.length === 0,
+			findings,
+		};
+	} catch (error) {
+		if (error instanceof Unreadable) return failed(error.message);
+		throw error;
+	}
+};
+
+/**
+ * Business days from the date received to the due date, by TAT class.
+ * `create_work_order` keeps its own table; each side computes the date on
+ * its own, so a wrong date in either fails the Evaluation.
+ */
+export const TAT_BUSINESS_DAYS = {
+	Regular: 10,
+	Rush1to2Days: 2,
+	Rush3to4Days: 4,
+} as const satisfies Record<TatClass, number>;
+
+/** The TAT class's business days (Monday to Friday, no holidays) after `received`, as YYYY-MM-DD. */
+export const dueDate = (received: string, tat: TatClass): string => {
+	const day = new Date(`${received}T00:00:00Z`);
+	for (let left: number = TAT_BUSINESS_DAYS[tat]; left > 0; ) {
+		day.setUTCDate(day.getUTCDate() + 1);
+		const weekday = day.getUTCDay();
+		if (weekday !== 0 && weekday !== 6) left--;
+	}
+	return day.toISOString().slice(0, 10);
+};
+
+export const WORK_ORDER_COLUMNS = ["Lab Reference", "Test"] as const;
+
+/**
+ * `work_order.json` (schema `work_order/1`): the Receiving Log row's Lab
+ * References and dates as the Script read them, and the Work Order as it
+ * read back its xlsx.
+ */
+const WorkOrderReadBack = z.object({
+	schema: z.literal("work_order/1"),
+	receiving_log_row: z.array(z.tuple([z.string(), z.iso.date()])),
+	header: z.object({ "Work Order": z.string(), "Due Date": z.string() }),
+	columns: z.array(z.string()),
+	rows: z.array(z.tuple([z.string(), z.string()])),
+});
+
+type WorkOrderRow = {
+	readonly work_order: string;
+	readonly lab_reference: string;
+	readonly test: string;
+	readonly due_date: string;
+};
+
+type WorkOrders = {
+	/** Each `samples` row's TAT class, by Lab Reference. */
+	readonly tatClasses: ReadonlyMap<string, string>;
+	readonly rows: readonly WorkOrderRow[];
+};
+
+const readWorkOrders = (artifact: StageArtifact): WorkOrders =>
+	queryDatabase(artifact, (db) => ({
+		tatClasses: new Map(
+			db
+				.prepare("SELECT lab_reference, tat_class FROM samples")
+				.all()
+				.map((row) => [String(row.lab_reference), String(row.tat_class)]),
+		),
+		rows: db
+			.prepare(
+				"SELECT work_order, lab_reference, test, due_date FROM work_orders",
+			)
+			.all()
+			.map((row) => ({
+				work_order: String(row.work_order),
+				lab_reference: String(row.lab_reference),
+				test: String(row.test),
+				due_date: String(row.due_date),
+			})),
+	}));
+
+/**
+ * Stage 3's Evaluation of its Run. For every Sample on the Receiving Log
+ * row: the Work Order's due date is the one computed here from the row's
+ * date received and the Sample's TAT class in the database version the Run
+ * carried, and the Work Order has a Test for it. Every Work Order row names
+ * a Sample on the Receiving Log row, the Work Order number is new, and the
+ * `work_orders` rows of the version the Run wrote agree with the document.
+ * The Work Order comes from `work_order.json`, because the Conductor has no
+ * xlsx reader.
+ */
+export const evaluateWorkOrder = ({
+	inputs,
+	outputs,
+}: RunArtifacts): Scored => {
+	try {
+		const sheet = readJson(
+			outputs.find((a) => a.filename === "work_order.json"),
+			"work_order.json read-back",
+			WorkOrderReadBack,
+		);
+		const carried = ofType(inputs, "LimsDatabase");
+		if (!carried) throw new Unreadable("the Run carried no LimsDatabase");
+		const written = ofType(outputs, "LimsDatabase");
+		if (!written) throw new Unreadable("the Run wrote no LimsDatabase");
+		const before = readWorkOrders(carried);
+		const after = readWorkOrders(written);
+		if (sheet.columns.join("\0") !== WORK_ORDER_COLUMNS.join("\0")) {
+			throw new Unreadable(
+				`the Work Order's columns are ${sheet.columns.join(", ")}, not ${WORK_ORDER_COLUMNS.join(", ")}`,
+			);
+		}
+
+		const findings: string[] = [];
+		let checks = 0;
+		const check = (ok: boolean, finding: string) => {
+			checks++;
+			if (!ok) findings.push(finding);
+		};
+		const { "Work Order": number, "Due Date": due } = sheet.header;
+		for (const [ref, received] of sheet.receiving_log_row) {
+			const tat = TatClass.safeParse(before.tatClasses.get(ref));
+			if (tat.success) {
+				const expected = dueDate(received, tat.data);
+				check(
+					due === expected,
+					`${ref}: due date ${due} is not ${expected}, ${TAT_BUSINESS_DAYS[tat.data]} business days after ${received} for TAT class ${tat.data}`,
+				);
+			} else {
+				check(
+					false,
+					`${ref}: the carried database has no samples row for it with a TAT class`,
+				);
+			}
+			check(
+				sheet.rows.some(([onRow]) => onRow === ref),
+				`${ref}: the Work Order has no Test for it`,
+			);
+		}
+		const received = new Set(sheet.receiving_log_row.map(([ref]) => ref));
+		sheet.rows.forEach(([ref], i) => {
+			check(
+				received.has(ref),
+				`Work Order row ${i + 1}: ${ref} is not on the Receiving Log row`,
+			);
+		});
+		check(
+			!before.rows.some((row) => row.work_order === number),
+			`Work Order ${number} is already in the carried database`,
+		);
+		const document = sheet.rows.map(([ref, test]) => `${ref} ${test} ${due}`);
+		const database = after.rows
+			.filter((row) => row.work_order === number)
+			.map((row) => `${row.lab_reference} ${row.test} ${row.due_date}`);
+		check(
+			document.sort().join("; ") === database.sort().join("; "),
+			`the work_orders rows for ${number} (${database.join("; ") || "none"}) do not agree with the Work Order (${document.join("; ")})`,
 		);
 
 		return {
