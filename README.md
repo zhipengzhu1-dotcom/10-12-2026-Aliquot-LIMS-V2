@@ -169,11 +169,12 @@ pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewer A-pia --a
 AppendRefused: TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (none) or a Senior or Mentor Agent (none); A-odile may not review T-1
 ```
 
-`task assign` and `task handoff` are never refused for the new assignee's Vitality or Rest: Mood is flat (see [Vitality and Merit](#vitality-and-merit)). They are refused when the new assignee is paused, Retired, or not in the Org, in the words that refuse a Turn for that Agent:
+`task assign` and `task handoff` are never refused for the new assignee's Vitality or Rest: Mood is flat (see [Vitality and Merit](#vitality-and-merit)). They are refused when the new assignee is paused, Retired, or not in the Org, in the words that refuse a Turn for that Agent. `task escalate --to` and `task help --to` are refused for such an Agent in the same words:
 
 ```text
 AppendRefused: TaskAssigned refused: A-bram is paused
 AppendRefused: TaskHandedOff refused: A-nobody is not a live Agent in the Org
+AppendRefused: TaskEscalated refused: A-bram is paused
 ```
 
 Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
@@ -192,7 +193,7 @@ pnpm -C conductor cli --home /tmp/aliquot task list
 
 `--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. `task complete` takes `--output <artifact id>` once for each output. The other commands are `task handoff <id> <agent> --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee, with a `help` line under the Task for each Help request on it.
 
-A Help request is a `HelpRequested` Event, appended by the Task lifecycle. The assignee of a live Task requests help on it from the Operator or a live Agent, with the question on stdin. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Ledger refuses a Help request from anyone but the assignee, and on a Task that is `Proposed`, `Done`, `Failed` or `Escalated`. A reply is a Message in a Room.
+A Help request is a `HelpRequested` Event, appended by the Task lifecycle. The assignee of a live Task requests help on it from the Operator or a live Agent that is not paused, with the question on stdin. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Ledger refuses a Help request from anyone but the assignee, and on a Task that is `Proposed`, `Done`, `Failed` or `Escalated`. A reply is a Message in a Room.
 
 ```sh
 echo "Which column holds the Lot?" | pnpm -C conductor cli --home /tmp/aliquot task help T-1 --to A-pia --as A-rin

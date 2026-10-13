@@ -24,8 +24,8 @@ import { reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
 import {
 	conductorAssignRefusal,
-	helpTargetRefusal,
 	sampledRefusal,
+	targetRefusal,
 } from "./guards.js";
 import { helpRequester, stateIn } from "./projection.js";
 
@@ -305,11 +305,13 @@ export const escalate = (
 		readonly to: Actor;
 		readonly reason: string;
 	},
-): Recorded<"task", Task> =>
-	record(ledger, origin, {
+): Recorded<"task", Task> => {
+	orRefuse("TaskEscalated", targetRefusal(ledger.projections, to));
+	return record(ledger, origin, {
 		kind: "TaskEscalated",
 		payload: { task_id, to, reason },
 	});
+};
 
 /**
  * The assignee of a live Task requests help on it from the Operator or
@@ -333,7 +335,7 @@ export const requestHelp = (
 		"HelpRequested",
 		helpRequester(projections.tasks, task_id, origin.actor),
 	);
-	orRefuse("HelpRequested", helpTargetRefusal(projections, to));
+	orRefuse("HelpRequested", targetRefusal(projections, to));
 	return record(ledger, origin, {
 		kind: "HelpRequested",
 		payload: { task_id, to, question },
