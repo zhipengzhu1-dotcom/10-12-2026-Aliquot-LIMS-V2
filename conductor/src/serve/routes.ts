@@ -69,6 +69,8 @@ const reviewRows = (p: Projections) => {
  * What `GET /api/<name>` serves: a Projection as of the Ledger's last Event.
  * `org-tree` is the reporting tree `org tree` prints. `vitality` and `tiers`
  * cover live Agents only, as `vitality show` and `vitality tiers` print them.
+ * `training` holds every Agent's Memory notes and Coaching, and every version
+ * of each Skill.
  */
 export const PROJECTION_ROUTES = {
 	org: (p: Projections) => p.org,
@@ -87,6 +89,7 @@ export const PROJECTION_ROUTES = {
 	runs: (p: Projections) => p.runs,
 	artifacts: (p: Projections) => p.artifacts,
 	turns: (p: Projections) => p.turns,
+	training: (p: Projections) => p.training,
 	stages: () =>
 		STAGES.map(({ evaluate: _, ...stage }) => ({
 			...stage,
