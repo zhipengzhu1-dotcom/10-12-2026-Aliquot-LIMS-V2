@@ -34,8 +34,8 @@ printed. `sample` is the first Sample row. `tat_class` is derived from
 The Script reports what the form says and judges nothing: the stage 1
 Evaluation decides whether the record is complete.
 
-`/outputs/manifest.json` types submission.json as `artifact_type: "Other"`:
-the ArtifactType enum has no "SubmissionRecord" member yet.
+`/outputs/manifest.json` types submission.json as
+`artifact_type: "SubmissionRecord"`.
 """
 
 import argparse
@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "submission.json": {
-                    "artifact_type": "Other",
+                    "artifact_type": "SubmissionRecord",
                     "media_type": "application/json",
                 }
             },

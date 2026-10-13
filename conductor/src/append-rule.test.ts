@@ -30,6 +30,7 @@ const REFUSED = [
 	"src/sandbox/runner.ts",
 	"src/task/commands.ts",
 	"src/turn/commands.ts",
+	"src/workflow/tracer.ts",
 ];
 const ALLOWED = [
 	"src/ledger.ts",
@@ -37,6 +38,7 @@ const ALLOWED = [
 	"src/task/lifecycle.ts",
 	"src/test-support/scenario.ts",
 	"src/turn/lifecycle.ts",
+	"src/workflow/lifecycle.ts",
 ];
 
 const LEDGER = "type Ledger = { append(event: unknown): unknown };\n";
@@ -121,8 +123,8 @@ describe("Biome's Gate request rule", () => {
 	it("refuses a requestGateForTask call everywhere but the Gate and Task lifecycles, tests included", () => {
 		const refused = [
 			"src/gate/commands.ts",
-			"src/stage1/tracer.ts",
 			"src/task/commands.test.ts",
+			"src/workflow/tracer.ts",
 		];
 		const result = flagged(
 			each(

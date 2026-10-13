@@ -21,12 +21,13 @@ import {
 } from "vitest";
 import type { Event } from "../events.js";
 import { sha256Hex } from "../hash.js";
-import { AgentId, ArtifactId, type Sha256 } from "../ids.js";
-import { lineageOf } from "../sandbox/artifacts.js";
+import { AgentId, ArtifactId, Sha256 } from "../ids.js";
+import { lineageOf, openArtifacts } from "../sandbox/artifacts.js";
 import { buildImage, scriptsRoot } from "../sandbox/image.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
-import { ensureScript, reviewerOf, runStage1 } from "./tracer.js";
+import { STAGES, type Stage } from "./stages.js";
+import { ensureScript, runWorkflow } from "./tracer.js";
 
 // Each build gives its tag a new image id and Docker drops the image the tag
 // held, so this process's tag is its own: other suites and checkouts build at
@@ -34,11 +35,15 @@ import { ensureScript, reviewerOf, runStage1 } from "./tracer.js";
 const IMAGE = `aliquot-sandbox:tracer-${process.pid}`;
 
 const rin = AgentId.parse("A-rin");
+const bram = AgentId.parse("A-bram");
 const pia = { tag: "Agent", id: "A-pia" } as const;
 
+const [submission] = STAGES;
+if (!submission) throw new Error("the stage table has no stage 1");
+
 const suite = dockerAvailable
-	? "the stage 1 tracer (Docker)"
-	: "the stage 1 tracer: SKIPPED because `docker info` failed; start Docker to run these";
+	? "the workflow tracer (Docker)"
+	: "the workflow tracer: SKIPPED because `docker info` failed; start Docker to run these";
 
 const fixture = fileURLToPath(
 	new URL("../../../fixtures/submission-form-seed1.docx", import.meta.url),
@@ -59,35 +64,32 @@ afterEach(() => {
 	rmSync(home, { recursive: true, force: true });
 });
 
-describe("the stage 1 tracer's reviewer", () => {
-	it("is a Specialist's Supervisor, and the Operator for an Agent with none", () => {
-		const { projections } = s.ledger;
+const scriptOf = (stage: Stage) => join(scriptsRoot, stage.script);
 
-		expect(reviewerOf(projections, rin)).toEqual(pia);
-		expect(reviewerOf(projections, AgentId.parse("A-odile"))).toEqual({
-			tag: "Operator",
-		});
-	});
-});
-
-/** Run stage 1 on the Fixture with the Script in `source`, owned by A-rin. */
-const trace = (source = join(scriptsRoot, "parse_submission")) => {
-	const script = ensureScript({
-		ledger: s.ledger,
-		home,
-		source,
-		owner: rin,
-		image,
-	});
-	return runStage1({
+/** Run the workflow on the Fixture through `stages`, each Script from `source`. */
+const trace = ({
+	stages = STAGES,
+	source = scriptOf,
+}: {
+	stages?: readonly Stage[];
+	source?: (stage: Stage) => string;
+} = {}) =>
+	runWorkflow({
 		ledger: s.ledger,
 		home,
 		formPath: fixture,
-		script: { id: script.id, version: script.version },
-		owner: rin,
+		plan: stages.map((stage) => {
+			const script = ensureScript({
+				ledger: s.ledger,
+				home,
+				stage,
+				source: source(stage),
+				image,
+			});
+			return { stage, script: { id: script.id, version: script.version } };
+		}),
 		timeoutMs: 60_000,
 	});
-};
 
 /** Follow causation_id back from `from` until an Event has none. */
 const causes = (events: Event[], from: Event): Event[] => {
@@ -101,6 +103,9 @@ const causes = (events: Event[], from: Event): Event[] => {
 	}
 	return chain;
 };
+
+const proposed = (task_id: string) =>
+	s.events().find((e) => e.kind === "TaskProposed" && e.task_id === task_id);
 
 /** A copy of parse_submission whose record has no Lot. */
 const scriptWithoutLot = () => {
@@ -131,6 +136,23 @@ const scriptWithoutLot = () => {
 	return dir;
 };
 
+describe("the workflow tracer without Docker", () => {
+	it("refuses a stage before proposing its Task when nothing gave it an input type, naming the stage and the type", async () => {
+		image = Sha256.parse("c".repeat(64));
+		const before = s.events().filter((e) => e.kind === "TaskProposed");
+
+		await expect(
+			trace({ stages: [{ ...submission, inputs: ["WorkOrder"] }] }),
+		).rejects.toThrow(
+			"stage 1 Submission refused: it takes WorkOrder as input, and the Fixture gave none",
+		);
+		expect(
+			s.events().filter((e) => e.kind === "TaskProposed"),
+			"no Task proposed",
+		).toEqual(before);
+	});
+});
+
 describe.skipIf(!requireDocker())(suite, () => {
 	beforeAll(async () => {
 		({ id: image } = await buildImage({ tag: IMAGE }));
@@ -140,9 +162,12 @@ describe.skipIf(!requireDocker())(suite, () => {
 		spawnSync("docker", ["rmi", IMAGE], { stdio: "ignore" });
 	});
 
-	it("completes the Fixture's Task through Review, each Event from TaskProposed on naming the one before it", async () => {
-		const result = await trace();
+	it("completes stage 1's Task through Review by the stage's reviewer, each Event from TaskProposed on naming the one before it", async () => {
+		const { stages } = await trace();
 
+		expect(stages).toHaveLength(1);
+		const [result] = stages;
+		if (!result) throw new Error("no stage ran");
 		expect(result.state).toEqual({ tag: "Done", assignee: rin });
 		const events = s.events();
 		const completed = events.filter((e) => e.kind === "TaskCompleted").at(-1);
@@ -164,7 +189,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(
 			fixtureStored?.kind === "ArtifactStored" && fixtureStored.payload.id,
 		).toBe(fixtureId);
-		// A-rin is on Probation, so its Supervisor A-pia reviews every Task.
+		// A-rin is on Probation, so stage 1's reviewer A-pia reviews every Task.
 		const [submitted, review, reviewed] = chain.slice(-3);
 		expect(submitted?.payload).toMatchObject({
 			review: { tag: "Required", reviewer: pia },
@@ -176,6 +201,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const evaluation = chain.find((e) => e.kind === "EvaluationRecorded");
 		expect(evaluation?.payload).toEqual({
 			eval_id: result.eval_id,
+			stage: 1,
 			run_id: result.run.id,
 			task_id: result.task_id,
 			score: 1,
@@ -192,14 +218,19 @@ describe.skipIf(!requireDocker())(suite, () => {
 		}
 	}, 600_000);
 
-	it("gives the record a Lineage of the Fixture, and the Fixture, stored as the Operator's SubmissionForm, an empty Lineage", async () => {
-		const { record, run } = await trace();
-		if (!record) throw new Error(`${run.id} wrote no submission.json`);
+	it("stores the record as a SubmissionRecord with a Lineage of the Fixture, and the Fixture, stored as the Operator's SubmissionForm, with an empty Lineage", async () => {
+		const [result] = (await trace()).stages;
+		const [record] = result?.outputs ?? [];
+		if (!result || !record) throw new Error("stage 1 wrote no record");
 
 		const projection = s.ledger.projections.artifacts;
-		expect(lineageOf(projection, record, { tag: "Run", id: run.id })).toEqual([
-			fixtureId,
-		]);
+		expect(record).toMatchObject({
+			artifact_type: "SubmissionRecord",
+			filename: "submission.json",
+		});
+		expect(
+			lineageOf(projection, record.id, { tag: "Run", id: result.run.id }),
+		).toEqual([fixtureId]);
 		expect(projection.artifacts.get(fixtureId)).toMatchObject({
 			artifact_type: "SubmissionForm",
 			produced_by: { tag: "Operator" },
@@ -207,14 +238,14 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(lineageOf(projection, fixtureId, { tag: "Operator" })).toEqual([]);
 	}, 600_000);
 
-	it("returns the Trust tier Revision that the tracer's Review earns, caused by that Review", async () => {
+	it("returns the Trust tier Revision that the stage's Review earns, caused by that Review", async () => {
 		// Rin has 9 reviewed Tasks, so the tracer's Review of T-10 is the 10th.
 		for (let i = 0; i < 9; i++) s.reviewed(rin, scores(3));
 
-		const result = await trace();
+		const [result] = (await trace()).stages;
 
-		expect(result.task_id).toBe("T-10");
-		expect(result.revisions).toMatchObject([
+		expect(result?.task_id).toBe("T-10");
+		expect(result?.revisions).toMatchObject([
 			{ id: rin, version: 2, trust_tier: "Trusted" },
 		]);
 		const events = s.events();
@@ -226,13 +257,13 @@ describe.skipIf(!requireDocker())(suite, () => {
 	}, 600_000);
 
 	it("fails the Evaluation and the Task when the Script's record drops the Lot", async () => {
-		const result = await trace(scriptWithoutLot());
+		const [result] = (await trace({ source: scriptWithoutLot })).stages;
 
-		expect(result.evaluation).toMatchObject({
+		expect(result?.evaluation).toMatchObject({
 			passed: false,
 			findings: ["Sample: Lot is missing"],
 		});
-		expect(result.state).toMatchObject({
+		expect(result?.state).toMatchObject({
 			tag: "Failed",
 			reason: expect.stringContaining("Sample: Lot is missing"),
 		});
@@ -241,5 +272,79 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(failed?.causation_id).toBe(
 			s.events().find((e) => e.kind === "EvaluationRecorded")?.seq,
 		);
+	}, 600_000);
+
+	it("runs each later stage on the previous stage's Artifacts of its input types, after the previous stage's last TaskCompleted, and stops at the first Task that fails", async () => {
+		// parse_submission takes only a docx, so a stage that hands it the
+		// SubmissionRecord fails.
+		const rerun = (number: number): Stage => ({
+			...submission,
+			number,
+			name: "Rerun",
+			inputs: ["SubmissionRecord"],
+			worked_by: bram,
+		});
+
+		const { stages } = await trace({
+			stages: [submission, rerun(2), rerun(3)],
+		});
+
+		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
+			[1, "Done"],
+			[2, "Failed"],
+		]);
+		const [first, second] = stages;
+		const lastOfFirst = s
+			.events()
+			.filter((e) => e.task_id === first?.task_id)
+			.at(-1);
+		expect(lastOfFirst?.kind).toBe("TaskCompleted");
+		expect(proposed(second?.task_id ?? "")).toMatchObject({
+			causation_id: lastOfFirst?.seq,
+			payload: { inputs: first?.outputs.map((o) => o.id) },
+		});
+		expect(second?.run.inputs).toEqual(first?.outputs.map((o) => o.id));
+		expect(
+			s
+				.events()
+				.find((e) => e.kind === "TaskAssigned" && e.task_id === second?.task_id)
+				?.payload,
+			"stage 2 is worked by its own Agent",
+		).toMatchObject({ assignee: bram });
+		expect(
+			s.events().filter((e) => e.kind === "TaskProposed"),
+			"no Task for stage 3",
+		).toHaveLength(2);
+	}, 600_000);
+
+	it("gives a stage the latest Artifact of each carried type, and none while the Ledger holds no Artifact of that type", async () => {
+		const carrying: Stage = { ...submission, carried: ["ReceivingLogRow"] };
+
+		const [without] = (await trace({ stages: [carrying] })).stages;
+		const artifacts = openArtifacts({ ledger: s.ledger, home });
+		const row = (text: string) =>
+			artifacts.store(
+				Buffer.from(text),
+				{
+					artifact_type: "ReceivingLogRow",
+					media_type: "text/csv",
+					produced_by: { tag: "Operator" },
+					lineage: [],
+				},
+				{ actor: { tag: "Operator" } },
+			).artifact.id;
+		row("LT-0001,1\n");
+		const latest = row("LT-0002,2\n");
+		const [withRow] = (await trace({ stages: [carrying] })).stages;
+
+		expect(proposed(without?.task_id ?? "")?.payload).toMatchObject({
+			inputs: [fixtureId],
+		});
+		expect(without?.run.inputs).toEqual([fixtureId]);
+		expect(proposed(withRow?.task_id ?? "")?.payload).toMatchObject({
+			inputs: [fixtureId, latest],
+		});
+		expect(withRow?.run.inputs).toEqual([fixtureId, latest]);
+		expect(withRow?.state.tag).toBe("Done");
 	}, 600_000);
 });

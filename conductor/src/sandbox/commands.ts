@@ -10,7 +10,7 @@ import {
 import { type CommandTable, UsageError } from "../command.js";
 import { AgentId, ArtifactId, ScriptId, TaskId } from "../ids.js";
 import { ArtifactType } from "../types/artifact.js";
-import { openArtifacts } from "./artifacts.js";
+import { openArtifacts, walkLineage } from "./artifacts.js";
 import { buildImage, defaultImageTag, imageId, scriptsRoot } from "./image.js";
 import { guessMediaType, runScript } from "./runner.js";
 import { registerScript } from "./scripts.js";
@@ -234,6 +234,40 @@ export const sandboxCommands: CommandTable = {
 					].join("\n"),
 				);
 			}
+			return 0;
+		},
+	},
+	lineage: {
+		args: "<artifact id>",
+		describe:
+			"Print an Artifact's Lineage back to the Artifacts that have none, one line per production with the Run and Script version that made it",
+		run: async (args, ctx) => {
+			const { positionals } = parseArgs({ args, allowPositionals: true });
+			if (positionals.length !== 1) {
+				throw new UsageError("sandbox lineage takes exactly one Artifact id");
+			}
+			const id = parseOrUsage(
+				ArtifactId,
+				positionals[0],
+				"sandbox lineage takes an Artifact id (64 hex)",
+			);
+			const lines = withLedger(ctx.home, false, ({ projections }) => {
+				const links = walkLineage(projections.artifacts, id);
+				if (links.length === 0) throw new Error(`Artifact ${id} is not stored`);
+				return links.map(({ depth, production: { record } }) => {
+					const { produced_by } = record;
+					const script =
+						produced_by.tag === "Run"
+							? projections.runs.runs.get(produced_by.id)?.started.script
+							: undefined;
+					const producer =
+						produced_by.tag === "Operator"
+							? "none"
+							: `${produced_by.id}${script ? ` ${script.id} v${script.version}` : ""}`;
+					return `${"  ".repeat(depth)}${record.id} ${record.artifact_type} <- ${producer}`;
+				});
+			});
+			ctx.stdout.write(`${lines.join("\n")}\n`);
 			return 0;
 		},
 	},

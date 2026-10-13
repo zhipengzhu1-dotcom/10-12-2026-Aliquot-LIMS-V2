@@ -4,24 +4,29 @@ import { EvaluationId, nextId, type RunId, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Recorded } from "../lifecycle-support.js";
 import type { Actor } from "../types/actor.js";
-import type { SubmissionEvaluation } from "./evaluate.js";
 import { runFinishedFor } from "./guards.js";
 
 export type Evaluation = PayloadOf<"EvaluationRecorded">;
 
+/** What a stage's Evaluation finds: a score from 0 to 1, whether it passed, and one finding per failed check. */
+export type Scored = Pick<Evaluation, "score" | "passed" | "findings">;
+
 /**
  * Record the Evaluation of a finished Run for a live Task under the next
- * free Evaluation id. Its cause is the Run's RunFinished.
+ * free Evaluation id, naming the stage it scores. Its cause is the Run's
+ * RunFinished.
  */
 export const recordEvaluation = (
 	ledger: Ledger,
 	{
 		actor,
+		stage,
 		task_id,
 		run_id,
 		...scored
-	}: SubmissionEvaluation & {
+	}: Scored & {
 		readonly actor: Actor;
+		readonly stage: number;
 		readonly task_id: TaskId;
 		readonly run_id: RunId;
 	},
@@ -35,6 +40,7 @@ export const recordEvaluation = (
 		eval_id: EvaluationId.parse(
 			nextId("E", projections.work.evaluations.keys()),
 		),
+		stage,
 		run_id,
 		task_id,
 		...scored,
