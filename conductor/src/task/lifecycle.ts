@@ -11,6 +11,7 @@ import {
 	TaskId,
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import { type Origin, type Recorded, readBack } from "../lifecycle-support.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
@@ -50,37 +51,20 @@ export const taskEventKind = (
 /** The rubric a Task is proposed with when none is named: the five-dimension rubric. */
 const DEFAULT_RUBRIC = RubricId.parse("default");
 
-/**
- * Who appends a Task Event, and the cause it names when that cause lies
- * outside the Task, such as the Evaluation a completion follows. Without
- * one, the Event names the Task's previous Event, or for a completion after
- * Review the reviewer's Review.
- */
-type Origin = {
-	readonly actor: Actor;
-	readonly causation_id?: Seq | undefined;
-};
-
-/** The Task as the Event left it, and the Event's seq. */
-export type Recorded = { readonly task: Task; readonly seq: Seq };
-
 type TaskBody = Extract<EventBody, { payload: { task_id: TaskId } }>;
 
-export const taskOf = (projections: Projections, task_id: TaskId): Task => {
-	const task = projections.tasks.tasks.get(task_id);
-	if (task === undefined) throw new Error(`${task_id} vanished`);
-	return task;
-};
+export const taskOf = (projections: Projections, task_id: TaskId): Task =>
+	readBack(projections.tasks.tasks.get(task_id), task_id);
 
 /**
- * Append `body`, naming the caller's cause or else the Task's previous Event;
- * a proposal has none.
+ * Append `body`, naming the caller's cause, such as the Evaluation a
+ * completion follows, or else the Task's previous Event; a proposal has none.
  */
 const record = (
 	ledger: Ledger,
 	{ actor, causation_id }: Origin,
 	body: TaskBody,
-): Recorded => {
+): Recorded<"task", Task> => {
 	const { task_id } = body.payload;
 	const cause = causation_id ?? ledger.projections.tasks.lastSeq.get(task_id);
 	const { seq } = ledger.append({
@@ -110,7 +94,7 @@ export const propose = (
 		readonly rubric_id?: RubricId;
 		readonly parent_task?: TaskId;
 	},
-): Recorded =>
+): Recorded<"task", Task> =>
 	record(
 		ledger,
 		{ actor, causation_id },
@@ -134,7 +118,7 @@ export const assign = (
 		assignee,
 		...origin
 	}: Origin & { readonly task_id: TaskId; readonly assignee: AgentId },
-): Recorded =>
+): Recorded<"task", Task> =>
 	record(ledger, origin, {
 		kind: "TaskAssigned",
 		payload: { task_id, assignee },
@@ -143,13 +127,15 @@ export const assign = (
 export const start = (
 	ledger: Ledger,
 	{ task_id, ...origin }: Origin & { readonly task_id: TaskId },
-): Recorded =>
+): Recorded<"task", Task> =>
 	record(ledger, origin, { kind: "TaskStarted", payload: { task_id } });
 
 type ReviewDecision = PayloadOf<"TaskCompleted">["review"];
 
 /** A completion, and the Review it decided on. */
-export type Completed = Recorded & { readonly review: ReviewDecision };
+export type Completed = Recorded<"task", Task> & {
+	readonly review: ReviewDecision;
+};
 
 /**
  * The Review a completion records: Reviewed for a Task UnderReview; for an
@@ -229,7 +215,7 @@ export const review = (
 		causation_id,
 		...payload
 	}: Review & { readonly causation_id?: Seq | undefined },
-): Recorded =>
+): Recorded<"task", Task> =>
 	record(
 		ledger,
 		{ actor: payload.reviewer, causation_id },
@@ -252,7 +238,7 @@ export const handOff = (
 		readonly to: AgentId;
 		readonly reason: string;
 	},
-): Recorded => {
+): Recorded<"task", Task> => {
 	const { assignee: from } = orRefuse(
 		"TaskHandedOff",
 		stateIn(ledger.projections.tasks, task_id, ["InProgress"]),
@@ -275,7 +261,7 @@ export const escalate = (
 		readonly to: Actor;
 		readonly reason: string;
 	},
-): Recorded =>
+): Recorded<"task", Task> =>
 	record(ledger, origin, {
 		kind: "TaskEscalated",
 		payload: { task_id, to, reason },
@@ -288,7 +274,7 @@ export const fail = (
 		reason,
 		...origin
 	}: Origin & { readonly task_id: TaskId; readonly reason: string },
-): Recorded =>
+): Recorded<"task", Task> =>
 	record(ledger, origin, {
 		kind: "TaskFailed",
 		payload: { task_id, reason },
@@ -305,7 +291,7 @@ export const block = (
 		causation_id,
 		...request
 	}: Origin & GateRequest & { readonly task_id: TaskId },
-): Recorded & { readonly gate: Gate } => {
+): Recorded<"task", Task> & { readonly gate: Gate } => {
 	const { gate, seq } = requestGateForTask(ledger, {
 		...request,
 		task_id,

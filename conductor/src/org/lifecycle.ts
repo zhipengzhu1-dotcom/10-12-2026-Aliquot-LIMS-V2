@@ -1,26 +1,14 @@
 import { orRefuse } from "../append-guard.js";
 import type { EventBody } from "../events.js";
 import { payloadText } from "../gate/projection.js";
-import type { AgentId, GateId, Seq } from "../ids.js";
+import type { AgentId, GateId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import { type Origin, type Recorded, readBack } from "../lifecycle-support.js";
 import { Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { retirementGate } from "./guards.js";
 import type { AgentState } from "./projection.js";
-
-/**
- * Who appends an Org Event, and the cause it names when that cause lies
- * outside the Org. Without one, the Event names the Agent's previous Org
- * Event; a Recruitment has none.
- */
-type Origin = {
-	readonly actor: Actor;
-	readonly causation_id?: Seq | undefined;
-};
-
-/** The Agent as the Event left it, and the Event's seq. */
-export type Recorded = { readonly agent: AgentState; readonly seq: Seq };
 
 type OrgBody = Extract<
 	EventBody,
@@ -36,14 +24,14 @@ type OrgBody = Extract<
 
 /**
  * Append `body` about `agent_id`, naming the caller's cause or else the
- * Agent's previous Org Event.
+ * Agent's previous Org Event; a Recruitment has none.
  */
 const record = (
 	ledger: Ledger,
 	{ actor, causation_id }: Origin,
 	agent_id: AgentId,
 	body: OrgBody,
-): Recorded => {
+): Recorded<"agent", AgentState> => {
 	const cause =
 		causation_id ?? ledger.projections.org.agents.get(agent_id)?.lastSeq;
 	const { seq } = ledger.append({
@@ -51,15 +39,16 @@ const record = (
 		...(cause === undefined ? {} : { causation_id: cause }),
 		...body,
 	});
-	const agent = ledger.projections.org.agents.get(agent_id);
-	if (agent === undefined) throw new Error(`${agent_id} vanished`);
-	return { agent, seq };
+	return {
+		agent: readBack(ledger.projections.org.agents.get(agent_id), agent_id),
+		seq,
+	};
 };
 
 export const recruit = (
 	ledger: Ledger,
 	{ definition, ...origin }: Origin & { readonly definition: AgentDefinition },
-): Recorded =>
+): Recorded<"agent", AgentState> =>
 	record(ledger, origin, definition.id, {
 		kind: "AgentRecruited",
 		payload: definition,
@@ -69,7 +58,7 @@ export const recruit = (
 export const revise = (
 	ledger: Ledger,
 	{ definition, ...origin }: Origin & { readonly definition: AgentDefinition },
-): Recorded =>
+): Recorded<"agent", AgentState> =>
 	record(ledger, origin, definition.id, {
 		kind: "AgentDefinitionRevised",
 		payload: { definition },
@@ -82,7 +71,7 @@ export const pause = (
 		reason,
 		...origin
 	}: Origin & { readonly agent_id: AgentId; readonly reason: string },
-): Recorded =>
+): Recorded<"agent", AgentState> =>
 	record(ledger, origin, agent_id, {
 		kind: "AgentPaused",
 		payload: { agent_id, reason },
@@ -91,7 +80,7 @@ export const pause = (
 export const resume = (
 	ledger: Ledger,
 	{ agent_id, ...origin }: Origin & { readonly agent_id: AgentId },
-): Recorded =>
+): Recorded<"agent", AgentState> =>
 	record(ledger, origin, agent_id, {
 		kind: "AgentResumed",
 		payload: { agent_id },
@@ -115,7 +104,7 @@ export const retire = (
 		readonly gate_id: GateId;
 		readonly reason?: string | undefined;
 	},
-): Recorded => {
+): Recorded<"agent", AgentState> => {
 	const gate = orRefuse(
 		"AgentRetired",
 		retirementGate(

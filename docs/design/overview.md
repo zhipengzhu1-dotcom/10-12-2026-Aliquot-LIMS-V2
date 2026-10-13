@@ -61,7 +61,7 @@ The actor `Conductor` authors only the tier Revisions that Merit and Gates requi
 
 The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`.
 
-Only a domain's lifecycle module appends Events, and no command appends a raw one. Each verb mints the ids and derives `causation_id` from the Projections, so the Ledger records the true cause of every Event. The lifecycle modules and the kinds each one appends:
+Only a domain's lifecycle module appends Events, and no command appends a raw one. Each verb mints the ids and derives `causation_id` from the Projections, so the Ledger records the true cause of every Event. `lifecycle-support.ts` holds what the verbs share: `Origin`, the actor and any cause from outside the domain; `Recorded`, the entity as the Event left it with the Event's seq, which each verb returns; and `readBack`, which reads that entity from the Projections after the append. A verb decides each refusal before it builds the Event, through the predicate the guard uses, and throws it with `orRefuse` from `append-guard.ts`. The lifecycle modules and the kinds each one appends:
 
 | Lifecycle module | Event kinds |
 |---|---|

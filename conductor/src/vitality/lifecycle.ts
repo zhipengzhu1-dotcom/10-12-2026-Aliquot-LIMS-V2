@@ -1,7 +1,8 @@
 import { orRefuse } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
-import type { AgentId, Seq } from "../ids.js";
+import type { AgentId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import type { Recorded } from "../lifecycle-support.js";
 import { liveAgent } from "../org/projection.js";
 import type { Actor } from "../types/actor.js";
 import type { Vitality } from "../types/vitality.js";
@@ -20,7 +21,7 @@ export const sample = (
 		agent,
 		...options
 	}: SampleOptions & { readonly actor: Actor; readonly agent: AgentId },
-): { readonly vitality: Vitality; readonly seq: Seq } => {
+): Recorded<"vitality", Vitality> => {
 	const { projections } = ledger;
 	orRefuse("VitalitySampled", liveAgent(projections.org, agent));
 	const vitality = sampleVitality(projections, agent, options);
@@ -39,7 +40,7 @@ export const sample = (
 export const orderRest = (
 	ledger: Ledger,
 	{ actor, ...order }: PayloadOf<"RestOrdered"> & { readonly actor: Actor },
-): { readonly order: PayloadOf<"RestOrdered">; readonly seq: Seq } => {
+): Recorded<"order", PayloadOf<"RestOrdered">> => {
 	const { projections } = ledger;
 	orRefuse("RestOrdered", restRefusal(projections, order));
 	const cause = projections.work.lastVitalitySeq.get(order.agent_id);

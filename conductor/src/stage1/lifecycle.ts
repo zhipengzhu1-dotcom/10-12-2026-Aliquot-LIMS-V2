@@ -1,21 +1,13 @@
 import { orRefuse } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
-import {
-	EvaluationId,
-	nextId,
-	type RunId,
-	type Seq,
-	type TaskId,
-} from "../ids.js";
+import { EvaluationId, nextId, type RunId, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import type { Recorded } from "../lifecycle-support.js";
 import type { Actor } from "../types/actor.js";
 import type { SubmissionEvaluation } from "./evaluate.js";
 import { runFinishedFor } from "./guards.js";
 
 export type Evaluation = PayloadOf<"EvaluationRecorded">;
-
-/** The Evaluation as the Event recorded it, and the Event's seq. */
-export type Evaluated = { readonly evaluation: Evaluation; readonly seq: Seq };
 
 /**
  * Record the Evaluation of a finished Run for a live Task under the next
@@ -33,7 +25,7 @@ export const recordEvaluation = (
 		readonly task_id: TaskId;
 		readonly run_id: RunId;
 	},
-): Evaluated => {
+): Recorded<"evaluation", Evaluation> => {
 	const { projections } = ledger;
 	const finished = orRefuse(
 		"EvaluationRecorded",

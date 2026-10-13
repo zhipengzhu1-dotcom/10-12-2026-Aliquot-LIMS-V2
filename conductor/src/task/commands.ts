@@ -14,6 +14,7 @@ import {
 } from "../command.js";
 import { AgentId, ArtifactId, RubricId, TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import type { Recorded } from "../lifecycle-support.js";
 import { type Task, TaskState, TatClass } from "../types/task.js";
 import {
 	assign,
@@ -22,7 +23,6 @@ import {
 	fail,
 	handOff,
 	propose,
-	type Recorded,
 	start,
 } from "./lifecycle.js";
 import { TaskProjection, type TaskView } from "./projection.js";
@@ -57,7 +57,7 @@ const readView = (home: string): TaskView => {
 };
 
 /** Run one lifecycle verb under the writer lock and return what it recorded. */
-const recordUnderWriterLock = <R extends Recorded>(
+const recordUnderWriterLock = <R extends Recorded<"task", Task>>(
 	ctx: CommandContext,
 	verb: (ledger: Ledger) => R,
 ): R => withLedger(ctx.home, true, verb);
