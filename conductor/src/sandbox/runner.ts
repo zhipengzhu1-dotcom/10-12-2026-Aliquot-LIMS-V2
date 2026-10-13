@@ -14,19 +14,14 @@ import { constants, tmpdir } from "node:os";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
-import {
-	type ArtifactId,
-	nextId,
-	RunId,
-	type Seq,
-	type TaskId,
-} from "../ids.js";
+import type { ArtifactId, Seq, TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Actor } from "../types/actor.js";
 import { ArtifactFilename, ArtifactType } from "../types/artifact.js";
 import type { Run, ScriptRef } from "../types/script.js";
 import { type ArtifactMeta, openArtifacts } from "./artifacts.js";
 import { imageId } from "./image.js";
+import { finishRun, startRun } from "./lifecycle.js";
 import { findScript, scriptDir } from "./scripts.js";
 
 // The Conductor never loads Script code. A Run is one `docker run` child
@@ -177,12 +172,12 @@ const listFiles = (dir: string, skipped: string[]): string[] =>
 		.sort();
 
 /**
- * Run one Script version on input Artifacts in the Sandbox. Appends
- * RunStarted, then ArtifactStored for stdout, stderr and every file the
- * Script left in `/outputs` (Lineage = the inputs, produced by this Run; bytes
- * the Ledger already holds get this Run's record as a further production),
- * then RunFinished. A Script killed at the time limit finishes with exit code
- * 124 and a closing line in its stderr Artifact saying so.
+ * Run one Script version on input Artifacts in the Sandbox. The Sandbox
+ * lifecycle records RunStarted, then ArtifactStored for stdout, stderr and
+ * every file the Script left in `/outputs` (Lineage = the inputs, produced by
+ * this Run; bytes the Ledger already holds get this Run's record as a further
+ * production), then RunFinished. A Script killed at the time limit finishes
+ * with exit code 124 and a closing line in its stderr Artifact saying so.
  */
 export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 	const { ledger, home, actor, task_id } = options;
@@ -209,7 +204,6 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 	}
 
 	const artifacts = openArtifacts({ ledger, home });
-	const runId = RunId.parse(nextId("R", ledger.projections.runs.runs.keys()));
 	const work = mkdtempSync(join(tmpdir(), "aliquot-run-"));
 	try {
 		const inputsDir = join(work, "inputs");
@@ -239,12 +233,12 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 			},
 		);
 
-		const started = ledger.append({
+		const { run_id: runId } = startRun(ledger, {
 			actor,
 			task_id,
 			causation_id: options.causation_id,
-			kind: "RunStarted",
-			payload: { run_id: runId, script: ref, inputs },
+			script: ref,
+			inputs,
 		});
 
 		const name = `aliquot-${runId}-${randomUUID().slice(0, 8)}`;
@@ -294,7 +288,7 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 			}
 		}
 
-		const by = { actor, task_id, causation_id: started.seq };
+		const by = { actor };
 		const produced: Omit<ArtifactMeta, "artifact_type" | "media_type"> = {
 			produced_by: { tag: "Run", id: runId },
 			lineage,
@@ -352,13 +346,7 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 			stderr_ref: log(stderr, "stderr.txt"),
 			duration_ms,
 		};
-		const finished = ledger.append({
-			...by,
-			kind: "RunFinished",
-			payload: run,
-		});
-		if (finished.kind !== "RunFinished") throw new Error("unreachable");
-		return finished.payload;
+		return finishRun(ledger, { actor, run }).run;
 	} finally {
 		// Best effort: on Linux a Script's subdirectories belong to uid 10001.
 		try {

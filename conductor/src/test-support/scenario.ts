@@ -4,8 +4,6 @@ import {
 	AgentId,
 	ArtifactId,
 	type GateId,
-	RunId,
-	ScriptId,
 	Sha256,
 	type TaskId,
 } from "../ids.js";
@@ -17,6 +15,7 @@ import {
 } from "../ledger.js";
 import { retire as retireAgent } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
+import { finishRun, register, startRun, store } from "../sandbox/lifecycle.js";
 import { recordEvaluation } from "../stage1/lifecycle.js";
 import type { Storage } from "../storage.js";
 import {
@@ -77,34 +76,26 @@ export const scenario = (
 			: openLedger({ ...opened, home });
 	seedOrg(ledger);
 	// One stored Artifact and one registered Script, so Runs pass the Sandbox guards.
-	ledger.append({
-		actor: operator,
-		kind: "ArtifactStored",
-		payload: {
-			id: artifact,
+	store(
+		ledger,
+		{ actor: operator },
+		{
 			sha256: Sha256.parse(artifact),
 			media_type: "text/plain",
 			artifact_type: "Other",
-			produced_by: { tag: "Operator" },
+			produced_by: operator,
 			lineage: [],
 		},
-	});
-	ledger.append({
+	);
+	const { script } = register(ledger, {
 		actor: operator,
-		kind: "ScriptRegistered",
-		payload: {
-			id: ScriptId.parse("S-copy"),
-			version: 1,
-			name: "copy",
-			owner_agent: AgentId.parse("A-bram"),
-			input_types: [],
-			output_types: [],
-			entrypoint: "main.py",
-			fixtures: [],
-			image_digest: Sha256.parse("b".repeat(64)),
-		},
+		name: "copy",
+		owner_agent: AgentId.parse("A-bram"),
+		input_types: [],
+		output_types: [],
+		entrypoint: "main.py",
+		image_digest: Sha256.parse("b".repeat(64)),
 	});
-	let runs = 0;
 
 	/** Append an Event outside the Task lifecycle, such as a Gate decision. */
 	const appendNonTask = (event: NonTaskEvent): Event => {
@@ -199,22 +190,17 @@ export const scenario = (
 
 	/** A Run on `task_id` that exits with `exit_code`, and its Evaluation. */
 	const run = (task_id: TaskId, exit_code: number, score?: number) => {
-		runs += 1;
-		const id = RunId.parse(`R-${runs}`);
-		const script = { id: ScriptId.parse("S-copy"), version: 1 };
-		ledger.append({
+		const { run_id: id } = startRun(ledger, {
 			actor: operator,
 			task_id,
-			kind: "RunStarted",
-			payload: { run_id: id, script, inputs: [] },
+			script,
+			inputs: [],
 		});
-		ledger.append({
+		finishRun(ledger, {
 			actor: operator,
-			task_id,
-			kind: "RunFinished",
-			payload: {
+			run: {
 				id,
-				script,
+				script: { id: script.id, version: script.version },
 				inputs: [],
 				outputs: [],
 				exit_code,

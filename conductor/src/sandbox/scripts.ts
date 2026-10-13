@@ -1,15 +1,18 @@
 import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type AgentId, ScriptId, type Sha256 } from "../ids.js";
+import type { AgentId, ScriptId, Seq, Sha256 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { ArtifactType } from "../types/artifact.js";
 import type { Script, ScriptRef } from "../types/script.js";
+import { register } from "./lifecycle.js";
 
 /** Every registered Script, each with its versions in order. */
 export type ScriptProjection = {
 	readonly scripts: ReadonlyMap<ScriptId, readonly Script[]>;
+	/** The seq of each Script's latest version. */
+	readonly lastSeq: ReadonlyMap<ScriptId, Seq>;
 };
 
 /**
@@ -17,7 +20,7 @@ export type ScriptProjection = {
  * version.
  */
 export const scriptProjection: Projection<ScriptProjection> = {
-	init: { scripts: new Map() },
+	init: { scripts: new Map(), lastSeq: new Map() },
 	reduce: (state, event) => {
 		if (event.kind !== "ScriptRegistered" && event.kind !== "ScriptRevised") {
 			return state;
@@ -45,6 +48,7 @@ export const scriptProjection: Projection<ScriptProjection> = {
 		}
 		return {
 			scripts: new Map(state.scripts).set(script.id, [...versions, script]),
+			lastSeq: new Map(state.lastSeq).set(script.id, event.seq),
 		};
 	},
 };
@@ -81,42 +85,26 @@ export type RegisterScript = {
  * Record a Script version: ScriptRegistered (version 1) for a new name, else
  * ScriptRevised with the next version. The code is copied under `home` first.
  */
-export const registerScript = (options: RegisterScript): Script => {
-	const { ledger, home, name } = options;
-	const entrypoint = options.entrypoint ?? "main.py";
-	if (!statSync(options.scriptDir).isDirectory()) {
-		throw new Error(`${options.scriptDir} is not a directory`);
+export const registerScript = ({
+	ledger,
+	home,
+	scriptDir: source,
+	entrypoint = "main.py",
+	...fields
+}: RegisterScript): Script => {
+	if (!statSync(source).isDirectory()) {
+		throw new Error(`${source} is not a directory`);
 	}
-	if (!existsSync(join(options.scriptDir, entrypoint))) {
-		throw new Error(`${options.scriptDir} has no entrypoint ${entrypoint}`);
+	if (!existsSync(join(source, entrypoint))) {
+		throw new Error(`${source} has no entrypoint ${entrypoint}`);
 	}
-	const id = ScriptId.parse(`S-${name}`);
-	const latest = ledger.projections.scripts.scripts.get(id)?.at(-1);
-	const script: Script = {
-		id,
-		version: (latest?.version ?? 0) + 1,
-		name,
-		owner_agent: options.owner_agent,
-		input_types: [...options.input_types],
-		output_types: [...options.output_types],
-		entrypoint,
-		fixtures: [],
-		image_digest: options.image_digest,
-	};
-	const target = scriptDir(home, script);
-	mkdirSync(join(target, ".."), { recursive: true });
-	cpSync(options.scriptDir, target, {
-		recursive: true,
-		force: true,
-		filter: (source) => !source.includes("__pycache__"),
-	});
-	const event = ledger.append({
-		actor: options.actor,
-		kind: latest ? "ScriptRevised" : "ScriptRegistered",
-		payload: script,
-	});
-	if (event.kind !== "ScriptRegistered" && event.kind !== "ScriptRevised") {
-		throw new Error("unreachable");
-	}
-	return event.payload;
+	return register(ledger, { ...fields, entrypoint }, (script) => {
+		const target = scriptDir(home, script);
+		mkdirSync(join(target, ".."), { recursive: true });
+		cpSync(source, target, {
+			recursive: true,
+			force: true,
+			filter: (path) => !path.includes("__pycache__"),
+		});
+	}).script;
 };

@@ -2,9 +2,8 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RunId, ScriptId, Sha256 } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
-import { lineageOf, openArtifacts } from "./artifacts.js";
+import { openArtifacts } from "./artifacts.js";
 
 const operator = { tag: "Operator" } as const;
 const form = {
@@ -97,74 +96,5 @@ describe("artifact projection", () => {
 			lineage: [input.id],
 			sha256: output.id,
 		});
-	});
-});
-
-describe("productions", () => {
-	it("records each Run that produces bytes the Ledger already holds, once, and keeps the Operator's record canonical", () => {
-		const artifacts = openArtifacts({ ledger, home });
-		const input = artifacts.store(Buffer.from("lot LT-0042\n"), form, {
-			actor: operator,
-		});
-		ledger.append({
-			actor: operator,
-			kind: "ScriptRegistered",
-			payload: {
-				id: ScriptId.parse("S-copy"),
-				version: 1,
-				name: "copy",
-				owner_agent: "A-odile" as never,
-				input_types: ["Other"],
-				output_types: ["Other"],
-				entrypoint: "main.py",
-				fixtures: [],
-				image_digest: Sha256.parse("d".repeat(64)),
-			},
-		});
-		const run = RunId.parse("R-1");
-		ledger.append({
-			actor: operator,
-			kind: "RunStarted",
-			payload: {
-				run_id: run,
-				script: { id: ScriptId.parse("S-copy"), version: 1 },
-				inputs: [input.id],
-			},
-		});
-		const byRun = {
-			...form,
-			produced_by: { tag: "Run", id: run },
-			lineage: [input.id],
-		} as const;
-
-		const copy = artifacts.store(Buffer.from("lot LT-0042\n"), byRun, {
-			actor: operator,
-		});
-		const again = artifacts.store(Buffer.from("lot LT-0042\n"), byRun, {
-			actor: operator,
-		});
-		const byOperator = artifacts.store(Buffer.from("lot LT-0042\n"), form, {
-			actor: operator,
-		});
-
-		expect(copy.id).toBe(input.id);
-		expect(copy.produced_by).toEqual({ tag: "Run", id: "R-1" });
-		expect(again).toEqual(copy);
-		expect(byOperator).toEqual(input);
-		expect(storedEvents()).toHaveLength(2);
-
-		const projection = ledger.projections.artifacts;
-		expect(projection.artifacts.get(input.id)).toEqual(input);
-		expect(projection.productions.get(input.id)).toEqual([
-			{ seq: 1, record: input },
-			{ seq: 4, record: copy },
-		]);
-		expect(lineageOf(projection, input.id)).toEqual([]);
-		expect(lineageOf(projection, input.id, { tag: "Run", id: run })).toEqual([
-			input.id,
-		]);
-		expect(
-			lineageOf(projection, input.id, { tag: "Run", id: RunId.parse("R-9") }),
-		).toBeUndefined();
 	});
 });

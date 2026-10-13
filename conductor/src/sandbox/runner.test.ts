@@ -1,7 +1,16 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vitest";
 import type { Sha256 } from "../ids.js";
 import { AgentId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
@@ -10,6 +19,11 @@ import { lineageOf, openArtifacts } from "./artifacts.js";
 import { buildImage, scriptsRoot } from "./image.js";
 import { runScript } from "./runner.js";
 import { registerScript } from "./scripts.js";
+
+// Each build gives its tag a new image id and Docker drops the image the tag
+// held, so this process's tag is its own: other suites and checkouts build at
+// the same time.
+const IMAGE = `aliquot-sandbox:runner-${process.pid}`;
 
 const suite = dockerAvailable
 	? "Sandbox runner (Docker)"
@@ -50,8 +64,12 @@ const storeInput = (text: string, filename: string) =>
 
 describe.skipIf(!requireDocker())(suite, () => {
 	beforeAll(async () => {
-		({ id: image } = await buildImage({ tag: "aliquot-sandbox:test" }));
+		({ id: image } = await buildImage({ tag: IMAGE }));
 	}, 600_000);
+
+	afterAll(() => {
+		spawnSync("docker", ["rmi", IMAGE], { stdio: "ignore" });
+	});
 
 	beforeEach(() => {
 		home = mkdtempSync(join(tmpdir(), "aliquot-runner-"));
