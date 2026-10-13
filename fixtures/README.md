@@ -8,7 +8,7 @@ Every file here is synthetic. The synthetic generator in `sandbox/synth/` invent
 |---|---|---|
 | `submission-form-seed1.docx` | `synth --seed 1` | `submission-form-seed1.expected.json`: the record `parse_submission` must write |
 
-CI runs every `*.docx` here through stage 1 with `aliquot stage1 run-all fixtures`. The job fails when any Evaluation fails.
+CI runs every `*.docx` here through every stage of the toy workflow with `aliquot workflow run-all fixtures`. The job fails when any Evaluation fails.
 
 ## Regenerate a Fixture
 

@@ -28,8 +28,9 @@ export const runFinishedFor = (
 
 const evaluations: AppendGuard = (projections, event) => {
 	if (event.kind !== "EvaluationRecorded") return undefined;
-	const { run_id, task_id } = event.payload;
+	const { eval_id, stage, run_id, task_id } = event.payload;
+	if (stage === undefined) return `${eval_id} names no stage`;
 	return reasonOf(runFinishedFor(projections, run_id, task_id));
 };
 
-export const stage1Guards: readonly AppendGuard[] = [evaluations];
+export const workflowGuards: readonly AppendGuard[] = [evaluations];

@@ -6,6 +6,8 @@
  */
 
 import { TAT_CODES } from "../types/task.js";
+import type { Scored } from "./lifecycle.js";
+import type { StageOutput } from "./stages.js";
 
 /**
  * Required fields per section: the record key, then each field's record key
@@ -62,15 +64,6 @@ export const REQUIRED_FIELDS = {
 
 const VALID_TAT_CODES: readonly string[] = Object.keys(TAT_CODES);
 
-export type SubmissionEvaluation = {
-	/** Fraction of checks passed, 0 to 1. */
-	score: number;
-	/** Every check passed. */
-	passed: boolean;
-	/** One line per failed check. */
-	findings: string[];
-};
-
 const objectAt = (value: unknown, key: string): Record<string, unknown> => {
 	if (typeof value !== "object" || value === null) return {};
 	const inner = (value as Record<string, unknown>)[key];
@@ -82,7 +75,7 @@ const objectAt = (value: unknown, key: string): Record<string, unknown> => {
 const filled = (value: unknown): value is string =>
 	typeof value === "string" && value.trim() !== "";
 
-export const evaluateSubmission = (record: unknown): SubmissionEvaluation => {
+export const evaluateSubmission = (record: unknown): Scored => {
 	const findings: string[] = [];
 	let checks = 0;
 	for (const [section, { label, fields }] of Object.entries(REQUIRED_FIELDS)) {
@@ -107,4 +100,27 @@ export const evaluateSubmission = (record: unknown): SubmissionEvaluation => {
 		passed: findings.length === 0,
 		findings,
 	};
+};
+
+const failed = (finding: string): Scored => ({
+	score: 0,
+	passed: false,
+	findings: [finding],
+});
+
+/** Stage 1's Evaluation of its Run: the SubmissionRecord, read as JSON and checked. */
+export const evaluateSubmissionRecord = (
+	outputs: readonly StageOutput[],
+): Scored => {
+	const record = outputs.find((o) => o.artifact_type === "SubmissionRecord");
+	if (!record) return failed("the Run wrote no SubmissionRecord");
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(record.bytes.toString("utf8"));
+	} catch (error) {
+		return failed(
+			`${record.filename ?? record.id} is not JSON: ${(error as Error).message}`,
+		);
+	}
+	return evaluateSubmission(parsed);
 };

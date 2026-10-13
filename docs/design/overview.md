@@ -71,7 +71,7 @@ Only a domain's lifecycle module appends Events, and no command appends a raw on
 | `room/lifecycle.ts` | `RoomOpened`, `MessageSent` |
 | `sandbox/lifecycle.ts` | `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored` |
 | `vitality/lifecycle.ts` | `VitalitySampled`, `RestOrdered` |
-| `stage1/lifecycle.ts` | `EvaluationRecorded` |
+| `workflow/lifecycle.ts` | `EvaluationRecorded` |
 
 The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). No lifecycle appends `HelpRequested`, `HumanCoached`, `MemoryNoted` or `SkillPublished` yet. Those kinds are reserved for a later slice, and no command writes them. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
 
@@ -107,7 +107,7 @@ type AgentDefinition = {
 
 A Task moves through a state machine. A Hand-off is a transition back to `Assigned` with a new assignee, not a state of its own. A Task that the Trust tier rules do not select for Review goes from `InProgress` straight to `Done`. A `Done` Task keeps its assignee, so the Task Projection alone says whose work a Review scores.
 
-One module, the Task lifecycle (`task/lifecycle.ts`), appends every Task Event: it proposes, assigns, starts, hands off, escalates, completes, reviews, and fails a Task, and blocks one on a Gate it requests. Each verb mints the ids it needs from the Projections and returns the new Task and the seq it appended. Each verb also names the Event's cause in `causation_id`, from the Projections. The cause is the Task's previous Event, which the Task Projection keeps, or for a completion after Review the reviewer's `ReviewRecorded`. A caller names a cause only when it lies outside the Task, as the stage 1 tracer names the `EvaluationRecorded` it completes a Task on. A verb that the Projections already refuse, such as a Hand-off of a Task that is not `InProgress`, is refused before the verb builds an Event, in the same words. Completing a Task decides its Review: the verb asks the Trust tier whether the sample picks the Task. If it does, the Task goes `UnderReview` with the named reviewer, and a completion that names none is refused as sampled for Review. If it does not, the Review is skipped, and a named reviewer is unused. So `task complete <id>` takes only `--reviewer` and `--output`, and on a Task `UnderReview` it completes the Task after Review.
+One module, the Task lifecycle (`task/lifecycle.ts`), appends every Task Event: it proposes, assigns, starts, hands off, escalates, completes, reviews, and fails a Task, and blocks one on a Gate it requests. Each verb mints the ids it needs from the Projections and returns the new Task and the seq it appended. Each verb also names the Event's cause in `causation_id`, from the Projections. The cause is the Task's previous Event, which the Task Projection keeps, or for a completion after Review the reviewer's `ReviewRecorded`. A caller names a cause only when it lies outside the Task, as the workflow tracer names the `EvaluationRecorded` it completes a Task on. A verb that the Projections already refuse, such as a Hand-off of a Task that is not `InProgress`, is refused before the verb builds an Event, in the same words. Completing a Task decides its Review: the verb asks the Trust tier whether the sample picks the Task. If it does, the Task goes `UnderReview` with the named reviewer, and a completion that names none is refused as sampled for Review. If it does not, the Review is skipped, and a named reviewer is unused. So `task complete <id>` takes only `--reviewer` and `--output`, and on a Task `UnderReview` it completes the Task after Review.
 
 ```ts
 type TaskState =
@@ -142,7 +142,7 @@ An Artifact is a content-addressed file. Its Lineage lists the Artifacts it was 
 
 ```ts
 type ArtifactType =
-	| "SubmissionForm" | "ReceivingLogRow" | "WorkOrder"
+	| "SubmissionForm" | "SubmissionRecord" | "ReceivingLogRow" | "WorkOrder"
 	| "ResultWorksheet" | "VerificationRecord" | "ReportOfAnalysis" | "Other";
 
 type Artifact = {
@@ -154,6 +154,8 @@ type Artifact = {
 	lineage: ArtifactId[];
 };
 ```
+
+`sandbox lineage <artifact id>` walks an Artifact's Lineage back to the Artifacts that have none, one line per production, each naming the Run and Script version that produced it. The Auditor's Lineage check reads this walk.
 
 ### 5. Script and Run
 
@@ -185,7 +187,7 @@ type Run = {
 };
 ```
 
-One module, the Sandbox lifecycle (`sandbox/lifecycle.ts`), appends every Sandbox Event: it registers and revises a Script, starts and finishes a Run, and stores an Artifact. The Script registry, the runner and the Artifact store keep their own work, the copy of a Script's code, the `docker run` and the blob, and call the lifecycle to record it. Each verb mints the ids it needs from the Projections and returns what it appended with its seq. Each verb also names the Event's cause in `causation_id`, from the Projections. A `ScriptRevised` names the Script's previous version. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. A caller names a cause only when it lies outside the Sandbox, as the stage 1 tracer names the `TaskStarted` it runs a Script on, so only starting a Run takes a cause and a Task from its caller. Storing bytes the Ledger already holds appends nothing unless a new Run produced them, and returns the `ArtifactStored` that already records them.
+One module, the Sandbox lifecycle (`sandbox/lifecycle.ts`), appends every Sandbox Event: it registers and revises a Script, starts and finishes a Run, and stores an Artifact. The Script registry, the runner and the Artifact store keep their own work, the copy of a Script's code, the `docker run` and the blob, and call the lifecycle to record it. Each verb mints the ids it needs from the Projections and returns what it appended with its seq. Each verb also names the Event's cause in `causation_id`, from the Projections. A `ScriptRevised` names the Script's previous version. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. A caller names a cause only when it lies outside the Sandbox, as the workflow tracer names the `TaskStarted` it runs a Script on, so only starting a Run takes a cause and a Task from its caller. Storing bytes the Ledger already holds appends nothing unless a new Run produced them, and returns the `ArtifactStored` that already records them.
 
 ### 6. Vitality, Mood, and Policy
 
@@ -339,14 +341,27 @@ A synthetic generator invents Clients, products, Lots, and dates in the shape of
 
 | Stage | Input Artifact | Script | Output Artifact | Evaluation |
 |---|---|---|---|---|
-| 1. Submission | Synthetic Submission Form (docx) | `parse_submission` | Structured submission record | Every required field is present and every TAT code is valid. |
+| 1. Submission | Synthetic Submission Form (docx) | `parse_submission` | Structured submission record (`SubmissionRecord`) | Every required field is present and every TAT code is valid. |
 | 2. Receipt | Submission record | `log_receipt` | Receiving Log row (xlsx) and toy LIMS Sample rows | One row per container, and the Lot and Product Code match the Submission Form. |
 | 3. Work Order | Sample rows | `create_work_order` | Work Order (xlsx) with Tests and a due date from TAT | The due date arithmetic is correct and every Sample has Tests. |
 | 4. Results | Work Order and synthetic weighings | `compute_results` | Result Worksheet (xlsx with `=F/20` style formulas) | The formulas are present and agree with the values. |
 | 5. Verification | Result Worksheet | `verify_results`, run by a different Agent than stage 4 | Verification Record | The independent recomputation agrees within tolerance. |
 | 6. Report | Verification Record and metadata | `render_roa` | Report of Analysis (xlsx and PDF) | Every metadata field traces to the Receiving Log row, and no field is typed by hand. |
 
-The stage 1 lifecycle (`stage1/lifecycle.ts`) appends every `EvaluationRecorded`. It mints the Evaluation id from the Projections and names the `RunFinished` of the Run it scores as the Event's cause. It refuses an Evaluation of a Run that has not finished, or for a Task that is no longer live, before it builds the Event, in the words of the stage 1 guard. The stage 1 tracer appends nothing itself: it calls the Sandbox, the Task lifecycle, and this lifecycle.
+The workflow is one table of stages in code (`workflow/stages.ts`). A row names the stage number and name, the Script, the input Artifact types the stage takes from the previous stage's outputs, the types it carries from the Ledger instead (the latest Artifact of that type, such as the toy LIMS database from stage 2), its output types, the Agent that works it, the Agent that reviews it, and the Evaluation that scores the Run's outputs. Adding a stage is adding a row, a Script directory, and an Evaluation. The table is refused at load when its rows are not stages 1, 2, 3 in order, or when stage 5 is worked by the Agent that works stage 4. The rows planned for slice 1:
+
+| Stage | Script | Worked by | Reviewed by |
+|---|---|---|---|
+| 1 Submission | `parse_submission` | Rin | Pia |
+| 2 Receipt | `log_receipt` | Bram | Pia |
+| 3 Work Order | `create_work_order` | Bram | Pia |
+| 4 Results | `compute_results` | Rin | Anselm |
+| 5 Verification | `verify_results` | Bram | Anselm |
+| 6 Report | `render_roa` | Ines | Anselm |
+
+The workflow tracer (`workflow/tracer.ts`) runs the table on a Submission Form Fixture. Each stage is a Task worked by the stage's Agent, on the previous stage's outputs chosen by Artifact type, until the table ends or a Task fails. A stage whose input type is missing is refused before its Task is proposed. Each stage's `TaskProposed` names the previous stage's last `TaskCompleted` as its cause, so the causal chain runs unbroken from the Fixture to the last stage.
+
+The workflow lifecycle (`workflow/lifecycle.ts`) appends every `EvaluationRecorded`. It mints the Evaluation id from the Projections, records the stage the Evaluation scores, and names the `RunFinished` of the Run it scores as the Event's cause. It refuses an Evaluation of a Run that has not finished, or for a Task that is no longer live, before it builds the Event, in the words of the workflow guard. The guard also refuses a new Evaluation that names no stage; one recorded before Evaluations named their stage still loads (ADR-0012). The workflow tracer appends nothing itself: it calls the Sandbox, the Task lifecycle, and this lifecycle.
 
 ## The Operator's interface
 
