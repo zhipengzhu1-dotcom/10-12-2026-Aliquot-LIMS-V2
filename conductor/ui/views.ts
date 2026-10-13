@@ -12,8 +12,9 @@ export type Sources = Readonly<Record<string, unknown>>;
 /**
  * One page of the interface: its hash route, the API routes it reads, and a
  * pure function from their JSON and the hash's query, such as
- * `#/flow?task=T-1`, to markup. Each view ticket replaces a `render`; the
- * shell keeps fetching `sources` again on every Ledger Event.
+ * `#/flow?task=T-1`, to markup. Each drawn view has a `render` of its own;
+ * the shell fetches `sources` again on every Ledger Event and each time the
+ * Event stream opens.
  */
 export type View = {
 	readonly name: string;
@@ -36,7 +37,7 @@ export type View = {
 
 export { escapeHtml };
 
-/** Each source's JSON as it came, until the view's ticket draws it. */
+/** Each source's JSON as it came, for a view not drawn yet. */
 export const jsonPage = (view: View, data: Sources): string =>
 	[
 		`<h1>${escapeHtml(view.title)}</h1>`,

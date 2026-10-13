@@ -35,7 +35,10 @@ type AgentVitality = {
 };
 
 /** The roles an Agent may report to by `supervisor_id`. */
-const LEADS: ReadonlySet<string> = new Set(["Director", "Supervisor"]);
+const SUPERVISING_ROLES: ReadonlySet<string> = new Set([
+	"Director",
+	"Supervisor",
+]);
 
 const andList = (names: readonly string[]) =>
 	names.length <= 1
@@ -64,14 +67,17 @@ const reasonField = (formId: string, name: string) =>
  * RetireAgent Gate. A supervisor that is the Agent or reports to it would
  * make a loop, so it is not offered.
  */
-const actions = (node: OrgNode & { tag: "Agent" }, leads: AgentState[]) => {
+const actions = (
+	node: OrgNode & { tag: "Agent" },
+	supervisors: AgentState[],
+) => {
 	const { definition, paused } = node.agent;
 	const id = escapeHtml(definition.id);
 	const below = new Set(agentsIn(node).map((a) => a.definition.id));
 	const options = [
 		`<option value="">Operator</option>`,
-		...leads
-			.filter((lead) => !below.has(lead.definition.id))
+		...supervisors
+			.filter((supervisor) => !below.has(supervisor.definition.id))
 			.map(
 				({ definition: d }) =>
 					`<option value="${escapeHtml(d.id)}"${d.id === definition.supervisor_id ? " selected" : ""}>${escapeHtml(d.name)}, ${escapeHtml(d.role)}</option>`,
@@ -112,7 +118,7 @@ const actions = (node: OrgNode & { tag: "Agent" }, leads: AgentState[]) => {
 const agentLine = (
 	node: OrgNode & { tag: "Agent" },
 	vitality: Readonly<Record<string, AgentVitality>>,
-	leads: AgentState[],
+	supervisors: AgentState[],
 ) => {
 	const { definition, paused } = node.agent;
 	const id = escapeHtml(definition.id);
@@ -130,23 +136,25 @@ const agentLine = (
 		load === undefined
 			? ""
 			: `<meter class="load" min="0" max="1" low="0.7" high="0.99" optimum="0" value="${load}" aria-label="Load">${load}</meter><span class="load-value">load ${load.toFixed(2)}</span>`,
-		`<details id="act-${id}"><summary>Actions</summary>${actions(node, leads)}</details>`,
+		`<details id="act-${id}"><summary>Actions</summary>${actions(node, supervisors)}</details>`,
 		"</div>",
 	].join("");
 };
 
-const item = (
+const branch = (
 	node: OrgNode,
 	vitality: Readonly<Record<string, AgentVitality>>,
-	leads: AgentState[],
+	supervisors: AgentState[],
 ): string => {
 	const line =
 		node.tag === "Operator"
 			? `<div class="operator">Operator</div>`
 			: node.tag === "Pool"
 				? `<div class="pool">Specialist pool, reports to ${escapeHtml(andList(node.supervisors.map((s) => s.definition.name)))}</div>`
-				: agentLine(node, vitality, leads);
-	const children = node.children.map((c) => item(c, vitality, leads)).join("");
+				: agentLine(node, vitality, supervisors);
+	const children = node.children
+		.map((c) => branch(c, vitality, supervisors))
+		.join("");
 	return `<li>${line}${children === "" ? "" : `<ul>${children}</ul>`}</li>`;
 };
 
@@ -158,8 +166,10 @@ const item = (
 const render = (_view: View, data: Sources): string => {
 	const root = data["org-tree"] as OrgNode;
 	const vitality = data.vitality as Readonly<Record<string, AgentVitality>>;
-	const leads = agentsIn(root).filter((a) => LEADS.has(a.definition.role));
-	return `<h1>Org</h1><ul class="org">${item(root, vitality, leads)}</ul>`;
+	const supervisors = agentsIn(root).filter((a) =>
+		SUPERVISING_ROLES.has(a.definition.role),
+	);
+	return `<h1>Org</h1><ul class="org">${branch(root, vitality, supervisors)}</ul>`;
 };
 
 export const orgView: View = {

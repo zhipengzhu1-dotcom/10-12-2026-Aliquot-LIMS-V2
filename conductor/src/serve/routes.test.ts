@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../hash.js";
 import { AgentId, ArtifactId, Sha256 } from "../ids.js";
 import { store } from "../sandbox/lifecycle.js";
+import { fail } from "../task/lifecycle.js";
 import { scenario, scores } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import type { ArtifactType } from "../types/artifact.js";
@@ -83,6 +84,7 @@ describe("the routes the Flow and Performance views read", () => {
 				assignee: "A-rin",
 				quality: 3,
 				timeliness: 3,
+				note: "",
 				merit: 3,
 			}),
 			expect.objectContaining({
@@ -99,6 +101,43 @@ describe("the routes the Flow and Performance views read", () => {
 			.filter((e) => e.kind === "ReviewRecorded")
 			.map((e) => [e.seq, e.ts]);
 		expect(rows.map((r) => [r.seq, r.at])).toEqual(reviewSeqs);
+	});
+
+	it("reviews names the Agent a Review counted toward after its Task fails", () => {
+		const s = scenario();
+		const task_id = s.submitted(rin);
+		s.review(task_id, scores(2));
+		fail(s.ledger, {
+			actor: { tag: "Operator" },
+			task_id,
+			reason: "Sample spoiled",
+		});
+
+		const rows = PROJECTION_ROUTES.reviews(s.ledger.projections);
+
+		expect(rows).toEqual([
+			expect.objectContaining({ task_id, assignee: "A-rin", merit: 2 }),
+		]);
+	});
+
+	it("reviews serves an Agent's counted Reviews past the 20-Task Merit window", () => {
+		const s = scenario();
+		const first = s.reviewed(rin, scores(0));
+		for (let i = 0; i < 20; i++) s.reviewed(rin, scores(3));
+
+		const rows = PROJECTION_ROUTES.reviews(s.ledger.projections);
+
+		const reviewSeqs = s
+			.events()
+			.filter((e) => e.kind === "ReviewRecorded")
+			.map((e) => e.seq);
+		expect(rows.map((r) => [r.assignee, r.seq])).toEqual(
+			reviewSeqs.map((seq) => ["A-rin", seq]),
+		);
+		expect(rows[0], "the Review outside the window").toEqual(
+			expect.objectContaining({ task_id: first, merit: 0 }),
+		);
+		expect(rows.at(-1)?.merit, "Merit over the last 20 Tasks").toBe(3);
 	});
 
 	it("budget serves the society's tokens in the trailing 5 hours against the Energy budget", () => {

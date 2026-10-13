@@ -1,4 +1,4 @@
-import { type Actor, actorText } from "./gates.js";
+import { DIMENSIONS, type ReviewRow } from "./csv.js";
 import { escapeHtml } from "./markup.js";
 import type { Sources, View } from "./views.js";
 
@@ -33,17 +33,11 @@ export type AgentState = {
 	readonly retired: boolean;
 };
 
-const SCORES = [
-	"quality",
-	"traceability",
-	"boundary_adherence",
-	"collaboration",
-	"timeliness",
-] as const;
-
-type Review = { readonly task_id: string; readonly reviewer: Actor } & {
-	readonly [score in (typeof SCORES)[number]]: number;
-} & { readonly note: string };
+/** One Review of `/api/reviews` that counted toward the Agent's Merit. */
+type CountedReview = ReviewRow & {
+	readonly note: string;
+	readonly merit: number;
+};
 
 /** One live Agent of `/api/vitality`. */
 type AgentVitality = {
@@ -59,7 +53,6 @@ type Standing = {
 	readonly standing: {
 		readonly merit?: number;
 		readonly reviewedTasks: number;
-		readonly window: readonly Review[];
 	};
 };
 
@@ -103,24 +96,10 @@ export const agentRoom = (
 			m.tag === "Listed" && m.agents.length === 1 && m.agents[0] === agentId,
 	);
 
-/**
- * The Agent's Merit after each Review in its Merit window: the mean of every
- * score up to and including that Review.
- */
-export const meritPoints = (window: readonly Review[]): number[] => {
-	let sum = 0;
-	let count = 0;
-	return window.map((review) => {
-		for (const score of SCORES) sum += review[score];
-		count += SCORES.length;
-		return sum / count;
-	});
-};
-
-const list = (items: readonly string[]) =>
-	items.length === 0
+const list = (lines: readonly string[]) =>
+	lines.length === 0
 		? `<p class="empty">None.</p>`
-		: `<ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul>`;
+		: `<ul>${lines.map((line) => `<li>${line}</li>`).join("")}</ul>`;
 
 const section = (id: string, title: string, body: string) =>
 	`<section id="${id}"><h2>${title}</h2>${body}</section>`;
@@ -172,45 +151,53 @@ const vitalitySection = (v: AgentVitality | undefined) =>
 	);
 
 /** One point per Review on a 0 to 3 scale, joined in Ledger order. */
-const meritChart = (points: readonly number[]) => {
+const meritChart = (merits: readonly number[]) => {
 	const w = 240;
 	const h = 60;
 	const x = (i: number) =>
-		points.length === 1 ? w / 2 : 6 + (i * (w - 12)) / (points.length - 1);
+		merits.length === 1 ? w / 2 : 6 + (i * (w - 12)) / (merits.length - 1);
 	const y = (merit: number) => h - 6 - (merit / 3) * (h - 12);
-	const at = points.map((m, i) => [x(i).toFixed(1), y(m).toFixed(1)] as const);
+	const at = merits.map((m, i) => [x(i).toFixed(1), y(m).toFixed(1)] as const);
 	return `<svg class="merit" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Merit after each Review"><polyline points="${at.map((p) => p.join(",")).join(" ")}" />${at
 		.map(
 			([cx, cy], i) =>
-				`<circle cx="${cx}" cy="${cy}" r="3"><title>${(points[i] ?? 0).toFixed(2)}</title></circle>`,
+				`<circle cx="${cx}" cy="${cy}" r="3"><title>${(merits[i] ?? 0).toFixed(2)}</title></circle>`,
 		)
 		.join("")}</svg>`;
 };
 
-const meritSection = (t: Standing | undefined) => {
+const meritSection = (
+	t: Standing | undefined,
+	reviews: readonly CountedReview[],
+) => {
 	if (t === undefined)
 		return section(
 			"merit",
 			"Merit",
 			`<p class="empty">No Merit: the Agent is Retired.</p>`,
 		);
-	const { merit, reviewedTasks, window } = t.standing;
-	const points = meritPoints(window);
-	const rows = window.map(
-		(r, i) =>
-			`<tr><td>${escapeHtml(r.task_id)}</td><td>${escapeHtml(actorText(r.reviewer))}</td>${SCORES.map((s) => `<td>${r[s]}</td>`).join("")}<td>${(points[i] ?? 0).toFixed(2)}</td><td>${escapeHtml(r.note)}</td></tr>`,
+	const { merit, reviewedTasks } = t.standing;
+	const rows = reviews.map(
+		(r) =>
+			`<tr><td>${escapeHtml(r.task_id)}</td><td>${escapeHtml(r.reviewer)}</td>${DIMENSIONS.map((s) => `<td>${r[s]}</td>`).join("")}<td>${r.merit.toFixed(2)}</td><td>${escapeHtml(r.note)}</td></tr>`,
 	);
 	return section(
 		"merit",
 		"Merit",
 		[
 			`<p>Trust tier <span class="badge tier">${escapeHtml(t.tier)}</span>, Merit ${merit === undefined ? "none" : merit.toFixed(2)} over ${reviewedTasks} reviewed Tasks.</p>`,
-			window.length === 0
+			reviews.length === 0
 				? `<p class="empty">No Reviews yet.</p>`
-				: `${meritChart(points)}<table class="rows"><thead><tr><th>Task</th><th>Reviewer</th>${SCORES.map((s) => `<th>${s.replace("_", " ")}</th>`).join("")}<th>Merit after</th><th>Note</th></tr></thead><tbody>${rows.join("")}</tbody></table>`,
+				: `${meritChart(reviews.map((r) => r.merit))}<table class="rows"><thead><tr><th>Task</th><th>Reviewer</th>${DIMENSIONS.map((s) => `<th>${s.replace("_", " ")}</th>`).join("")}<th>Merit after</th><th>Note</th></tr></thead><tbody>${rows.join("")}</tbody></table>`,
 		].join(""),
 	);
 };
+
+/** The Reviews of `/api/reviews` that counted toward `id`'s Merit. */
+const countedFor = (reviews: readonly ReviewRow[], id: string) =>
+	reviews.filter(
+		(r): r is CountedReview => r.assignee === id && r.merit !== null,
+	);
 
 const notesSection = (notes: Training["notes"][string] = []) =>
 	section(
@@ -302,7 +289,7 @@ const revisionAction = (d: Definition) => {
 		"revise",
 		{},
 		`<textarea id="${id}-definition" name="definition" data-json rows="20" aria-label="Definition">${escapeHtml(JSON.stringify(next, null, 2))}</textarea><input id="${id}-reason" name="definition.revision_reason" placeholder="Reason" aria-label="Reason for the Revision" required>`,
-		"Post the Revision",
+		"Submit the Revision",
 	)}</details>`;
 };
 
@@ -352,14 +339,24 @@ const render = (_view: View, data: Sources): string => {
 		vitalitySection(
 			(data.vitality as Readonly<Record<string, AgentVitality>>)[id],
 		),
-		meritSection((data.tiers as Readonly<Record<string, Standing>>)[id]),
+		meritSection(
+			(data.tiers as Readonly<Record<string, Standing>>)[id],
+			countedFor(data.reviews as readonly ReviewRow[], id),
+		),
 		notesSection(training.notes[id]),
 		coachingSection(training.coaching[id]),
 		skillsSection(d, training.skills),
 	].join("");
 };
 
-const SOURCES = ["org", "vitality", "tiers", "training", "rooms"] as const;
+const SOURCES = [
+	"org",
+	"vitality",
+	"tiers",
+	"reviews",
+	"training",
+	"rooms",
+] as const;
 
 export const agentView: View = {
 	name: "agent",

@@ -1,10 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { posix } from "node:path";
 import { describe, expect, it } from "vitest";
 
 type Exemption = {
 	/** Word or phrase blanked out before the scan. */
 	readonly phrase: string;
-	/** Path prefix under conductor/src the exemption covers; every file when absent. */
+	/**
+	 * Path prefix from conductor/src the exemption covers, `../ui/` for the
+	 * interface; every file when absent.
+	 */
 	readonly in?: string;
 	readonly reason: string;
 };
@@ -184,6 +188,22 @@ const ALLOWED: readonly Exemption[] = [
 		in: "serve/access.ts",
 		reason: "the key format createPublicKey reads, a JWK",
 	},
+	{ phrase: "POST", in: "../ui/actions.ts", reason: "the HTTP method" },
+	{
+		phrase: "coach",
+		in: "../ui/agent.ts",
+		reason: "the `coach` action, by which the Operator gives Coaching",
+	},
+	{
+		phrase: "lesson",
+		in: "../ui/agent.ts",
+		reason: "the Memory note field the glossary names",
+	},
+	{
+		phrase: "polyline points",
+		in: "../ui/agent.ts",
+		reason: "the SVG attribute",
+	},
 ];
 
 type Entry = { readonly term: string; readonly avoided: readonly string[] };
@@ -250,8 +270,17 @@ const blank = (allowed: readonly Compiled[], file: string, line: string) =>
 			line,
 		);
 
-const sources = readdirSync(src, { recursive: true, encoding: "utf8" })
-	.filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+// The interface's modules are keyed by their path from conductor/src too, as
+// `../ui/org.ts`, so an exemption's `in` reads the same for both.
+const modules = (dir: string) =>
+	readdirSync(new URL(dir, src), { recursive: true, encoding: "utf8" })
+		.filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+		.map((f) => `${dir}${f}`);
+
+const sources = [
+	...modules(""),
+	...modules("../ui/").filter((f) => f !== "../ui/test-support.ts"),
+]
 	.sort()
 	.map((file) => ({
 		file,
@@ -267,7 +296,7 @@ const scan = (allowed: readonly Compiled[]) =>
 				.map(({ term, word }) => ({
 					file,
 					word,
-					text: `conductor/src/${file}:${i + 1}: ${term} avoids "${word}": ${line.trim()}`,
+					text: `${posix.normalize(`conductor/src/${file}`)}:${i + 1}: ${term} avoids "${word}": ${line.trim()}`,
 				}));
 		}),
 	);
@@ -288,6 +317,24 @@ describe("GLOSSARY.md", () => {
 
 	it("keeps every avoided word out of the conductor source", () => {
 		expect(hits.map((h) => h.text)).toEqual([]);
+	});
+
+	it("reads the interface's modules but not its tests, and names a hit's path", () => {
+		const ui = sources
+			.map(({ file }) => file)
+			.filter((file) => file.startsWith("../ui/"));
+		expect(ui).toContain("../ui/org.ts");
+		expect(ui).not.toContain("../ui/test-support.ts");
+		expect(ui.filter((file) => file.endsWith(".test.ts"))).toEqual([]);
+
+		const unexempted = scan(
+			exemptions.filter((a) => a.in !== "../ui/actions.ts"),
+		);
+		expect(unexempted.map((h) => h.text)).toContainEqual(
+			expect.stringMatching(
+				/^conductor\/ui\/actions\.ts:\d+: Message avoids "post"/,
+			),
+		);
 	});
 
 	it("needs every exemption", () => {

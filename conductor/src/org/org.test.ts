@@ -397,4 +397,20 @@ describe("org guards", () => {
 		resumed();
 		expect(resumed).toThrow(/A-mabel is not paused/);
 	});
+
+	it("refuses to pause an Agent that is already paused", () => {
+		const mabel = AgentId.parse("A-mabel");
+		const paused = () =>
+			pause(s.ledger, { actor: operator, agent_id: mabel, reason: "Rest" });
+
+		paused();
+		const before = s.events().length;
+		expect(paused).toThrow(
+			new AppendRefused("AgentPaused refused: A-mabel is already paused"),
+		);
+		expect(s.events()).toHaveLength(before);
+		resume(s.ledger, { actor: operator, agent_id: mabel });
+		paused();
+		expect(s.ledger.projections.org.agents.get(mabel)?.paused).toBe(true);
+	});
 });
