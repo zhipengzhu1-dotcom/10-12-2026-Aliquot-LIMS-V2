@@ -13,7 +13,7 @@ import {
 	Sha256,
 	TaskId,
 } from "./ids.js";
-import { type Scenario, scenario } from "./vitality/scenario.js";
+import { type Scenario, scenario } from "./test-support/scenario.js";
 
 const operator = { tag: "Operator" } as const;
 const agent = (slug: string) =>

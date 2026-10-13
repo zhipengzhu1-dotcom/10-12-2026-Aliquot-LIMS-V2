@@ -21,7 +21,7 @@ import {
 import { LAB_ROOM } from "./room/seed.js";
 import { memoryStorage, type Storage } from "./storage.js";
 import { forge } from "./test-support/forge.js";
-import { scenario, scores } from "./vitality/scenario.js";
+import { scenario, scores } from "./test-support/scenario.js";
 
 const operator = { tag: "Operator" } as const;
 const lab = RoomId.parse("RM-lab");

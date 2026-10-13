@@ -7,9 +7,9 @@ import { seedOrg } from "../org/seed.js";
 import type { Projections } from "../projections.js";
 import { memoryStorage, type Storage } from "../storage.js";
 import { forge } from "../test-support/forge.js";
+import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import type { Actor, EventActor } from "../types/actor.js";
 import { tierRevisions, vitalityProjection } from "./projection.js";
-import { type Scenario, scenario, scores } from "./scenario.js";
 import { reviewSampleOf } from "./trust.js";
 
 const rin = AgentId.parse("A-rin");
@@ -102,7 +102,7 @@ describe("follow-on tier Revisions", () => {
 		if (agent === undefined) throw new Error("A-rin is not seeded");
 		return agent.definition;
 	};
-	const writtenAfter = (cause: Event) =>
+	const writtenAfter = (cause: Pick<Event, "seq">) =>
 		s.events().filter((e) => e.seq > cause.seq);
 	const printedRin = () => printed(s.ledger.projections.org, "Rin");
 	const reviewOfNextTask = (scored: Parameters<typeof scores>) => {
@@ -241,7 +241,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 	let old: Scenario;
 	beforeEach(() => {
 		storage = memoryStorage();
-		old = scenario(undefined, { followOns: [], storage });
+		old = scenario(undefined, { beforeAdr0011: true, storage });
 	});
 
 	/** Every Event after opening the Ledger again, as the next command would. */

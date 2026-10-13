@@ -5,11 +5,11 @@ import {
 	ArtifactId,
 	EvaluationId,
 	type GateId,
-	RubricId,
 	RunId,
 	ScriptId,
+	type Seq,
 	Sha256,
-	TaskId,
+	type TaskId,
 } from "../ids.js";
 import {
 	type Ledger,
@@ -19,10 +19,17 @@ import {
 } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import type { Storage } from "../storage.js";
+import {
+	assign,
+	complete,
+	propose,
+	type Recorded,
+	review as reviewTask,
+	start,
+} from "../task/lifecycle.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
-import { reviewSampleOf } from "./trust.js";
 
 export type Scores = Pick<
 	Review,
@@ -48,20 +55,29 @@ const artifact = ArtifactId.parse("a".repeat(64));
 
 /**
  * A seeded Ledger with a settable clock, and verbs that walk Tasks through
- * the real Task state machine: in memory, on `storage` when given, or in
- * SQLite under `home` for a test that hands the home to the command line.
- * For tests and demos only.
+ * the Task lifecycle, so the Ledger records what production records: in
+ * memory, on `storage` when given, or in SQLite under `home` for a test that
+ * hands the home to the command line. For tests and demos only.
  */
 export const scenario = (
-	start = "2026-10-01T00:00:00.000Z",
-	options: Pick<LedgerOptions, "followOns"> & {
+	at = "2026-10-01T00:00:00.000Z",
+	options: {
 		storage?: Storage;
 		home?: string;
+		/**
+		 * Write no follow-on tier Revisions, as a Ledger written before
+		 * ADR-0011 did, for a test of the catch-up that repairs such a Ledger.
+		 */
+		beforeAdr0011?: boolean;
 	} = {},
 ) => {
-	let now = new Date(start);
-	const { home, storage, ...rest } = options;
-	const opened = { writer: true, clock: () => now, ...rest };
+	let now = new Date(at);
+	const { home, storage, beforeAdr0011 } = options;
+	const opened: LedgerOptions = {
+		writer: true,
+		clock: () => now,
+		...(beforeAdr0011 ? { followOns: [] } : {}),
+	};
 	const ledger: Ledger =
 		home === undefined
 			? openMemoryLedger({ ...opened, ...(storage && { storage }) })
@@ -95,7 +111,6 @@ export const scenario = (
 			image_digest: Sha256.parse("b".repeat(64)),
 		},
 	});
-	let tasks = 0;
 	let runs = 0;
 
 	const append = (e: NewEvent): Event => ledger.append(e);
@@ -105,121 +120,124 @@ export const scenario = (
 		actor: Actor = operator,
 	) => append({ actor, task_id, ...body } as NewEvent);
 
-	/** Propose a Task, assign it to `agent`, and start it unless told not to. */
-	const task = (agent: AgentId, { start = true } = {}): TaskId => {
-		tasks += 1;
-		const task_id = TaskId.parse(`T-${tasks}`);
-		on(task_id, {
-			kind: "TaskProposed",
-			payload: {
-				task_id,
-				title: `Task ${tasks}`,
-				goal: "Do the work",
-				inputs: [],
-				rubric_id: RubricId.parse("rubric-1"),
-				priority: 1,
-				tat_class: "Regular",
-			},
-		});
-		on(task_id, {
-			kind: "TaskAssigned",
-			payload: { task_id, assignee: agent },
-		});
-		if (start) on(task_id, { kind: "TaskStarted", payload: { task_id } });
-		return task_id;
+	// Each Task Event names the Task's Event before it as its cause, as the
+	// stage 1 tracer's do.
+	const causes = new Map<TaskId, Seq>();
+	const chained = (r: Recorded): Recorded => {
+		causes.set(r.task.id, r.seq);
+		return r;
 	};
+	const cause = (task_id: TaskId) => ({ causation_id: causes.get(task_id) });
 
 	const self = (agent: AgentId): Actor => ({ tag: "Agent", id: agent });
 
-	/** Complete a started Task with review Required, so it is UnderReview. */
+	/** Propose a Task, assign it to `agent`, and start it unless told not to. */
+	const task = (agent: AgentId, { start: started = true } = {}): TaskId => {
+		const { id } = chained(
+			propose(ledger, {
+				actor: operator,
+				title: `Task ${ledger.projections.tasks.tasks.size + 1}`,
+				goal: "Do the work",
+				tat_class: "Regular",
+				priority: 1,
+			}),
+		).task;
+		chained(
+			assign(ledger, {
+				actor: operator,
+				task_id: id,
+				assignee: agent,
+				...cause(id),
+			}),
+		);
+		if (started) {
+			chained(start(ledger, { actor: self(agent), task_id: id, ...cause(id) }));
+		}
+		return id;
+	};
+
+	/**
+	 * Complete a started Task with review Required, so it is UnderReview,
+	 * whether or not the sample for the Agent's tier picks it.
+	 */
 	const submit = (
 		agent: AgentId,
 		task_id: TaskId,
 		reviewer: Actor = operator,
 	) =>
-		on(
-			task_id,
-			{
-				kind: "TaskCompleted",
-				payload: {
-					task_id,
-					outputs: [artifact],
-					review: { tag: "Required", reviewer },
-				},
-			},
-			self(agent),
+		chained(
+			complete(ledger, {
+				actor: self(agent),
+				task_id,
+				outputs: [artifact],
+				reviewer,
+				reviewUnsampled: true,
+				...cause(task_id),
+			}),
 		);
 
 	const review = (
 		task_id: TaskId,
 		s: Scores,
 		reviewer: Actor = operator,
-	): Event =>
-		on(
-			task_id,
-			{
-				kind: "ReviewRecorded",
-				payload: { task_id, reviewer, ...s, note: "" },
-			},
-			reviewer,
+	): Recorded =>
+		chained(
+			reviewTask(ledger, {
+				task_id,
+				reviewer,
+				...s,
+				note: "",
+				...cause(task_id),
+			}),
 		);
 
-	const completeReviewed = (agent: AgentId, id: TaskId, s: Scores) => {
-		submit(agent, id);
-		review(id, s);
-		on(id, {
-			kind: "TaskCompleted",
-			payload: { task_id: id, outputs: [], review: { tag: "Reviewed" } },
-		});
-	};
-
-	const completeSkipped = (agent: AgentId, id: TaskId) => {
-		const { tier } = reviewSampleOf(ledger.projections.trust, agent, id);
-		on(
-			id,
-			{
-				kind: "TaskCompleted",
-				payload: {
-					task_id: id,
-					outputs: [artifact],
-					review: {
-						tag: "Skipped",
-						reason: `not sampled for Review at tier ${tier}`,
-					},
-				},
-			},
-			self(agent),
-		);
+	/** The Operator reviews a Task UnderReview with `s` and completes it. */
+	const close = (task_id: TaskId, s: Scores) => {
+		review(task_id, s);
+		chained(complete(ledger, { actor: operator, task_id, ...cause(task_id) }));
 	};
 
 	/** A Task that `agent` finishes and the Operator reviews with `s`. */
 	const reviewed = (agent: AgentId, s: Scores): TaskId => {
 		const id = task(agent);
-		completeReviewed(agent, id, s);
+		submit(agent, id);
+		close(id, s);
 		return id;
 	};
 
 	/**
-	 * A Task that the Trust tier rules skip for Review. The Ledger refuses it
+	 * A Task that `agent` completes with no reviewer. The Ledger refuses it
 	 * unless the sample for the Agent's tier leaves the next Task id out.
 	 */
 	const skipped = (agent: AgentId): TaskId => {
 		const id = task(agent);
-		completeSkipped(agent, id);
+		chained(
+			complete(ledger, {
+				actor: self(agent),
+				task_id: id,
+				outputs: [artifact],
+				...cause(id),
+			}),
+		);
 		return id;
 	};
 
 	/**
-	 * A Task that `agent` finishes as the Trust tier rules say: reviewed with
-	 * `s` when the sample for its tier picks it, skipped otherwise.
+	 * A Task that `agent` completes for the Operator to review when the
+	 * sample for its tier picks it: reviewed with `s` then, skipped otherwise.
 	 */
 	const worked = (agent: AgentId, s: Scores): TaskId => {
 		const id = task(agent);
-		if (reviewSampleOf(ledger.projections.trust, agent, id).sampled) {
-			completeReviewed(agent, id, s);
-		} else {
-			completeSkipped(agent, id);
-		}
+		const { task: completed } = chained(
+			complete(ledger, {
+				actor: self(agent),
+				task_id: id,
+				outputs: [artifact],
+				reviewer: operator,
+				...cause(id),
+			}),
+		);
+		if (completed.state.tag === "UnderReview") close(id, s);
 		return id;
 	};
 

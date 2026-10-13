@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import { AgentId, TaskId } from "../ids.js";
+import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
-import { type Scenario, scenario, scores } from "./scenario.js";
 
 const rin = AgentId.parse("A-rin");
 const thorne: Actor = { tag: "Agent", id: AgentId.parse("A-thorne") };

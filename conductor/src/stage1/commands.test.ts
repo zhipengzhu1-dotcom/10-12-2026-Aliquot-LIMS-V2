@@ -19,7 +19,7 @@ import { openLedger } from "../ledger.js";
 import { lineageOf } from "../sandbox/artifacts.js";
 import { scriptsRoot } from "../sandbox/image.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
-import { scenario, scores } from "../vitality/scenario.js";
+import { scenario, scores } from "../test-support/scenario.js";
 import { stage1Commands } from "./commands.js";
 
 const suite = dockerAvailable

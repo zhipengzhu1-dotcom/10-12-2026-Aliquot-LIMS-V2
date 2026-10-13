@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
-import { scenario, scores } from "./scenario.js";
+import { scenario, scores } from "../test-support/scenario.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const rin = AgentId.parse("A-rin");

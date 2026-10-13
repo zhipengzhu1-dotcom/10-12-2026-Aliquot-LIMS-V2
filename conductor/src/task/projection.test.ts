@@ -11,7 +11,7 @@ import {
 	TaskId,
 } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
-import { scenario, scores } from "../vitality/scenario.js";
+import { scenario, scores } from "../test-support/scenario.js";
 import { reviewSampled } from "../vitality/trust.js";
 
 const operator = { tag: "Operator" } as const;

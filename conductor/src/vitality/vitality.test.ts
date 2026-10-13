@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
-import { type Scenario, scenario, scores } from "./scenario.js";
+import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import { restInEffect, sampleVitality } from "./vitality.js";
 
 const rin = AgentId.parse("A-rin"); // Specialist, capacity 3
