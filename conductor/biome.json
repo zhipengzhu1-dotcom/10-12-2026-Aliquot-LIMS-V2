@@ -36,6 +36,10 @@
 		{
 			"path": "./lint/no-safe-parse-in-commands.grit",
 			"includes": ["**/src/*/commands.ts"]
+		},
+		{
+			"path": "./lint/no-append-in-task-commands.grit",
+			"includes": ["**/src/task/commands.ts"]
 		}
 	],
 	"overrides": [

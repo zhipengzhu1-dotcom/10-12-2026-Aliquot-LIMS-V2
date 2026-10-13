@@ -12,14 +12,20 @@ import {
 	type CommandTable,
 	UsageError,
 } from "../command.js";
-import type { EventBody, NewEvent } from "../events.js";
 import { AgentId, ArtifactId, RubricId, TaskId } from "../ids.js";
-import type { Actor } from "../types/actor.js";
+import type { Ledger } from "../ledger.js";
 import { type Task, TaskState, TatClass } from "../types/task.js";
-import { nextTaskId, TaskProjection, type TaskView } from "./projection.js";
-
-/** Rubric for Tasks proposed without `--rubric`: the five-dimension rubric. */
-const DEFAULT_RUBRIC = RubricId.parse("default");
+import {
+	assign,
+	complete,
+	escalate,
+	fail,
+	handOff,
+	propose,
+	type Recorded,
+	start,
+} from "./lifecycle.js";
+import { TaskProjection, type TaskView } from "./projection.js";
 
 const agentId = (text: string, what: string) =>
 	parseOrUsage(AgentId, text, `${what} must be an Agent id like A-odile`);
@@ -50,29 +56,9 @@ const readView = (home: string): TaskView => {
 	return withLedger(home, false, (ledger) => ledger.projections.tasks);
 };
 
-type TaskBody = Extract<EventBody, { payload: { task_id: TaskId } }>;
-
-/**
- * Append one Task Event built from the current Tasks, under the writer lock,
- * and return the Task as it stands afterwards.
- */
-const record = (
-	ctx: CommandContext,
-	actor: Actor,
-	build: (view: TaskView) => TaskBody,
-): Task =>
-	withLedger(ctx.home, true, (ledger) => {
-		const body = build(ledger.projections.tasks);
-		const newEvent: NewEvent = {
-			actor,
-			task_id: body.payload.task_id,
-			...body,
-		};
-		ledger.append(newEvent);
-		const task = ledger.projections.tasks.tasks.get(body.payload.task_id);
-		if (!task) throw new Error(`${body.payload.task_id} vanished`);
-		return task;
-	});
+/** Run one lifecycle verb under the writer lock and return the Task it left. */
+const record = (ctx: CommandContext, verb: (ledger: Ledger) => Recorded) =>
+	withLedger(ctx.home, true, (ledger) => verb(ledger).task);
 
 const stateText = (state: TaskState) => {
 	const { tag, ...fields } = state;
@@ -144,23 +130,23 @@ export const taskCommands: CommandTable = {
 			);
 			const rubric_id =
 				values.rubric === undefined
-					? DEFAULT_RUBRIC
+					? undefined
 					: parseOrUsage(RubricId, values.rubric, "--rubric must not be empty");
 			const parent_task =
 				values.parent === undefined ? undefined : taskId(values.parent);
-			const task = record(ctx, parseActor(values.as), (view) => ({
-				kind: "TaskProposed",
-				payload: {
-					task_id: nextTaskId(view),
+			const actor = parseActor(values.as);
+			const task = record(ctx, (ledger) =>
+				propose(ledger, {
+					actor,
 					title,
 					goal,
 					inputs,
-					rubric_id,
 					priority,
 					tat_class,
+					...(rubric_id && { rubric_id }),
 					...(parent_task && { parent_task }),
-				},
-			}));
+				}),
+			);
 			ctx.stdout.write(`${task.id}\n`);
 			return 0;
 		},
@@ -181,12 +167,10 @@ export const taskCommands: CommandTable = {
 			);
 			const task_id = taskId(id as string);
 			const assignee = agentId(agent as string, "the assignee");
+			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, parseActor(values.as), () => ({
-					kind: "TaskAssigned",
-					payload: { task_id, assignee },
-				})),
+				record(ctx, (ledger) => assign(ledger, { actor, task_id, assignee })),
 			);
 		},
 	},
@@ -201,12 +185,10 @@ export const taskCommands: CommandTable = {
 			});
 			const [id] = expectPositionals(positionals, ["<task id>"], "start");
 			const task_id = taskId(id as string);
+			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, parseActor(values.as), () => ({
-					kind: "TaskStarted",
-					payload: { task_id },
-				})),
+				record(ctx, (ledger) => start(ledger, { actor, task_id })),
 			);
 		},
 	},
@@ -227,34 +209,24 @@ export const taskCommands: CommandTable = {
 			const task_id = taskId(id as string);
 			const to = agentId(toText as string, "the new assignee");
 			const reason = required(values.reason, "--reason");
+			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, parseActor(values.as), (view) => {
-					const state = view.tasks.get(task_id)?.state;
-					// A Task with no assignee is not InProgress, so the guard refuses
-					// it on its state before `from` matters.
-					const from = state && "assignee" in state ? state.assignee : to;
-					return {
-						kind: "TaskHandedOff",
-						payload: { task_id, from, to, reason },
-					};
-				}),
+				record(ctx, (ledger) =>
+					handOff(ledger, { actor, task_id, to, reason }),
+				),
 			);
 		},
 	},
 	complete: {
-		args: "<task id> (--review-required --reviewer <Operator|agent id> | --skip-review --reason <text> | --reviewed) [--output <artifact id>]...",
+		args: "<task id> [--reviewer <Operator|agent id>] [--output <artifact id>]...",
 		describe:
-			"Complete an InProgress Task for Review or with Review skipped, or close one UnderReview",
+			"Complete an InProgress Task, for Review when the Trust tier samples it, or close one UnderReview",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
 				args,
 				options: {
-					"review-required": { type: "boolean" },
 					reviewer: { type: "string" },
-					"skip-review": { type: "boolean" },
-					reason: { type: "string" },
-					reviewed: { type: "boolean" },
 					output: { type: "string", multiple: true },
 					...asOption,
 				},
@@ -262,30 +234,10 @@ export const taskCommands: CommandTable = {
 			});
 			const [id] = expectPositionals(positionals, ["<task id>"], "complete");
 			const task_id = taskId(id as string);
-			const modes = [
-				values["review-required"] && "--review-required",
-				values["skip-review"] && "--skip-review",
-				values.reviewed && "--reviewed",
-			].filter(Boolean);
-			if (modes.length !== 1) {
-				throw new UsageError(
-					"task complete takes exactly one of --review-required, --skip-review, --reviewed",
-				);
-			}
-			const review = values["review-required"]
-				? {
-						tag: "Required" as const,
-						reviewer: parseActor(
-							required(values.reviewer, "--reviewer"),
-							"--reviewer",
-						),
-					}
-				: values["skip-review"]
-					? {
-							tag: "Skipped" as const,
-							reason: required(values.reason, "--reason"),
-						}
-					: { tag: "Reviewed" as const };
+			const reviewer =
+				values.reviewer === undefined
+					? undefined
+					: parseActor(values.reviewer, "--reviewer");
 			const outputs = (values.output ?? []).map((text) =>
 				parseOrUsage(
 					ArtifactId,
@@ -293,12 +245,17 @@ export const taskCommands: CommandTable = {
 					"--output must be an Artifact id (64 hex)",
 				),
 			);
+			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, parseActor(values.as), () => ({
-					kind: "TaskCompleted",
-					payload: { task_id, outputs, review },
-				})),
+				record(ctx, (ledger) =>
+					complete(ledger, {
+						actor,
+						task_id,
+						outputs,
+						...(reviewer && { reviewer }),
+					}),
+				),
 			);
 		},
 	},
@@ -314,12 +271,10 @@ export const taskCommands: CommandTable = {
 			const [id] = expectPositionals(positionals, ["<task id>"], "fail");
 			const task_id = taskId(id as string);
 			const reason = required(values.reason, "--reason");
+			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, parseActor(values.as), () => ({
-					kind: "TaskFailed",
-					payload: { task_id, reason },
-				})),
+				record(ctx, (ledger) => fail(ledger, { actor, task_id, reason })),
 			);
 		},
 	},
@@ -340,12 +295,12 @@ export const taskCommands: CommandTable = {
 			const task_id = taskId(id as string);
 			const to = parseActor(required(values.to, "--to"), "--to");
 			const reason = required(values.reason, "--reason");
+			const actor = parseActor(values.as);
 			return report(
 				ctx,
-				record(ctx, parseActor(values.as), () => ({
-					kind: "TaskEscalated",
-					payload: { task_id, to, reason },
-				})),
+				record(ctx, (ledger) =>
+					escalate(ledger, { actor, task_id, to, reason }),
+				),
 			);
 		},
 	},
