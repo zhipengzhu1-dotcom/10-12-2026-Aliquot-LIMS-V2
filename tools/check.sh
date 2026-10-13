@@ -28,7 +28,7 @@ conductor() {
 	step "conductor install" pnpm -C conductor install --frozen-lockfile
 	step "conductor lint" pnpm -C conductor lint
 	step "conductor typecheck" pnpm -C conductor typecheck
-	# The runner tests build this image too; building it first makes theirs a cache hit.
+	# The Docker suites build this image under tags of their own; building it first makes theirs a cache hit.
 	step "sandbox image build" docker build -f sandbox/Dockerfile -t aliquot-sandbox:test sandbox
 	step "conductor test" pnpm -C conductor test
 }
