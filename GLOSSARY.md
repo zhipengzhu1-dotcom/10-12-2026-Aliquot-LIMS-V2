@@ -145,7 +145,7 @@ The single process that owns the Ledger, schedules Turns, enforces Policy, and s
 _Avoid_: orchestrator, server, backend, scheduler
 
 **Scheduler**:
-The part of the Conductor that runs the society on its own inside `aliquot serve`. Every Tick it assigns the Proposed Tasks no one assigned within a Tick, by the weighted pick, and starts Turns for the Agents that have something to do, within the Policy, the Energy budget and the number of Turns allowed at once. It prints one line per decision and keeps the last Tick's decisions for the Interface.
+The part of the Conductor that runs the society on its own inside `aliquot serve`. Every Tick it assigns the Proposed Tasks no one assigned within a Tick: a stage's Task to the Agent that works the stage when that Agent is active, any other Task by the weighted pick. It starts Turns for the Agents that have something to do, within the Policy, the Energy budget and the number of Turns allowed at once. It prints one line per decision and keeps the last Tick's decisions for the Interface.
 _Avoid_: cron, job queue
 
 **Tick**:

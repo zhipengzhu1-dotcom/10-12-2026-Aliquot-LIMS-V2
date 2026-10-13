@@ -1,14 +1,26 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgentId, RoomId, TaskId } from "../ids.js";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vitest";
+import { AgentId, RoomId, Sha256, TaskId } from "../ids.js";
 import { intake } from "../intake/command.js";
-import { pause } from "../org/lifecycle.js";
+import { pause, resume } from "../org/lifecycle.js";
 import { open, say } from "../room/lifecycle.js";
+import { buildImage, scriptsRoot } from "../sandbox/image.js";
+import { store } from "../sandbox/lifecycle.js";
 import { assign, escalate, propose, start } from "../task/lifecycle.js";
+import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import {
@@ -17,10 +29,13 @@ import {
 	type ScriptedModel,
 	scriptedModel,
 } from "../turn/model.js";
+import type { ArtifactType } from "../types/artifact.js";
 import type { TurnUsage } from "../types/turn.js";
 import { orderRest, sample } from "../vitality/lifecycle.js";
 import { moodOf } from "../vitality/mood.js";
 import { vitalityProjection } from "../vitality/projection.js";
+import { STAGES } from "../workflow/stages.js";
+import { ensureScript, runWorkflow } from "../workflow/tracer.js";
 import { plan, type SchedulerOptions } from "./plan.js";
 import { lineOf, openScheduler, type Said } from "./scheduler.js";
 
@@ -134,7 +149,7 @@ afterEach(() => {
 });
 
 describe("the Scheduler on the scripted model", () => {
-	it("assigns the Director's proposal by the weighted pick, weighs a fatigued Agent, starts at most two Turns at once, starts a resting Agent, and records every Turn", async () => {
+	it("assigns the Director's stage 1 proposal to the Agent who works stage 1, starts at most two Turns at once, starts a resting Agent, and records every Turn", async () => {
 		fresh();
 		strainBram(s);
 		s.at(T0);
@@ -222,12 +237,7 @@ describe("the Scheduler on the scripted model", () => {
 		await tickAt(later(40));
 
 		const assigned = s.ledger.projections.tasks.tasks.get(proposed)?.state;
-		const winner = expectedPick(proposed, [
-			[bram, 100],
-			[ines, 100],
-			[rin, 67],
-		]);
-		expect(assigned).toEqual({ tag: "Assigned", assignee: winner });
+		expect(assigned).toEqual({ tag: "Assigned", assignee: rin });
 		const assignment = s
 			.events()
 			.find((e) => e.kind === "TaskAssigned" && e.payload.task_id === proposed);
@@ -242,10 +252,7 @@ describe("the Scheduler on the scripted model", () => {
 		const assignLine = said.find(
 			(d) => d.verb === "assign" && d.agent !== "nobody",
 		);
-		expect(assignLine?.why).toContain("over A-bram 100, A-ines 100, A-rin 67");
-		expect(assignLine?.why, "no one is passed over").not.toContain(
-			"passed over",
-		);
+		expect(assignLine?.why).toBe(`${proposed}: A-rin works stage 1 Submission`);
 
 		expect(mostOpen, "two Turns were open at once").toBe(2);
 		const starts = said.filter((d) => d.verb === "start");
@@ -621,4 +628,137 @@ describe("the plan", () => {
 			]),
 		);
 	});
+
+	it("reads a Task on stage 6's inputs as stage 6, though they cover stage 3's, and gives it to the Agent who works stage 6 (#59)", () => {
+		fresh();
+		const stored = (artifact_type: ArtifactType, i: number) =>
+			store(
+				s.ledger,
+				{ actor: operator },
+				{
+					sha256: Sha256.parse(i.toString(16).padStart(64, "e")),
+					media_type: "application/octet-stream",
+					artifact_type,
+					produced_by: operator,
+					lineage: [],
+				},
+			).artifact.id;
+		const report = propose(s.ledger, {
+			actor: operator,
+			title: "Stage 6 Report: Lot 2403A",
+			goal: "Render the report",
+			tat_class: "Regular",
+			priority: 1,
+			inputs: [
+				stored("VerificationRecord", 1),
+				stored("ReceivingLogRow", 2),
+				stored("Other", 3),
+				stored("LimsDatabase", 4),
+			],
+		}).task.id;
+
+		const [decision] = plan(
+			s.ledger.projections,
+			new Date(Date.parse(T0) + OPTIONS.tickMs),
+			OPTIONS,
+			new Map([[report, new Date(T0)]]),
+		);
+
+		expect(decision).toEqual({
+			tag: "Assign",
+			task_id: report,
+			agent: ines,
+			why: `${report}: A-ines works stage 6 Report`,
+		});
+	});
+});
+
+const suite = dockerAvailable
+	? "the Scheduler on seed 1's run (Docker)"
+	: "the Scheduler on seed 1's run: SKIPPED because `docker info` failed; start Docker to run these";
+
+describe.skipIf(!requireDocker())(suite, () => {
+	// Each build gives its tag a new image id, so this process's tag is its own.
+	const IMAGE = `aliquot-sandbox:scheduler-${process.pid}`;
+	let image: Sha256;
+	beforeAll(async () => {
+		({ id: image } = await buildImage({ tag: IMAGE }));
+	}, 600_000);
+	afterAll(() => {
+		spawnSync("docker", ["rmi", IMAGE], { stdio: "ignore" });
+	});
+
+	it("assigns each stage's Task of seed 1's run to the Agent who works the stage, and with that Agent paused to another active Agent of its role, naming the paused Agent", async () => {
+		fresh();
+		const { stages } = await runWorkflow({
+			ledger: s.ledger,
+			home,
+			formPath: FIXTURE,
+			plan: STAGES.map((stage) => {
+				const script = ensureScript({
+					ledger: s.ledger,
+					home,
+					stage,
+					source: join(scriptsRoot, stage.script),
+					image,
+				});
+				return { stage, script: { id: script.id, version: script.version } };
+			}),
+			timeoutMs: 60_000,
+		});
+		expect(
+			stages.map((r) => [r.stage.number, r.state.tag]),
+			"seed 1's run ends Done at every stage",
+		).toEqual(STAGES.map((stage) => [stage.number, "Done"]));
+
+		for (const { stage, task_id } of stages) {
+			const ran = s.ledger.projections.tasks.tasks.get(task_id);
+			if (ran === undefined) throw new Error(`${task_id} is not in the Ledger`);
+			const again = propose(s.ledger, {
+				actor: operator,
+				title: ran.title,
+				goal: ran.goal,
+				tat_class: ran.tat_class,
+				priority: ran.priority,
+				inputs: ran.inputs,
+			}).task.id;
+			const decide = () =>
+				plan(
+					s.ledger.projections,
+					new Date(s.now().getTime() + OPTIONS.tickMs),
+					OPTIONS,
+					new Map([[again, s.now()]]),
+				).find((d) => "task_id" in d && d.task_id === again);
+			const named = stage.worked_by;
+			const works = `${named} works stage ${stage.number} ${stage.name}`;
+
+			expect(decide(), `stage ${stage.number} with every Agent active`).toEqual(
+				{
+					tag: "Assign",
+					task_id: again,
+					agent: named,
+					why: `${again}: ${works}`,
+				},
+			);
+
+			pause(s.ledger, {
+				actor: operator,
+				agent_id: named,
+				reason: "bench down",
+			});
+			const fallback = decide();
+			const role = (agent: AgentId) =>
+				s.ledger.projections.org.agents.get(agent)?.definition.role;
+			expect(fallback?.tag, `stage ${stage.number} with ${named} paused`).toBe(
+				"Assign",
+			);
+			if (fallback?.tag !== "Assign") throw new Error("not an assignment");
+			expect(fallback.agent).not.toBe(named);
+			expect(role(fallback.agent)).toBe(role(named));
+			expect(fallback.why).toContain(
+				`${again}: ${works}, but ${named} is paused; pick `,
+			);
+			resume(s.ledger, { actor: operator, agent_id: named });
+		}
+	}, 300_000);
 });

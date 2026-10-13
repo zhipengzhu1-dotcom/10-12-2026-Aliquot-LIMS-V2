@@ -1,8 +1,11 @@
 import { sha256Hex } from "../hash.js";
-import type { AgentId, ArtifactId, TaskId } from "../ids.js";
+import type { AgentId, TaskId } from "../ids.js";
+import { activeAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
+import { Refusal } from "../reduce.js";
 import { roomsOf } from "../room/projection.js";
 import { LIVE_TAGS } from "../task/projection.js";
+import { stageOfInputs } from "../tools/actions.js";
 import { startRefusal } from "../turn/guards.js";
 import { type TurnRecord, tokensInWindow } from "../turn/projection.js";
 import { actorText } from "../types/actor.js";
@@ -12,7 +15,7 @@ import type { Task } from "../types/task.js";
 import { trustOf } from "../vitality/trust.js";
 import { FIVE_HOURS_MS } from "../vitality/vitality.js";
 import { verifierRefusal } from "../workflow/guards.js";
-import { STAGES, type Stage } from "../workflow/stages.js";
+import { STAGES } from "../workflow/stages.js";
 
 /** What `aliquot serve` sets for the Scheduler. */
 export type SchedulerOptions = {
@@ -65,30 +68,6 @@ const HELD = ["Assigned", "InProgress", "Blocked"] as const;
 
 const byId = (a: { id: string }, b: { id: string }) =>
 	a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-
-/**
- * The stage a Task works: the first stage whose input types its inputs
- * cover, as the Tool hook reads a stage from a Task.
- */
-const stageOf = (
-	projections: Projections,
-	inputs: readonly ArtifactId[],
-): Stage | undefined => {
-	const types = new Set(
-		inputs.map((id) => projections.artifacts.artifacts.get(id)?.artifact_type),
-	);
-	return STAGES.find(
-		(s) => s.inputs.length > 0 && s.inputs.every((t) => types.has(t)),
-	);
-};
-
-/** A stage's Task goes to the role of the Agent that works the stage; any other Task to a Specialist. */
-const roleFor = (projections: Projections, task: Task): Role => {
-	const stage = stageOf(projections, task.inputs);
-	const stageRole =
-		stage && projections.org.agents.get(stage.worked_by)?.definition.role;
-	return stageRole ?? "Specialist";
-};
 
 /** `hash(task_id) mod total`, from the same hash the Review sample reads. */
 export const pickOf = (task_id: TaskId, total: number): number =>
@@ -148,10 +127,25 @@ export const plan = (
 	return decisions;
 };
 
+/** Why `agent` may not take `task`: it is not active, or the Verifier rule refuses it. */
+const takeRefusal = (
+	projections: Projections,
+	task: Task,
+	agent: AgentId,
+): Refusal | undefined => {
+	const active = activeAgent(projections.org, agent);
+	return active instanceof Refusal
+		? active
+		: verifierRefusal(projections, task, agent);
+};
+
 /**
- * The weighted pick among the Agents of the Task's role that may take it:
- * each weighs its tier's allocation weight times 1 - load, and
- * `hash(task_id) mod total` lands on one of them, in id order.
+ * Who takes a Proposed Task. A stage's Task, the stage read from its inputs
+ * as the Action table reads it, goes to the Agent the stage table names to
+ * work the stage. When that Agent may not take it, the Task goes by the
+ * weighted pick among the other Agents of its role, and the reason names
+ * why the named Agent did not take it. Any other Task goes by the
+ * weighted pick among the Specialists.
  */
 const assignment = (
 	projections: Projections,
@@ -159,14 +153,52 @@ const assignment = (
 	live: readonly Candidate[],
 	held: Map<AgentId, TaskId[]>,
 ): Decision => {
-	const role = roleFor(projections, task);
+	const stage = stageOfInputs(STAGES, projections, task.inputs);
+	if (stage === undefined) {
+		return weightedPick(projections, task, "Specialist", live, held, "");
+	}
+	const named = stage.worked_by;
+	const works = `${named} works stage ${stage.number} ${stage.name}`;
+	const refusal = takeRefusal(projections, task, named);
+	if (refusal === undefined) {
+		held.set(named, [...(held.get(named) ?? []), task.id]);
+		return {
+			tag: "Assign",
+			task_id: task.id,
+			agent: named,
+			why: `${task.id}: ${works}`,
+		};
+	}
+	const role =
+		projections.org.agents.get(named)?.definition.role ?? "Specialist";
+	return weightedPick(
+		projections,
+		task,
+		role,
+		live.filter((a) => a.id !== named),
+		held,
+		`${works}, but ${refusal.reason}; `,
+	);
+};
+
+/**
+ * The weighted pick among the Agents of `role` that may take the Task:
+ * each weighs its tier's allocation weight times 1 - load, and
+ * `hash(task_id) mod total` lands on one of them, in id order. `because`
+ * opens the reason.
+ */
+const weightedPick = (
+	projections: Projections,
+	task: Task,
+	role: Role,
+	live: readonly Candidate[],
+	held: Map<AgentId, TaskId[]>,
+	because: string,
+): Decision => {
 	const passed: string[] = [];
 	const weighed: { readonly id: AgentId; readonly weight: number }[] = [];
 	for (const agent of live.filter((a) => a.role === role)) {
-		const refusal =
-			(projections.org.agents.get(agent.id)?.paused
-				? { reason: `${agent.id} is paused` }
-				: undefined) ?? verifierRefusal(projections, task, agent.id);
+		const refusal = takeRefusal(projections, task, agent.id);
 		const load = (held.get(agent.id)?.length ?? 0) / agent.capacity;
 		const weight = Math.round(
 			ALLOCATION_WEIGHT[agent.tier] * Math.max(0, 1 - load) * WEIGHT_SCALE,
@@ -182,7 +214,7 @@ const assignment = (
 		return {
 			tag: "NoAssignee",
 			task_id: task.id,
-			why: `${task.id}: no ${role} may take it${skipped}`,
+			why: `${task.id}: ${because}no ${role} may take it${skipped}`,
 		};
 	}
 	const pick = pickOf(task.id, total);
@@ -198,7 +230,7 @@ const assignment = (
 		tag: "Assign",
 		task_id: task.id,
 		agent: chosen.id,
-		why: `${task.id}: pick ${pick} of ${total} over ${weighed.map((w) => `${w.id} ${w.weight}`).join(", ")}${skipped}`,
+		why: `${task.id}: ${because}pick ${pick} of ${total} over ${weighed.map((w) => `${w.id} ${w.weight}`).join(", ")}${skipped}`,
 	};
 };
 

@@ -339,4 +339,42 @@ describe("the prompt of a Turn", () => {
 		expect(t2, "a stage 3 Task asks for no Gate").not.toContain("Gate");
 		expect(t2, "stage 3's reviewer").toContain("such as A-pia.");
 	});
+
+	it("names the stage of a stage's Task, its Script id and the types the Script takes, and no stage for any other Task (#64)", () => {
+		const n = (i: number) => i.toString(16).padStart(64, "f");
+		const stored = (artifact_type: ArtifactType, i: number) =>
+			store(
+				s.ledger,
+				{ actor: operator },
+				{
+					sha256: Sha256.parse(n(i)),
+					media_type: "application/octet-stream",
+					artifact_type,
+					produced_by: operator,
+					lineage: [],
+				},
+			).artifact.id;
+		const receipt = propose(s.ledger, {
+			actor: operator,
+			title: "Stage 2 Receipt: Lot 2403A",
+			goal: "Log the receipt",
+			tat_class: "Regular",
+			priority: 1,
+			inputs: [stored("SubmissionRecord", 1), stored("LimsDatabase", 2)],
+		}).task.id;
+		assign(s.ledger, { actor: operator, task_id: receipt, assignee: bram });
+		const other = s.task(bram, { start: false });
+
+		const lines = promptOf(bram).split("\n");
+
+		const at = lines.findIndex((l) => l.includes(`${receipt} Stage 2 Receipt`));
+		expect(lines[at + 2], "the line after the Task's Inputs").toBe(
+			"  Stage 2 Receipt: its Script is S-log_receipt, which takes SubmissionRecord, LimsDatabase; run it with run_script naming this Task.",
+		);
+		const plain = lines.findIndex((l) => l.includes(`${other} Task`));
+		expect(lines[plain + 2] ?? "", "a Task on no stage's inputs").not.toMatch(
+			/^ {2}Stage /,
+		);
+		expect(lines.filter((l) => l.includes("its Script is"))).toHaveLength(1);
+	});
 });
