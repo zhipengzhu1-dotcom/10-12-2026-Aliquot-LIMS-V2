@@ -31,7 +31,7 @@ export const answerText = (answer: ActionAnswer): string =>
 		: `${answer.status}: ${answer.text}`;
 
 /**
- * The body a view's action form posts: the JSON its markup carries in
+ * The body a view's action form sends: the JSON its markup carries in
  * `data-body`, with each field the Operator filled in set at its dotted
  * name, as `definition.supervisor_id`. An empty field leaves its key out. A
  * field named in `json` holds JSON, which is parsed, so an editor over a
@@ -47,7 +47,7 @@ export const bodyOf = (
 		const path = name.split(".");
 		const key = path.pop() ?? name;
 		let target = body;
-		for (const step of path) target = target[step] as Record<string, unknown>;
+		for (const part of path) target = target[part] as Record<string, unknown>;
 		if (value === "") delete target[key];
 		else target[key] = json.has(name) ? parsed(name, value) : value;
 	}

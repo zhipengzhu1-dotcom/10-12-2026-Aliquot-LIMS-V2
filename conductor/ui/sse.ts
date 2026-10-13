@@ -10,7 +10,7 @@ const RECONNECT_MS = 2000;
 /**
  * Call `listener` with every Ledger Event from now on. An `EventSource`
  * reconnects by itself after a dropped connection and sends `Last-Event-ID`;
- * one the server answered with an error status stays closed, so this opens
+ * one the Conductor answered with an error status stays closed, so this opens
  * a new one that names the last seq it read, and the Ledger replays the rest.
  *
  * A page that has read no Event has no seq to name, so nothing is replayed to

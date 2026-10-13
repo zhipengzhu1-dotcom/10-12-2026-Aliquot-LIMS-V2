@@ -96,10 +96,10 @@ export const agentRoom = (
 			m.tag === "Listed" && m.agents.length === 1 && m.agents[0] === agentId,
 	);
 
-const list = (items: readonly string[]) =>
-	items.length === 0
+const list = (lines: readonly string[]) =>
+	lines.length === 0
 		? `<p class="empty">None.</p>`
-		: `<ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul>`;
+		: `<ul>${lines.map((line) => `<li>${line}</li>`).join("")}</ul>`;
 
 const section = (id: string, title: string, body: string) =>
 	`<section id="${id}"><h2>${title}</h2>${body}</section>`;
@@ -151,17 +151,17 @@ const vitalitySection = (v: AgentVitality | undefined) =>
 	);
 
 /** One point per Review on a 0 to 3 scale, joined in Ledger order. */
-const meritChart = (points: readonly number[]) => {
+const meritChart = (merits: readonly number[]) => {
 	const w = 240;
 	const h = 60;
 	const x = (i: number) =>
-		points.length === 1 ? w / 2 : 6 + (i * (w - 12)) / (points.length - 1);
+		merits.length === 1 ? w / 2 : 6 + (i * (w - 12)) / (merits.length - 1);
 	const y = (merit: number) => h - 6 - (merit / 3) * (h - 12);
-	const at = points.map((m, i) => [x(i).toFixed(1), y(m).toFixed(1)] as const);
+	const at = merits.map((m, i) => [x(i).toFixed(1), y(m).toFixed(1)] as const);
 	return `<svg class="merit" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Merit after each Review"><polyline points="${at.map((p) => p.join(",")).join(" ")}" />${at
 		.map(
 			([cx, cy], i) =>
-				`<circle cx="${cx}" cy="${cy}" r="3"><title>${(points[i] ?? 0).toFixed(2)}</title></circle>`,
+				`<circle cx="${cx}" cy="${cy}" r="3"><title>${(merits[i] ?? 0).toFixed(2)}</title></circle>`,
 		)
 		.join("")}</svg>`;
 };
@@ -289,7 +289,7 @@ const revisionAction = (d: Definition) => {
 		"revise",
 		{},
 		`<textarea id="${id}-definition" name="definition" data-json rows="20" aria-label="Definition">${escapeHtml(JSON.stringify(next, null, 2))}</textarea><input id="${id}-reason" name="definition.revision_reason" placeholder="Reason" aria-label="Reason for the Revision" required>`,
-		"Post the Revision",
+		"Submit the Revision",
 	)}</details>`;
 };
 
