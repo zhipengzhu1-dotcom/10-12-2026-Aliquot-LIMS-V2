@@ -1,6 +1,6 @@
 # Org tree and its Actions
 
-The Org view at `#/org` draws the reporting tree that `org tree` prints, each Agent with its Trust tier, load and a `paused` badge (no Mood: it is flat since #62), and lets the Operator pause and resume an Agent, order Rest through the Action bar, reassign it, and request its retirement, with the tree redrawn from the Event stream and no reload.
+The Org view at `#/org` draws the reporting tree that `org tree` prints (it reads `/api/org-tree` and `/api/vitality`), each Agent with its Trust tier, load and a `paused` badge (no Mood: it is flat since #62), and lets the Operator pause and resume an Agent, order Rest through the Action bar, reassign it, and request its retirement, with the tree redrawn from the Event stream and no reload.
 
 ## Sub-features
 
@@ -29,7 +29,7 @@ Preconditions:
 - **Pause from the view.** Open Rin's panel, type a reason, choose Pause. `scripts/browser.mjs "$RUN" org/ui goto '#/org' mark click '#act-A-rin > summary' fill '#pause-A-rin-reason' 'verify: pause Rin from the Org view' click '#pause-A-rin button' text '#answer' 'Appended AgentPaused' wait '[data-agent="A-rin"] .badge.paused' wait '#resume-A-rin'`. The status line reads `Appended AgentPaused at seq <n>` and Rin shows `paused` and the Resume form `#resume-A-rin` in place of the Pause one.
 - **Redraw over the stream.** In the same browser run, another client resumes Rin: `outside resume '{"agent_id":"A-rin"}' gone '[data-agent="A-rin"] .badge.paused'`. The badge goes with no reload (`same-page` holds).
 - **Refused resume.** `scripts/api.sh "$RUN" act resume '{"agent_id":"A-rin"}' --expect 409`. The body is `AgentResumed refused: A-rin is not paused`.
-- **Rest through the Action bar.** `fill '#action input[name=verb]' rest-order fill '#action textarea[name=body]' '{"agent_id":"A-ines","action":"begin","reason":"verify: Rest from the Action bar"}' click '#action button' text '#answer' 'Appended RestOrdered' count '.agent [class*="mood"]' 0`. Mood is flat, so the view draws no Mood badge; `.badge` matches the tier and paused badges.
+- **Rest through the Action bar.** `fill '#action input[name=verb]' rest-order fill '#action textarea[name=body]' '{"agent_id":"A-ines","action":"begin","reason":"verify: Rest from the Action bar"}' click '#action button' text '#answer' 'Appended RestOrdered' count '.agent .badge.tier' 8 count '.agent [class*="mood"]' 0`. Mood is flat, so the view draws no Mood badge; the tier count shows the tree is still drawn, so the absence check is not vacuous.
 - **Reassign.** `click '#act-A-mabel > summary' choose '#revise-A-mabel-supervisor' A-odile fill '#revise-A-mabel-reason' 'verify: report to Odile' click '#revise-A-mabel button' text '#answer' 'Appended AgentDefinitionRevised'`. Mabel's line moves under Odile. Not in `drive_org`.
 - **Proof.** `scripts/api.sh "$RUN" get org` has `.agents["A-rin"].paused == false`; `scripts/api.sh "$RUN" get vitality` has `.["A-ines"].mood == "fresh"`, as every live Agent's is; `sqlite3 "$RUN/home/ledger.sqlite" "select seq, kind, actor, payload from events where kind in ('AgentPaused','AgentResumed','RestOrdered')"` shows the three rows with actor `{"tag":"Operator"}`, the `RestOrdered` one with Ines, `begin` and the typed reason; `tools/aliquot --home "$RUN/home" ledger verify` says chain intact.
 
@@ -38,5 +38,6 @@ Preconditions:
 - The view offers Pause only on a running Agent and Resume only on a paused one, so a refusal is reachable only from a second client: `AgentResumed refused: <id> is not paused`, or, since #48, `AgentPaused refused: <id> is already paused`. A drive that pauses an Agent another drive left paused fails with the second text; the recipes use different Agents for this reason.
 - The Actions panel is a `<details>`. Open `#act-<id> > summary` before filling its form, so the screenshots show the form the Operator sees. A redraw keeps it open.
 - The status line `#answer` keeps the last answer. Wait for the text of this action (`Appended AgentPaused`), not for the line to be non-empty.
-- Rest has no form in the Org view; it is the Action bar's `rest-order` verb. `end` needs Rest in effect, or the Ledger refuses it.
+- Rest has no form in the Org view; it is the Action bar's `rest-order` verb. `end` needs Rest in effect, or the Ledger refuses it. Since #62 Rest limits nothing: a resting Agent still gets Turns and Tasks, and only a pause stops its Turns.
+- The proof query reads `/api/org`, the flat Org Projection; the view itself reads `/api/org-tree`.
 - The load meter reads 0.00 for every Agent on the baseline: the workflow's Tasks are all `Done`.

@@ -97,7 +97,7 @@ drive_org() {
 		outside resume '{"agent_id":"A-rin"}' gone '[data-agent="A-rin"] .badge.paused' \
 		fill '#action input[name=verb]' rest-order \
 		fill '#action textarea[name=body]' "{\"agent_id\":\"A-ines\",\"action\":\"begin\",\"reason\":\"$rest\"}" \
-		click '#action button' text '#answer' 'Appended RestOrdered' count '.agent [class*="mood"]' 0 \
+		click '#action button' text '#answer' 'Appended RestOrdered' count '.agent .badge.tier' 8 count '.agent [class*="mood"]' 0 \
 		same-page
 	step resume-again.txt api act resume '{"agent_id":"A-rin"}' --expect 409
 	expect "a second resume of Rin is refused with 409 and the Ledger's text" \
@@ -129,11 +129,14 @@ drive_flow() {
 	browser ui goto '#/flow' mark count '[data-lane]' "$lanes" wait '[data-task="T-1"]' \
 		choose 'form.filter select[name=lot]' "$lot" click 'form.filter button' \
 		wait "form.filter option[selected][value=\"$lot\"]" wait '[data-task="T-6"]' count '[data-task]' 6 \
-		click '[data-task="T-1"]' wait 'aside.panel li[data-seq]' wait 'svg.arrows path' \
-		save 'aside.panel' panel.txt \
+		click '[data-task="T-1"]' wait 'aside.panel li[data-seq]' wait 'svg.arrows path[data-from][data-to]' \
+		count 'aside.panel li.outside' 1 save 'aside.panel' panel.txt \
 		goto '#/flow?task=T-2' wait '[data-task="T-2"]' gone '[data-task="T-1"]' same-page
 	expect "the Lot filter offered $lot, the Lot /api/lots names" test -n "$lot"
-	expect "the T-1 panel lists T-1's Events with their causes" has ui/panel.txt TaskProposed
+	local proposed_cause
+	proposed_cause=$(sql "select causation_id from events where kind = 'TaskProposed' and json_extract(payload, '$.task_id') = 'T-1'")
+	expect "the T-1 panel lists T-1's Events" has ui/panel.txt TaskProposed
+	expect "the T-1 panel names TaskProposed's cause, seq $proposed_cause, as the Ledger records it" has ui/panel.txt "cause $proposed_cause"
 	expect "the drive appended no Event: Flow only reads" same "$(sql 'select max(seq) from events')" "$base"
 	chain
 }
@@ -143,6 +146,7 @@ drive_agent() {
 	local reason="verify: a Revision from the Agent view"
 	browser ui goto '#/agent?id=A-rin' mark \
 		wait '#charter' text '#vitality' 'Mood is flat in the first edition' text '#vitality' 'sample computed now' \
+		text '#vitality' 'Policy' count '#vitality [class*="mood"]' 0 \
 		count '#merit tbody tr' 2 save '#merit' merit.txt \
 		fill '#coach-A-rin-note' "$note" click '#coach-A-rin button' \
 		text '#answer' 'Appended HumanCoached' text '#coaching' "$note" \
@@ -224,8 +228,9 @@ drive_chat() {
 		fill '#chat-body' "$report" click '#chat-say button' \
 		text '#answer' "Appended MessageSent at seq $said" \
 		text "li.message[data-seq=\"$said\"] .body" "$report" \
+		text "li.message[data-seq=\"$said\"] .said b" 'Operator' \
 		outside room-say '{"room_id":"RM-lab","body":"verify: a second client says this"}' \
-		wait "li.message[data-seq=\"$outside\"]" same-page
+		wait "li.message[data-seq=\"$outside\"]" wait "ol.chat > li:last-child[data-seq=\"$outside\"]" same-page
 	step chat.json api get chat
 	expect "/api/chat ends with the box's Message and then the second client's, both by the Operator, after Odile's from the baseline" \
 		same "$(jq -r '.messages | map("\(.name): \(.body)") | join(" | ")' "$out/chat.json")" \
