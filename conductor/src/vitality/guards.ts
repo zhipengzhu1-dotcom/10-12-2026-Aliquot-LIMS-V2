@@ -1,6 +1,8 @@
 import type { AppendGuard } from "../append-guard.js";
+import type { PayloadOf } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import { notInOrg } from "../org/projection.js";
+import type { Projections } from "../projections.js";
 import { assigneeOf } from "../task/projection.js";
 import { actorText } from "../types/actor.js";
 import { restInEffect } from "./vitality.js";
@@ -28,14 +30,20 @@ const reviewRules: AppendGuard = (projections, event) => {
 };
 
 /** Rest is ordered for an Agent in the Org, and begins and ends in turn. */
-const restRules: AppendGuard = (projections, event) => {
-	if (event.kind !== "RestOrdered") return undefined;
-	const { agent_id, action } = event.payload;
+export const restRefusal = (
+	projections: Projections,
+	{ agent_id, action }: PayloadOf<"RestOrdered">,
+): string | undefined => {
 	if (!projections.org.agents.has(agent_id)) return notInOrg(agent_id);
 	const resting = restInEffect(projections.work, agent_id);
 	if (action === "begin" && resting) return `${agent_id} is already resting`;
 	if (action === "end" && !resting) return `${agent_id} is not resting`;
 	return undefined;
 };
+
+const restRules: AppendGuard = (projections, event) =>
+	event.kind === "RestOrdered"
+		? restRefusal(projections, event.payload)
+		: undefined;
 
 export const vitalityGuards: readonly AppendGuard[] = [reviewRules, restRules];

@@ -198,6 +198,8 @@ declare function moodOf(v: Vitality, restInEffect: boolean, hasTaskInProgress: b
 declare function policyOf(m: Mood): Policy;
 ```
 
+One module, the Vitality lifecycle (`vitality/lifecycle.ts`), appends every Vitality Event. It samples a live Agent's Vitality from the Ledger and returns the sample and the seq it appended. A sample names no cause, because the end of a Turn lies outside Vitality. It orders Rest for an Agent or ends it, and returns the seq. A Rest order names the Agent's previous `VitalitySampled` or `RestOrdered` as its cause: the Vitality it acts on, or the Rest it ends. A Rest order that the Rest guard would refuse is refused before the verb builds an Event, in the same words.
+
 ### 7. Merit and Trust tier
 
 A Review scores a completed Task on five dimensions. Merit is the rolling mean. The Trust tier is a Projection of Merit, tenure and approved `PromoteToMentor` Gates. One approved Gate covers one Promotion to Mentor.
@@ -256,7 +258,7 @@ type MemoryNote = { agent: AgentId; task_id: TaskId; lesson: string; applies_to:
 
 ### 10. Room and Message
 
-A Room is where Agents talk (ADR-0010). The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room that names itself. The Operator is a member of every Room. A Message is a `MessageSent` Event projected for its reader. A reply names the Message it answers through the envelope's `causation_id`, which must be a Message in the same Room. One membership rule decides both who may say a Message and who may read a Room's history.
+A Room is where Agents talk (ADR-0010). The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room that names itself. The Operator is a member of every Room. A Message is a `MessageSent` Event projected for its reader. A reply names the Message it answers through the envelope's `causation_id`, which must be a Message in the same Room. One membership rule decides both who may say a Message and who may read a Room's history. One module, the Room lifecycle (`room/lifecycle.ts`), appends every Room Event. It opens a Room, which the Room's `opened_by` appends, and says a Message, returning the Room or the Message and the seq it appended. Neither Event names a cause, except a reply, whose `causation_id` is the Message it answers.
 
 ```ts
 type RoomId = `RM-${string}`;
