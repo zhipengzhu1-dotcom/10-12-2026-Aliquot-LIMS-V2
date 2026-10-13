@@ -1,6 +1,8 @@
 import { AppendRefused } from "../append-guard.js";
 import type { AgentId, TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import { liveAgent } from "../org/projection.js";
+import { Refusal } from "../reduce.js";
 import { assign } from "../task/lifecycle.js";
 import type { Login } from "../turn/auth.js";
 import { finishTurn, sampleAfterTurn } from "../turn/lifecycle.js";
@@ -189,27 +191,34 @@ export const openScheduler = (
 
 	/** A Turn open in the Ledger while no Turn runs was left by a Conductor that stopped during it. */
 	const closeLeftOpen = () => {
-		for (const [agent, turn_id] of ledger.projections.turns.open) {
-			const finished = finishTurn(ledger, {
-				turn_id,
-				usage: NO_USAGE,
-				outcome: {
-					tag: "Error",
-					message: `the Conductor stopped during ${turn_id}; recorded late, at ${ledger.now().toISOString()} when the Scheduler started, with its usage and Tool calls unknown`,
-				},
-				tool_calls: 0,
-			});
-			sampleAfterTurn(ledger, {
-				agent,
-				finished: finished.seq,
-				now: ledger.now(),
-				energyBudgetTokens: options.energyBudgetTokens,
-			});
-			said(
-				agent,
-				"finished",
-				`${turn_id} late: the Conductor stopped during it`,
-			);
+		for (const [agent, turn_id] of [...ledger.projections.turns.open]) {
+			try {
+				const finished = finishTurn(ledger, {
+					turn_id,
+					usage: NO_USAGE,
+					outcome: {
+						tag: "Error",
+						message: `the Conductor stopped during ${turn_id}; recorded late, at ${ledger.now().toISOString()} when the Scheduler started, with its usage and Tool calls unknown`,
+					},
+					tool_calls: 0,
+				});
+				// A retired Agent takes no sample; its Turn still finishes.
+				if (!(liveAgent(ledger.projections.org, agent) instanceof Refusal)) {
+					sampleAfterTurn(ledger, {
+						agent,
+						finished: finished.seq,
+						now: ledger.now(),
+						energyBudgetTokens: options.energyBudgetTokens,
+					});
+				}
+				said(
+					agent,
+					"finished",
+					`${turn_id} late: the Conductor stopped during it`,
+				);
+			} catch (error) {
+				said(agent, "failed", messageOf(error));
+			}
 		}
 	};
 

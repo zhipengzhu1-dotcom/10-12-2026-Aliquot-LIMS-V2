@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgentId, TaskId } from "../ids.js";
+import { AgentId, RoomId, TaskId } from "../ids.js";
 import { intake } from "../intake/command.js";
-import { assign, propose } from "../task/lifecycle.js";
+import { open, say } from "../room/lifecycle.js";
+import { assign, complete, propose, start } from "../task/lifecycle.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import {
@@ -27,7 +28,9 @@ const ines = id("A-ines");
 const bram = id("A-bram");
 const mabel = id("A-mabel");
 const thorne = id("A-thorne");
+const pia = id("A-pia");
 const operator = { tag: "Operator" } as const;
+const lab = RoomId.parse("RM-lab");
 
 const FIXTURE = fileURLToPath(
 	new URL("../../../fixtures/submission-form-seed1.docx", import.meta.url),
@@ -387,6 +390,46 @@ describe("the Scheduler on the scripted model", () => {
 		);
 		expect(s.ledger.projections.turns.open.size).toBe(0);
 	});
+
+	it("finishes a left-open Turn of an Agent retired since, without a sample, and keeps ticking", async () => {
+		fresh();
+		const { turn } = startTurn(s.ledger, {
+			agent: rin,
+			model: "claude-sonnet-5-5",
+			energyBudgetTokens: OPTIONS.energyBudgetTokens,
+		});
+		s.retire(rin, "Replaced");
+		const lines: string[] = [];
+		const scheduler = openScheduler(s.ledger, {
+			home,
+			options: OPTIONS,
+			maxTurns: 5,
+			login: { tag: "Subscription" },
+			modelFor: () =>
+				scriptedModel({
+					calls: [],
+					usage_per_round: usage(1),
+					stop: { tag: "Completed" },
+				}),
+			say: (line) => lines.push(line),
+		});
+
+		scheduler.start();
+		await scheduler.stop();
+
+		expect(
+			s.ledger.projections.turns.turns.get(turn.started.turn_id)?.finished
+				?.payload.outcome.tag,
+		).toBe("Error");
+		expect(
+			s
+				.events()
+				.filter((e) => e.kind === "VitalitySampled" && e.payload.agent === rin),
+			"a retired Agent takes no sample",
+		).toEqual([]);
+		expect(lines[0]).toMatch(/ A-rin finished TN-1 late: /);
+		expect(scheduler.report().last, "the first Tick ran").not.toBeNull();
+	});
 });
 
 describe("the plan", () => {
@@ -418,7 +461,7 @@ describe("the plan", () => {
 			rin,
 		]);
 		expect(over.find((d) => d.tag === "Skip")?.why).toContain(
-			"the society used 810000 of 1000000 tokens in 5 hours, over 80 percent, and A-mabel holds no rush Task",
+			"the society used 810000 of 1000000 tokens in 5 hours, over 80 percent, and A-mabel holds or reviews no rush Task",
 		);
 
 		const under = decide(790_000);
@@ -426,6 +469,63 @@ describe("the plan", () => {
 			under.filter((d) => d.tag === "Start").map((d) => d.agent),
 			"under the line every Agent with work starts",
 		).toEqual([ines, mabel, rin]);
+	});
+
+	it("over 80 percent still starts the reviewer of a rush Task UnderReview", () => {
+		fresh();
+		spent(s, thorne, 810_000);
+		const rush = task(s, "Rush1to2Days");
+		assign(s.ledger, { actor: operator, task_id: rush, assignee: rin });
+		start(s.ledger, { actor: { tag: "Agent", id: rin }, task_id: rush });
+		complete(s.ledger, {
+			actor: { tag: "Agent", id: rin },
+			task_id: rush,
+			reviewer: { tag: "Agent", id: pia },
+		});
+
+		const decisions = plan(s.ledger.projections, s.now(), OPTIONS, new Map());
+
+		expect(decisions).toContainEqual({
+			tag: "Start",
+			agent: pia,
+			why: `reviews ${rush}; rush ${rush}`,
+		});
+	});
+
+	it("wakes an Agent for a Message sent while its last Turn ran", () => {
+		fresh();
+		open(s.ledger, {
+			id: lab,
+			name: "Lab",
+			purpose: "The whole lab",
+			membership: { tag: "Everyone" },
+			opened_by: operator,
+		});
+		const { turn } = startTurn(s.ledger, {
+			agent: rin,
+			model: "claude-sonnet-5-5",
+			energyBudgetTokens: OPTIONS.energyBudgetTokens,
+		});
+		say(s.ledger, { actor: operator, room_id: lab, body: "Bench 2 is free." });
+		finishTurn(s.ledger, {
+			turn_id: turn.started.turn_id,
+			usage: usage(10),
+			outcome: { tag: "Completed" },
+			tool_calls: 0,
+		});
+
+		const decisions = plan(
+			s.ledger.projections,
+			s.now(),
+			{ ...OPTIONS, concurrency: 8 },
+			new Map(),
+		);
+
+		expect(decisions).toContainEqual({
+			tag: "Start",
+			agent: rin,
+			why: "1 new Message in its Rooms",
+		});
 	});
 
 	it("is reproducible: the same Ledger gives the same assignee twice", () => {
