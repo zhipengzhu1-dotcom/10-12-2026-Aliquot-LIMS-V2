@@ -44,11 +44,14 @@ if (
 /**
  * The Director's judgement on a Message in the Lab Room: received Samples
  * are work for the Specialist who works stage 2, and an unreadable report
- * gets a reply naming what is missing. The labels are the ones
- * `parse_message` reads the values the Report of Analysis needs by, so the
- * Director requests what the Script would refuse.
+ * gets a reply naming what is missing. The goal names the latest database
+ * because `run_script` passes only the inputs an Agent names: without it,
+ * `log_receipt` starts a new database and its Lab References restart.
+ * The labels are the ones `parse_message` reads the values the
+ * Report of Analysis needs by, so the Director requests what the Script
+ * would refuse.
  */
-const RECEIVING_WORK = `A Message in ${LAB_ROOM.id} that reports received Samples is work. When it names the Client, the product, the Lot, the Product Code, the quantity, the Sample Type, the TAT, the Product Type after "Product Type", and the Report To party after "Report to" with its company, Contact, Address and City, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_MESSAGE} on it, run S-${RECEIPT.script} (stage ${RECEIPT.number} ${RECEIPT.name}) on its Submission Record and S-${WORK_ORDER.script} (stage ${WORK_ORDER.number} ${WORK_ORDER.name}) on the Receiving Log row and toy LIMS database that writes, all with the Task's id, then reply to the Message in ${LAB_ROOM.id} with each Lab Reference and the Work Order's due date. Then assign it to ${RECEIPT.worked_by}, who works stage ${RECEIPT.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, naming each of those values it lacks, and propose no Task.`;
+const RECEIVING_WORK = `A Message in ${LAB_ROOM.id} that reports received Samples is work. When it names the Client, the product, the Lot, the Product Code, the quantity, the Sample Type, the TAT, the Product Type after "Product Type", and the Report To party after "Report to" with its company, Contact, Address and City, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_MESSAGE} on it, run S-${RECEIPT.script} (stage ${RECEIPT.number} ${RECEIPT.name}) on its Submission Record and the latest toy LIMS database when there is one, then S-${WORK_ORDER.script} (stage ${WORK_ORDER.number} ${WORK_ORDER.name}) on the Receiving Log row and toy LIMS database that writes, all with the Task's id, then reply to the Message in ${LAB_ROOM.id} with each Lab Reference and the Work Order's due date. Then assign it to ${RECEIPT.worked_by}, who works stage ${RECEIPT.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, naming each of those values it lacks, and propose no Task.`;
 
 /** `run S-<script> (stage <n> <name>)`, as a goal names a stage's Script. */
 const runs = (stage: Stage) =>

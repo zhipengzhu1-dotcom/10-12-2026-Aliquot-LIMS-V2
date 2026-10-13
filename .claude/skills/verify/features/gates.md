@@ -51,5 +51,5 @@ Proof: `/api/gates` has G-1 approved by the Operator, its `GateDecided` names th
 - The drive's two Gates come from `Request retirement` in the Org view, so their requester is the Operator; Bram and Mabel are only the Agents the payloads name. A `PromoteToMentor` request or approval is also refused while the Agent holds an unused approved one.
 - An expired Gate shows as `Expired` with no Event; the default lifetime is 86400 seconds, so a drive never sees one without `gate request --lifetime`.
 - `PromoteToMentor` approval does not change the tier by itself: the tier rises only when Merit and tenure meet the tier's bar, which the baseline's two Reviews do not.
-- On the launch baseline, the chat receipt's `S-log_receipt` Run, given only the Submission Record as #60's flow gives it, starts a new toy LIMS database: its Lab References restart at `LR-2026-0001` beside the Fixture's. Read Lab References from the Run's outputs, never by number.
+- On the launch baseline, the chat receipt's `S-log_receipt` Run carries the Fixture's toy LIMS database when the scripted Turn names it, as the Director's goal says, so its Lab References continue at `LR-2026-0003`. Read Lab References from the Run's outputs, never by number.
 - Approving an `ExternalMessage` Gate sends nothing; the `GateDecided` is the whole effect.

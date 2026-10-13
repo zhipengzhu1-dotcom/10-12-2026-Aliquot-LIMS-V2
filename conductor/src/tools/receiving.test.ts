@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 import {
 	afterAll,
 	afterEach,
@@ -16,7 +17,7 @@ import { ArtifactId, type Sha256 } from "../ids.js";
 import { say } from "../room/lifecycle.js";
 import { seedRooms } from "../room/seed.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
-import { buildImage } from "../sandbox/image.js";
+import { buildImage, scriptsRoot } from "../sandbox/image.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import {
 	director,
@@ -36,10 +37,15 @@ import {
 } from "../test-support/lab-room.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { RunModel } from "../turn/model.js";
+import { STAGES } from "../workflow/stages.js";
+import { ensureScript, runWorkflow } from "../workflow/tracer.js";
 import { messageArtifactId, PARSE_MESSAGE } from "./message.js";
 
 // Each build gives its tag a new image id, so this process's tag is its own.
 const IMAGE = `aliquot-sandbox:receiving-${process.pid}`;
+const SEED_1 = fileURLToPath(
+	new URL("../../../fixtures/submission-form-seed1.docx", import.meta.url),
+);
 const UNREADABLE = "Received some samples from Acme";
 const ASKED =
 	"I cannot log these yet: which product is it, and what are its Lot and Product Code?";
@@ -260,4 +266,85 @@ describe.skipIf(!requireDocker())(suite, () => {
 		});
 		expect(s.ledger.verify().ok).toBe(true);
 	}, 180_000);
+
+	it("logs a receipt on the latest toy LIMS database a home holds, so its Lab References and Work Order continue the sequence", async () => {
+		registerLabRoomScripts(s, home, image);
+		const fixture = await runWorkflow({
+			ledger: s.ledger,
+			home,
+			formPath: SEED_1,
+			plan: STAGES.slice(0, 3).map((stage) => {
+				const script = ensureScript({
+					ledger: s.ledger,
+					home,
+					stage,
+					source: join(scriptsRoot, stage.script),
+					image,
+				});
+				return { stage, script: { id: script.id, version: script.version } };
+			}),
+			timeoutMs: 60_000,
+		});
+		expect(fixture.stages.map((r) => r.state.tag)).toEqual([
+			"Done",
+			"Done",
+			"Done",
+		]);
+		const artifacts = openArtifacts({ ledger: s.ledger, home });
+		const latestDatabase = () => {
+			const found = [...s.ledger.projections.artifacts.artifacts.values()]
+				.filter((a) => a.artifact_type === "LimsDatabase")
+				.at(-1);
+			if (found === undefined) throw new Error("no LimsDatabase stored");
+			return found.id;
+		};
+		const ordered = (id: ArtifactId) => {
+			const db = new DatabaseSync(artifacts.path(id), { readOnly: true });
+			const rows = db
+				.prepare(
+					"SELECT DISTINCT s.lab_reference, w.work_order FROM samples s LEFT JOIN work_orders w USING (lab_reference) ORDER BY s.lab_reference",
+				)
+				.all()
+				.map((r) => `${r.lab_reference} ${r.work_order}`);
+			db.close();
+			return rows;
+		};
+		const carried = latestDatabase();
+		expect(ordered(carried), "the Fixture's run").toEqual([
+			"LR-2026-0001 WO-2026-0001",
+			"LR-2026-0002 WO-2026-0001",
+		]);
+
+		const message = await receive(s, home);
+
+		const [chat] = [...s.ledger.projections.proposals.proposedBy].flatMap(
+			([task_id, by]) =>
+				by.tag === "Agent" && by.id === ODILE ? [task_id] : [],
+		);
+		const [parsed, logged] = [...s.ledger.projections.runs.runs.values()]
+			.filter((r) => r.task_id === chat)
+			.flatMap((r) => (r.finished === undefined ? [] : [r.finished.run]));
+		const record = parsed?.outputs.find(
+			(o) =>
+				s.ledger.projections.artifacts.artifacts.get(o)?.artifact_type ===
+				"SubmissionRecord",
+		);
+		expect(
+			logged && [logged.script.id, ...logged.inputs],
+			"the chat Task's S-log_receipt Run carries the Fixture's database",
+		).toEqual([`S-${RECEIPT.script}`, record, carried]);
+		expect(ordered(latestDatabase())).toEqual([
+			"LR-2026-0001 WO-2026-0001",
+			"LR-2026-0002 WO-2026-0001",
+			"LR-2026-0003 WO-2026-0002",
+			"LR-2026-0004 WO-2026-0002",
+			"LR-2026-0005 WO-2026-0002",
+		]);
+		expect(replyTo(s, message.seq)?.payload).toMatchObject({
+			body: expect.stringMatching(
+				/^Logged LR-2026-0003, LR-2026-0004, LR-2026-0005 on WO-2026-0002, due /,
+			),
+		});
+		expect(s.ledger.verify().ok).toBe(true);
+	}, 300_000);
 });

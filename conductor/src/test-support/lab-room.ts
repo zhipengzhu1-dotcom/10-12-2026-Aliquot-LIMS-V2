@@ -96,6 +96,15 @@ export const json = (call: Call) => async (tool: string, input: object) => {
 	return JSON.parse(outcome.text);
 };
 
+/** The latest Artifact of a type in the Ledger, as `list_artifacts` lists it. */
+export const latest = async (
+	tool: ReturnType<typeof json>,
+	artifact_type: string,
+): Promise<ArtifactId | undefined> =>
+	(
+		(await tool("list_artifacts", { artifact_type })) as { id: ArtifactId }[]
+	).at(-1)?.id;
+
 /** Every Artifact a Run wrote, read back. */
 export const written = (
 	call: Call,
@@ -126,17 +135,18 @@ export const DONE = {
 
 /**
  * Stage 2's Specialist, scripted the way a model reads its prompt: a Task
- * whose input is a Message not stored yet is stored, parsed, logged and
- * given a Work Order, then completed naming the reviewer the prompt names,
- * and answered in RM-lab with each Lab Reference and the due date.
+ * whose input is a Message not stored yet is stored, parsed, logged on the
+ * latest toy LIMS database when its goal names one, and given a Work
+ * Order, then completed naming the reviewer the prompt names, and answered
+ * in RM-lab with each Lab Reference and the due date.
  */
 export const receivingSpecialist: RunModel = async ({ prompt, call }) => {
 	const task =
-		/- (T-\d+) .*\n {2}Inputs: [0-9a-f]{64} \(the Operator's Message seq (\d+) in RM-lab, not stored yet/.exec(
+		/- (T-\d+) (.*)\n {2}Inputs: [0-9a-f]{64} \(the Operator's Message seq (\d+) in RM-lab, not stored yet/.exec(
 			prompt.work,
 		);
 	if (task === null) return DONE;
-	const [, task_id = "", seq] = task;
+	const [, task_id = "", goal = "", seq] = task;
 	const tool = json(call);
 
 	await tool("start_task", { task_id });
@@ -152,9 +162,12 @@ export const receivingSpecialist: RunModel = async ({ prompt, call }) => {
 		await written(call, parsed.run),
 		"submission_record.json",
 	);
+	const carried = goal.includes("the latest toy LIMS database")
+		? await Promise.all(RECEIPT.carried.map((type) => latest(tool, type)))
+		: [];
 	const receipt = await tool("run_script", {
 		script: `S-${RECEIPT.script}`,
-		inputs: [record.artifact.id],
+		inputs: [record.artifact.id, ...carried.filter((id) => id !== undefined)],
 		task_id,
 	});
 	const logged = await written(call, receipt.run);
@@ -298,9 +311,39 @@ export const runScheduler = async (
 };
 
 /**
- * The Operator reports `READABLE` in RM-lab, the Director proposes T-1 on
- * it and assigns it to stage 2's Specialist, who enters the Samples in the Receiving Log and opens
- * the Work Order; the Scheduler runs until the Specialist replies.
+ * The Director's judgement on a receipt, scripted the way a model reads its
+ * prompt: on the Turn whose prompt lists `message`, it proposes a Task on
+ * it with the goal its work section gives for received Samples, and
+ * assigns it to the Agent that section names.
+ */
+const receivingDirector =
+	(message: Message): RunModel =>
+	async ({ prompt, call }) => {
+		const listed = `- seq ${message.seq}, Artifact ${messageArtifactId(message)}: ${message.body}`;
+		if (!prompt.work.includes(listed)) return DONE;
+		const told =
+			/reports received Samples is work\. .*? with the goal: (.*?)\. Then assign it to (A-[a-z]+), who works stage 2\./.exec(
+				prompt.work,
+			);
+		if (told === null) throw new Error("no receiving work in the prompt");
+		const [, goal, assignee] = told;
+		const tool = json(call);
+		const { task } = await tool("propose_task", {
+			title: "Receive Lot 2403A from the Lab Room",
+			goal,
+			tat_class: "Regular",
+			priority: 1,
+			inputs: [messageArtifactId(message)],
+		});
+		await tool("assign_task", { task_id: task.id, assignee });
+		return DONE;
+	};
+
+/**
+ * The Operator reports `READABLE` in RM-lab, the Director proposes a Task
+ * on it and assigns it to stage 2's Specialist, who enters the Samples in
+ * the Receiving Log and opens the Work Order; the Scheduler runs until the
+ * Specialist replies.
  */
 export const receive = async (
 	s: Scenario,
@@ -312,22 +355,7 @@ export const receive = async (
 		room_id: LAB,
 		body: READABLE,
 	});
-	const odile = director(message, [
-		{
-			tool: "propose_task",
-			input: {
-				title: "Receive Lot 2403A from the Lab Room",
-				goal: "Store the Message, run S-parse_message on it, run stages 2 and 3, and reply with each Lab Reference and the due date",
-				tat_class: "Regular",
-				priority: 1,
-				inputs: [messageArtifactId(message)],
-			},
-		},
-		{
-			tool: "assign_task",
-			input: { task_id: "T-1", assignee: RECEIPT.worked_by },
-		},
-	]);
+	const odile = receivingDirector(message);
 	await runScheduler(
 		s,
 		home,
