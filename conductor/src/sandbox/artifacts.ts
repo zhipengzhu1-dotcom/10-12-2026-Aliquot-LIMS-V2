@@ -11,12 +11,13 @@ import { sha256Hex } from "../hash.js";
 import { ArtifactId, type Seq, Sha256 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { type Projection, Refusal } from "../reduce.js";
+import type { Actor } from "../types/actor.js";
 import type {
 	Artifact,
 	ArtifactFilename,
 	StoredArtifact,
 } from "../types/artifact.js";
-import { type Origin, store } from "./lifecycle.js";
+import { store } from "./lifecycle.js";
 
 /** One ArtifactStored: the record it wrote, and its seq. */
 export type Production = {
@@ -107,7 +108,11 @@ export type Artifacts = {
 	 * Write the bytes to `blobs/<sha256>` and store them through the Sandbox
 	 * lifecycle, which returns the record of these bytes for this producer.
 	 */
-	store(bytes: Uint8Array, meta: ArtifactMeta, by: Origin): StoredArtifact;
+	store(
+		bytes: Uint8Array,
+		meta: ArtifactMeta,
+		by: { readonly actor: Actor },
+	): StoredArtifact;
 	/** The bytes, checked against the id. */
 	read(id: ArtifactId): Buffer;
 	/** Where the bytes live on disk. */

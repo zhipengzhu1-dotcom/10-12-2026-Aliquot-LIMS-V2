@@ -36,13 +36,11 @@ export const register = (
 	ledger: Ledger,
 	{
 		actor,
-		causation_id,
 		...fields
-	}: Omit<Origin, "task_id"> &
-		Omit<
-			Script,
-			"id" | "version" | "fixtures" | "input_types" | "output_types"
-		> & {
+	}: { readonly actor: Actor } & Omit<
+		Script,
+		"id" | "version" | "fixtures" | "input_types" | "output_types"
+	> & {
 			readonly input_types: readonly ArtifactType[];
 			readonly output_types: readonly ArtifactType[];
 		},
@@ -62,7 +60,7 @@ export const register = (
 	place?.(script);
 	const { seq } = ledger.append({
 		actor,
-		causation_id: causation_id ?? scripts.lastSeq.get(id),
+		causation_id: scripts.lastSeq.get(id),
 		kind: latest ? "ScriptRevised" : "ScriptRegistered",
 		payload: script,
 	});
@@ -78,7 +76,7 @@ export const register = (
  */
 export const store = (
 	ledger: Ledger,
-	origin: Origin,
+	{ actor }: { readonly actor: Actor },
 	facts: ArtifactMeta & { readonly sha256: Sha256 },
 ): { readonly artifact: StoredArtifact; readonly seq: Seq } => {
 	const { artifacts, runs } = ledger.projections;
@@ -102,9 +100,9 @@ export const store = (
 		lineage: [...facts.lineage],
 	};
 	const { seq } = ledger.append({
-		actor: origin.actor,
-		task_id: origin.task_id ?? run?.task_id,
-		causation_id: origin.causation_id ?? run?.seq,
+		actor,
+		task_id: run?.task_id,
+		causation_id: run?.seq,
 		kind: "ArtifactStored",
 		payload: artifact,
 	});
@@ -139,7 +137,7 @@ export const startRun = (
 /** Finish a started Run, naming its RunStarted as the cause and its Task. */
 export const finishRun = (
 	ledger: Ledger,
-	{ actor, causation_id, run }: Omit<Origin, "task_id"> & { readonly run: Run },
+	{ actor, run }: { readonly actor: Actor; readonly run: Run },
 ): { readonly run: Run; readonly seq: Seq } => {
 	const started = orRefuse(
 		"RunFinished",
@@ -148,7 +146,7 @@ export const finishRun = (
 	const { seq } = ledger.append({
 		actor,
 		task_id: started.task_id,
-		causation_id: causation_id ?? started.seq,
+		causation_id: started.seq,
 		kind: "RunFinished",
 		payload: run,
 	});

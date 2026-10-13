@@ -236,7 +236,7 @@ pnpm -C conductor cli --home $H sandbox cat <artifact id>
 
 `register` records `ScriptRegistered` for a new name and `ScriptRevised` with the next version for a known one. It copies `sandbox/scripts/<name>/` (or `--script-dir`) to `<home>/scripts/S-<name>/<version>/`, so a version never changes, and records the image `Id` as `image_digest`; a local build has no registry digest. A Run uses the image its Script version names.
 
-Every Sandbox Event is appended by the Sandbox lifecycle, `conductor/src/sandbox/lifecycle.ts`. The Script registry, the runner and the Artifact store do their work on disk and in Docker, then call it. It mints Script versions and Run ids. It also names the cause of each Event in `causation_id`, from the Projections. A `ScriptRevised` names the version before it. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. Only a cause outside the Sandbox, such as the `TaskStarted` that the stage 1 tracer runs a Script on, comes from the caller.
+Every Sandbox Event is appended by the Sandbox lifecycle, `conductor/src/sandbox/lifecycle.ts`. The Script registry, the runner and the Artifact store do their work on disk and in Docker, then call it. It mints Script versions and Run ids. It also names the cause of each Event in `causation_id`, from the Projections. A `ScriptRevised` names the version before it. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. Only a cause outside the Sandbox, such as the `TaskStarted` that the stage 1 tracer runs a Script on, comes from the caller, and only when it starts a Run.
 
 ### Script convention
 
