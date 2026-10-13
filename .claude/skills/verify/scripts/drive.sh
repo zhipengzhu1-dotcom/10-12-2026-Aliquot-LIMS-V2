@@ -92,11 +92,11 @@ drive_org() {
 	local reason="verify: pause Rin from the Org view"
 	browser ui goto '#/org' mark \
 		click '#act-A-rin > summary' fill '#pause-A-rin-reason' "$reason" click '#pause-A-rin button' \
-		text '#answer' 'Appended AgentPaused' wait '[data-agent="A-rin"] .badge.paused' \
+		text '#answer' 'Appended AgentPaused' wait '[data-agent="A-rin"] .badge.paused' wait '#resume-A-rin' \
 		outside resume '{"agent_id":"A-rin"}' gone '[data-agent="A-rin"] .badge.paused' \
 		fill '#action input[name=verb]' rest-order \
 		fill '#action textarea[name=body]' '{"agent_id":"A-ines","action":"begin","reason":"verify: Rest from the Action bar"}' \
-		click '#action button' text '#answer' 'Appended RestOrdered' text '[data-agent="A-ines"] .badge' resting \
+		click '#action button' text '#answer' 'Appended RestOrdered' wait '[data-agent="A-ines"] .badge.mood-resting' \
 		same-page
 	step resume-again.txt api act resume '{"agent_id":"A-rin"}' --expect 409
 	expect "a second resume of Rin is refused with 409 and the Ledger's text" \
@@ -123,7 +123,7 @@ drive_flow() {
 	local lanes=$(($(jq length "$out/stages.json") + 1))
 	browser ui goto '#/flow' mark count '[data-lane]' "$lanes" wait '[data-task="T-1"]' \
 		choose 'form.filter select[name=lot]' "$lot" click 'form.filter button' \
-		wait "form.filter option[selected][value=\"$lot\"]" wait '[data-task="T-5"]' \
+		wait "form.filter option[selected][value=\"$lot\"]" wait '[data-task="T-6"]' count '[data-task]' 6 \
 		click '[data-task="T-1"]' wait 'aside.panel li[data-seq]' wait 'svg.arrows path' \
 		save 'aside.panel' panel.txt \
 		goto '#/flow?task=T-2' wait '[data-task="T-2"]' gone '[data-task="T-1"]' same-page
@@ -137,7 +137,7 @@ drive_agent() {
 	local note="verify: name the Lot in every Artifact"
 	local reason="verify: a Revision from the Agent view"
 	browser ui goto '#/agent?id=A-rin' mark \
-		wait '#charter' wait '#vitality' wait '#merit table' save '#merit' merit.txt \
+		wait '#charter' text '#vitality' 'sample computed now' count '#merit tbody tr' 2 save '#merit' merit.txt \
 		fill '#coach-A-rin-note' "$note" click '#coach-A-rin button' \
 		text '#answer' 'Appended HumanCoached' text '#coaching' "$note" \
 		click '#revise-A-rin-panel > summary' fill '#revise-A-rin-reason' "$reason" click '#revise-A-rin button' \
@@ -148,8 +148,8 @@ drive_agent() {
 	step training.json api get training
 	expect "/api/training holds the Coaching for Rin" \
 		same "$(jq -r --arg n "$note" '[.coaching["A-rin"][]? | select(.note == $n)] | length' "$out/training.json" 2>/dev/null)" 1
-	expect "the Merit section lists Rin's Reviews (T-1 and T-4 from the workflow run)" \
-		has ui/merit.txt T-4
+	expect "the Merit section lists Rin's Review on T-1 from the workflow run" has ui/merit.txt T-1
+	expect "the Merit section lists Rin's Review on T-4 from the workflow run" has ui/merit.txt T-4
 	expect "the drive appended HumanCoached, then AgentDefinitionRevised ($(kinds_since))" \
 		same "$(sql "select group_concat(kind, ' ') from (select kind from events where seq > $base and kind in ('HumanCoached', 'AgentDefinitionRevised') order by seq)")" 'HumanCoached AgentDefinitionRevised'
 	rows_since
