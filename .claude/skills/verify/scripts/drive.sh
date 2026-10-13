@@ -90,13 +90,14 @@ kinds_since() { sql "select group_concat(kind, ' ') from (select kind from event
 
 drive_org() {
 	local reason="verify: pause Rin from the Org view"
+	local rest="verify: Rest from the Action bar"
 	browser ui goto '#/org' mark \
 		click '#act-A-rin > summary' fill '#pause-A-rin-reason' "$reason" click '#pause-A-rin button' \
 		text '#answer' 'Appended AgentPaused' wait '[data-agent="A-rin"] .badge.paused' wait '#resume-A-rin' \
 		outside resume '{"agent_id":"A-rin"}' gone '[data-agent="A-rin"] .badge.paused' \
 		fill '#action input[name=verb]' rest-order \
-		fill '#action textarea[name=body]' '{"agent_id":"A-ines","action":"begin","reason":"verify: Rest from the Action bar"}' \
-		click '#action button' text '#answer' 'Appended RestOrdered' wait '[data-agent="A-ines"] .badge.mood-resting' \
+		fill '#action textarea[name=body]' "{\"agent_id\":\"A-ines\",\"action\":\"begin\",\"reason\":\"$rest\"}" \
+		click '#action button' text '#answer' 'Appended RestOrdered' count '.agent [class*="mood"]' 0 \
 		same-page
 	step resume-again.txt api act resume '{"agent_id":"A-rin"}' --expect 409
 	expect "a second resume of Rin is refused with 409 and the Ledger's text" \
@@ -105,8 +106,12 @@ drive_org() {
 	expect "/api/org has Rin running again (paused false)" \
 		same "$(jq '.agents["A-rin"].paused' "$out/org.json" 2>/dev/null)" false
 	step vitality.json api get vitality
-	expect "/api/vitality has Ines resting" \
-		same "$(jq -r '.["A-ines"].mood' "$out/vitality.json" 2>/dev/null)" resting
+	expect "/api/vitality has Ines fresh after her Rest order: Mood is flat" \
+		same "$(jq -r '.["A-ines"].mood' "$out/vitality.json" 2>/dev/null)" fresh
+	expect "/api/vitality has every live Agent fresh" \
+		same "$(jq -r '[.[] | .mood] | unique | join(" ")' "$out/vitality.json" 2>/dev/null)" fresh
+	expect "the RestOrdered row carries Ines, begin and the typed reason, by the Operator" \
+		same "$(sql "select count(*) from events where seq > $base and kind = 'RestOrdered' and actor = '{\"tag\":\"Operator\"}' and json_extract(payload, '$.agent_id') = 'A-ines' and json_extract(payload, '$.action') = 'begin' and json_extract(payload, '$.reason') = '$rest'")" 1
 	expect "the AgentPaused row carries Rin and the typed reason, by the Operator" \
 		same "$(sql "select count(*) from events where seq > $base and kind = 'AgentPaused' and actor = '{\"tag\":\"Operator\"}' and json_extract(payload, '$.agent_id') = 'A-rin' and json_extract(payload, '$.reason') = '$reason'")" 1
 	expect "the drive appended AgentPaused, AgentResumed and RestOrdered, in that order ($(kinds_since))" \
@@ -137,7 +142,8 @@ drive_agent() {
 	local note="verify: name the Lot in every Artifact"
 	local reason="verify: a Revision from the Agent view"
 	browser ui goto '#/agent?id=A-rin' mark \
-		wait '#charter' text '#vitality' 'sample computed now' count '#merit tbody tr' 2 save '#merit' merit.txt \
+		wait '#charter' text '#vitality' 'Mood is flat in the first edition' text '#vitality' 'sample computed now' \
+		count '#merit tbody tr' 2 save '#merit' merit.txt \
 		fill '#coach-A-rin-note' "$note" click '#coach-A-rin button' \
 		text '#answer' 'Appended HumanCoached' text '#coaching' "$note" \
 		click '#revise-A-rin-panel > summary' fill '#revise-A-rin-reason' "$reason" click '#revise-A-rin button' \

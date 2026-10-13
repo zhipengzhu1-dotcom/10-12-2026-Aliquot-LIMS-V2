@@ -22,7 +22,6 @@ import { reviewerRefusal } from "../vitality/reviewers.js";
 import { reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
 import {
-	assigneeRefusal,
 	conductorAssignRefusal,
 	helpTargetRefusal,
 	sampledRefusal,
@@ -123,9 +122,9 @@ export const propose = (
 	);
 
 /**
- * Assign a Task to `assignee`, refused when it is strained or worse. The
- * Conductor assigns too, as its own act (ADR-0013): only a Proposed Task,
- * naming the Task's previous Event as the cause.
+ * Assign a Task to `assignee`. The Conductor assigns too, as its own act
+ * (ADR-0013): only a Proposed Task, naming the Task's previous Event as the
+ * cause.
  */
 export const assign = (
 	ledger: Ledger,
@@ -144,7 +143,6 @@ export const assign = (
 			conductorAssignRefusal(ledger.projections, task_id),
 		);
 	}
-	orRefuse("TaskAssigned", assigneeRefusal(ledger.projections, assignee));
 	return record(ledger, origin, {
 		kind: "TaskAssigned",
 		payload: { task_id, assignee },
@@ -267,7 +265,7 @@ export const review = (
 
 /**
  * Hand an InProgress Task off from its assignee to `to`, which returns it to
- * Assigned. Refused when `to` is strained or worse.
+ * Assigned.
  */
 export const handOff = (
 	ledger: Ledger,
@@ -286,7 +284,6 @@ export const handOff = (
 		"TaskHandedOff",
 		stateIn(ledger.projections.tasks, task_id, ["InProgress"]),
 	);
-	orRefuse("TaskHandedOff", assigneeRefusal(ledger.projections, to));
 	return record(ledger, origin, {
 		kind: "TaskHandedOff",
 		payload: { task_id, from, to, reason },

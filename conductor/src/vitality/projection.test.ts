@@ -62,7 +62,7 @@ describe("vitalityProjection", () => {
 		});
 	});
 
-	it("takes Mood from Rest, Tasks InProgress and the latest Vitality sample", () => {
+	it("shows Mood fresh and the normal Policy whatever Rest, Tasks InProgress and the latest Vitality sample say, and keeps the sample", () => {
 		s.task(rin);
 		orderRest(s.ledger, {
 			actor: { tag: "Agent", id: AgentId.parse("A-mabel") },
@@ -85,14 +85,23 @@ describe("vitalityProjection", () => {
 		s.retire(AgentId.parse("A-anselm"), "Replaced");
 
 		const agents = view();
-		expect(agents.get(rin)?.mood).toBe("focused");
-		expect(agents.get(ines)?.mood).toBe("resting");
-		expect(agents.get(ines)?.policy.schedulable).toBe(false);
+		const normal = {
+			mayAcceptTasks: true,
+			mayOfferHelp: true,
+			mustHandOff: false,
+			mustRequestHelp: false,
+			mustNameBlocker: false,
+			schedulable: true,
+		};
+		for (const agent of [rin, ines, bram]) {
+			expect(agents.get(agent), agent).toMatchObject({
+				mood: "fresh",
+				policy: normal,
+			});
+		}
 		expect(agents.get(bram)).toMatchObject({
 			sampled: true,
 			vitality: { fatigue: 0.85 },
-			mood: "overloaded",
-			policy: { mustHandOff: true },
 		});
 		expect(agents.has(AgentId.parse("A-anselm"))).toBe(false);
 	});

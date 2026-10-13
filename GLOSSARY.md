@@ -237,15 +237,15 @@ The measured state of one Agent, a vector of load, fatigue, friction, confidence
 _Avoid_: wellbeing, health, energy, feelings
 
 **Mood**:
-A named state computed from Vitality: `fresh`, `focused`, `strained`, `overloaded`, `discouraged`, or `resting`.
+A named state computed from Vitality: `fresh`, `focused`, `strained`, `overloaded`, `discouraged`, or `resting`. Mood is flat in the first edition: every live Agent is `fresh`, whatever its Vitality or Rest.
 _Avoid_: emotion, feeling, status
 
 **Policy**:
-The set of actions that a Mood allows, such as accepting new Tasks or requiring a Hand-off.
+The set of actions that a Mood allows, such as accepting new Tasks or requiring a Hand-off. While Mood is flat, every Agent has the normal Policy of `fresh`.
 _Avoid_: rules, behavior mode
 
 **Rest**:
-A period in which the Conductor schedules no Turns for an Agent, ordered by the Steward with a `RestOrdered` Event.
+A period ordered for an Agent by the Steward with a `RestOrdered` Event. While Mood is flat, Rest is recorded but does not stop the Agent's Turns; pausing does.
 _Avoid_: sleep, cooldown, break
 
 **Energy budget**:

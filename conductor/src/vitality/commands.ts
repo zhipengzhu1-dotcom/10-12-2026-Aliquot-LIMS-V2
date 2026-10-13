@@ -6,14 +6,20 @@ import {
 	withLedger,
 } from "../cli-support.js";
 import { type CommandTable, UsageError } from "../command.js";
+import type { Event } from "../events.js";
 import { AgentId, TaskId } from "../ids.js";
 import { type OrgState, revisedBetween } from "../org/projection.js";
+import { advance, emptyProjections } from "../projections.js";
+import { Refusal } from "../reduce.js";
 import { review as reviewTask } from "../task/lifecycle.js";
+import { assigneeOf } from "../task/projection.js";
+import { countedTokens } from "../turn/projection.js";
 import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { Score } from "../types/merit.js";
 import type { Policy, Vitality } from "../types/vitality.js";
 import { orderRest, sample } from "./lifecycle.js";
+import { currentMood } from "./mood.js";
 import { type AgentVitality, vitalityProjection } from "./projection.js";
 import { trustOf } from "./trust.js";
 import { mean, scoresOf } from "./work.js";
@@ -89,6 +95,152 @@ const line = (id: AgentId, name: string, a: AgentVitality) =>
 
 const revisedLine = (d: AgentDefinition) =>
 	`Revised ${d.id} to version ${d.version}: ${d.revision_reason}\n`;
+
+type Cell = string | number;
+type Table = {
+	readonly header: readonly string[];
+	readonly rows: readonly (readonly Cell[])[];
+};
+type Export = "samples" | "turns" | "reviews";
+
+/**
+ * The tables `vitality export --csv` writes, from one replay of `events`.
+ * A sample's Mood is `fresh`, as every Mood is (#62); a Review's assignee is
+ * the Task's as it stood when the Review was recorded.
+ */
+export const exportTables = (
+	events: Iterable<Event>,
+): Record<Export, Table> => {
+	let projections = emptyProjections();
+	const samples: Cell[][] = [];
+	const reviews: Cell[][] = [];
+	for (const event of events) {
+		const before = projections;
+		const after = advance(before, event);
+		if (after instanceof Refusal) {
+			throw new Error(`seq ${event.seq} cannot be replayed: ${after.reason}`);
+		}
+		projections = after;
+		if (event.kind === "VitalitySampled") {
+			const v = event.payload;
+			samples.push([
+				event.seq,
+				event.ts,
+				v.agent,
+				v.load,
+				v.fatigue,
+				v.friction,
+				v.confidence,
+				v.morale,
+				currentMood(),
+				event.causation_id ?? "",
+			]);
+		}
+		if (event.kind === "ReviewRecorded") {
+			const r = event.payload;
+			reviews.push([
+				event.seq,
+				event.ts,
+				r.task_id,
+				assigneeOf(before.tasks.tasks.get(r.task_id)) ?? "",
+				actorText(r.reviewer),
+				...scoresOf(r),
+				mean(scoresOf(r)),
+				r.note,
+			]);
+		}
+	}
+	const turns = [...projections.turns.turns.values()].map(
+		({ started, seq, at, finished }): Cell[] => {
+			const usage = finished?.payload.usage;
+			const outcome = finished?.payload.outcome;
+			return [
+				started.turn_id,
+				started.agent,
+				started.model,
+				started.mood,
+				seq,
+				at,
+				finished?.seq ?? "",
+				finished?.at ?? "",
+				usage?.input_tokens ?? "",
+				usage?.output_tokens ?? "",
+				usage?.cache_creation_tokens ?? "",
+				usage?.cache_read_tokens ?? "",
+				usage === undefined ? "" : countedTokens(usage),
+				usage?.cost_usd ?? "",
+				finished?.payload.tool_calls ?? "",
+				outcome?.tag ?? "open",
+				outcome?.tag === "Error" ? outcome.message : "",
+			];
+		},
+	);
+	return {
+		samples: {
+			header: [
+				"seq",
+				"at",
+				"agent",
+				"load",
+				"fatigue",
+				"friction",
+				"confidence",
+				"morale",
+				"mood",
+				"causation_id",
+			],
+			rows: samples,
+		},
+		turns: {
+			header: [
+				"turn_id",
+				"agent",
+				"model",
+				"mood",
+				"started_seq",
+				"started",
+				"finished_seq",
+				"finished",
+				"input_tokens",
+				"output_tokens",
+				"cache_creation_tokens",
+				"cache_read_tokens",
+				"counted_tokens",
+				"cost_usd",
+				"tool_calls",
+				"outcome",
+				"error",
+			],
+			rows: turns,
+		},
+		reviews: {
+			header: [
+				"seq",
+				"at",
+				"task_id",
+				"assignee",
+				"reviewer",
+				"quality",
+				"traceability",
+				"boundary_adherence",
+				"collaboration",
+				"timeliness",
+				"mean",
+				"note",
+			],
+			rows: reviews,
+		},
+	};
+};
+
+/** RFC 4180: a cell holding a comma, a quote or a line break is quoted. */
+const csvCell = (cell: Cell) => {
+	const text = String(cell);
+	return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+};
+
+const csv = ({ header, rows }: Table) =>
+	[header, ...rows].map((row) => `${row.map(csvCell).join(",")}\n`).join("");
 
 export const vitalityCommands: CommandTable = {
 	show: {
@@ -218,6 +370,39 @@ export const vitalityCommands: CommandTable = {
 				`Recorded a Review of ${task_id} by ${actorText(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
 			);
 			for (const d of revised) ctx.stdout.write(revisedLine(d));
+			return 0;
+		},
+	},
+	export: {
+		args: "--csv [--turns | --reviews]",
+		describe:
+			"Write every VitalitySampled with its Mood as CSV, or every Turn, or every Review",
+		run: async (args, ctx) => {
+			const { values } = parseArgs({
+				args,
+				options: {
+					csv: { type: "boolean", default: false },
+					turns: { type: "boolean", default: false },
+					reviews: { type: "boolean", default: false },
+				},
+			});
+			if (!values.csv) {
+				throw new UsageError("vitality export writes CSV only; pass --csv");
+			}
+			if (values.turns && values.reviews) {
+				throw new UsageError(
+					"vitality export writes one table: --turns or --reviews, not both",
+				);
+			}
+			const which: Export = values.turns
+				? "turns"
+				: values.reviews
+					? "reviews"
+					: "samples";
+			const tables = withLedger(ctx.home, false, (ledger) =>
+				exportTables(ledger.events()),
+			);
+			ctx.stdout.write(csv(tables[which]));
 			return 0;
 		},
 	},

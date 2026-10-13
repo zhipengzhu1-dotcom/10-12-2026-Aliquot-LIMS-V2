@@ -8,28 +8,10 @@ import { Refusal } from "../reduce.js";
 import { type Actor, actorText } from "../types/actor.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Task } from "../types/task.js";
-import { currentMood } from "../vitality/mood.js";
-import { policyOf } from "../vitality/policy.js";
 import { reviewerRefusal } from "../vitality/reviewers.js";
 import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
 import { stateIn } from "./projection.js";
-
-/**
- * An Agent takes a Task, by assignment or Hand-off, only while the Policy of
- * its current Mood lets it accept one: never when it is `strained` or worse
- * (docs/design/vitality-and-merit.md, "Allocation favors trusted, unloaded
- * Agents").
- */
-export const assigneeRefusal = (
-	projections: Projections,
-	agent: AgentId,
-): Refusal | undefined => {
-	const mood = currentMood(projections, agent);
-	return policyOf(mood).mayAcceptTasks
-		? undefined
-		: new Refusal(`${agent} is ${mood} and may not accept a Task`);
-};
 
 /**
  * The Conductor assigns a Task only while it is Proposed, so it never
@@ -125,20 +107,14 @@ export const helpTargetRefusal = (
 };
 
 /**
- * The Review rules on completion, the Mood rule on whoever takes a Task, and
- * whom help is requested of. The Task state machine itself, and who may
- * request help, are the Task Projection's, which refuses every Event it
- * cannot express.
+ * The Conductor's assignments, the Review rules on completion, and whom help
+ * is requested of. The Task state machine itself, and who may request help,
+ * are the Task Projection's, which refuses every Event it cannot express.
  */
 const taskRules: AppendGuard = (projections, event) => {
 	switch (event.kind) {
 		case "TaskAssigned":
-			return (
-				conductorAssignment(projections, event) ??
-				reasonOf(assigneeRefusal(projections, event.payload.assignee))
-			);
-		case "TaskHandedOff":
-			return reasonOf(assigneeRefusal(projections, event.payload.to));
+			return conductorAssignment(projections, event);
 		case "TaskCompleted": {
 			const task = projections.tasks.tasks.get(event.payload.task_id);
 			return task === undefined

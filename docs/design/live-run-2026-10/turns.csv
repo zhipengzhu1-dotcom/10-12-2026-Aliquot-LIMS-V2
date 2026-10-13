@@ -1,0 +1,5 @@
+turn_id,agent,model,mood,started_seq,started,finished_seq,finished,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,counted_tokens,cost_usd,tool_calls,outcome,error
+TN-1,A-mabel,claude-sonnet-5-5,fresh,18,2026-10-13T06:29:52.225Z,20,2026-10-13T06:29:58.204Z,2,55,7915,0,7972,0.032214,0,Completed,
+TN-2,A-odile,claude-sonnet-5-5,fresh,19,2026-10-13T06:29:52.247Z,23,2026-10-13T06:30:01.241Z,1352,489,8394,7834,10235,0.0392117,1,Completed,
+TN-3,A-thorne,claude-sonnet-5-5,fresh,25,2026-10-13T06:30:07.249Z,26,2026-10-13T06:30:11.147Z,1282,296,2073,13744,3651,0.011270699999999998,1,Completed,
+TN-4,A-ines,claude-sonnet-5-5,fresh,29,2026-10-13T06:30:22.253Z,32,2026-10-13T06:30:31.571Z,1491,819,3972,31895,6282,0.0272513,4,Completed,

@@ -200,13 +200,108 @@ describe("aliquot vitality", () => {
 		expect(lastEvent()).not.toHaveProperty("causation_id");
 	});
 
-	it("show computes fatigue from Turns for an Agent never sampled", () => {
+	it("show computes fatigue from Turns for an Agent never sampled, and prints Mood fresh with the normal Policy for every live Agent, fatigued or resting", () => {
 		rinTurns({ hoursAgo: 1, tokens: 100_000 });
+		ok(vitality("rest", "A-ines", "--begin", "--reason", "fatigue 0.92"));
+
+		const lines = ok(vitality("show")).trimEnd().split("\n");
 
 		expect(
-			ok(vitality("show", "A-rin")),
-			"100,000 tokens of a 125,000-token share",
-		).toMatch(/^A-rin Rin load=0\.00 fatigue=0\.80 .* mood=overloaded /);
+			lines.find((l) => l.startsWith("A-rin ")),
+			"100,000 tokens of a 142,857-token share: 7 Agents not resting",
+		).toMatch(/^A-rin Rin load=0\.00 fatigue=0\.70 /);
+		expect(lines).toHaveLength(8);
+		expect(
+			lines.map((l) => /mood=(\S+) policy=(\S+)/.exec(l)?.slice(1)),
+		).toEqual(
+			lines.map(() => ["fresh", "mayAcceptTasks,mayOfferHelp,schedulable"]),
+		);
+	});
+
+	it("export --csv writes each sample with Mood fresh, each Turn, and each Review, one table per call", () => {
+		rinTurns({ hoursAgo: 1, tokens: 900 });
+		ok(vitality("sample", "A-rin", "--budget", "8000"));
+		ok(vitality("sample", "A-rin", "--budget", "1000000"));
+		const ledger = openLedger({ home, writer: true });
+		try {
+			const ines = startTurn(ledger, {
+				agent: AgentId.parse("A-ines"),
+				model: "claude-sonnet-5-5",
+				energyBudgetTokens: 8000,
+			});
+			finishTurn(ledger, {
+				turn_id: ines.turn.started.turn_id,
+				usage: {
+					input_tokens: 0,
+					output_tokens: 0,
+					cache_creation_tokens: 0,
+					cache_read_tokens: 0,
+					cost_usd: 0,
+				},
+				outcome: { tag: "Error", message: 'login refused, "rate limited"' },
+				tool_calls: 0,
+			});
+			startTurn(ledger, {
+				agent: AgentId.parse("A-bram"),
+				model: "claude-sonnet-5-5",
+				energyBudgetTokens: 8000,
+			});
+		} finally {
+			ledger.close();
+		}
+		ok(
+			vitality(
+				"review",
+				"T-10",
+				"--quality",
+				"3",
+				"--traceability",
+				"3",
+				"--boundary",
+				"3",
+				"--collaboration",
+				"3",
+				"--timeliness",
+				"2",
+				"--note",
+				'Late, by "an" hour',
+				"--as",
+				"A-pia",
+			),
+		);
+		const rows = (...flags: string[]) =>
+			ok(vitality("export", "--csv", ...flags))
+				.trimEnd()
+				.split("\n")
+				.map((line) => line.replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, "<at>"));
+
+		expect(rows()).toEqual([
+			"seq,at,agent,load,fatigue,friction,confidence,morale,mood,causation_id",
+			"71,<at>,A-rin,0,0.9,0,1,0,fresh,",
+			"72,<at>,A-rin,0,0.0072,0,1,0,fresh,",
+		]);
+		expect(rows("--turns")).toEqual([
+			"turn_id,agent,model,mood,started_seq,started,finished_seq,finished,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,counted_tokens,cost_usd,tool_calls,outcome,error",
+			"TN-1,A-rin,claude-opus-5-5,fresh,69,<at>,70,<at>,900,0,0,40000,900,0.05,4,Completed,",
+			'TN-2,A-ines,claude-sonnet-5-5,fresh,73,<at>,74,<at>,0,0,0,0,0,0,0,Error,"login refused, ""rate limited"""',
+			"TN-3,A-bram,claude-sonnet-5-5,fresh,75,<at>,,,,,,,,,,open,",
+		]);
+		const reviews = rows("--reviews");
+		expect(reviews.slice(0, 2)).toEqual([
+			"seq,at,task_id,assignee,reviewer,quality,traceability,boundary_adherence,collaboration,timeliness,mean,note",
+			"15,<at>,T-1,A-rin,A-pia,3,3,3,3,3,3,",
+		]);
+		expect(reviews).toHaveLength(11);
+		expect(reviews.at(-1)).toBe(
+			'76,<at>,T-10,A-rin,A-pia,3,3,3,3,2,2.8,"Late, by ""an"" hour"',
+		);
+
+		const bare = vitality("export");
+		expect(bare.status).toBe(2);
+		expect(bare.stderr.split("\n")[0]).toBe(
+			"UsageError: vitality export writes CSV only; pass --csv",
+		);
+		expect(vitality("export", "--csv", "--turns", "--reviews").status).toBe(2);
 	});
 
 	it("sample has no --tokens", () => {

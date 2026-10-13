@@ -43,7 +43,6 @@ type CountedReview = ReviewRow & {
 type AgentVitality = {
 	readonly vitality: Readonly<Record<string, number>>;
 	readonly sampled: boolean;
-	readonly mood: string;
 	readonly policy: Readonly<Record<string, boolean>>;
 };
 
@@ -128,11 +127,11 @@ const persona = ({ persona: p }: Definition) =>
 const vitalitySection = (v: AgentVitality | undefined) =>
 	section(
 		"vitality",
-		"Vitality",
+		"Vitality (Mood is flat in the first edition)",
 		v === undefined
 			? `<p class="empty">No Vitality: the Agent is Retired.</p>`
 			: [
-					`<p>Mood <span class="badge mood-${escapeHtml(v.mood)}">${escapeHtml(v.mood)}</span> from ${v.sampled ? "the latest sample" : "a sample computed now"}.</p>`,
+					`<p>From ${v.sampled ? "the latest sample" : "a sample computed now"}.</p>`,
 					`<dl class="facts">${Object.entries(v.vitality)
 						.filter(([, value]) => typeof value === "number")
 						.map(
@@ -313,7 +312,7 @@ const index = (agents: readonly AgentState[]) =>
 	)}`;
 
 /**
- * One Agent: its Charter, Persona, Vitality with Mood and Policy, Merit after
+ * One Agent: its Charter, Persona, Vitality and Policy, Merit after
  * each Review, Memory notes, Coaching and Skills, and the Operator's actions
  * on it. Without an Agent id, the list of Agents to choose from.
  */

@@ -102,6 +102,6 @@ export const runTurn = async (
 	return {
 		turn: finished.turn,
 		vitality,
-		mood: currentMood(ledger.projections, agent),
+		mood: currentMood(),
 	};
 };

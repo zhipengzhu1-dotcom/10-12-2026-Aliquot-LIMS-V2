@@ -2,7 +2,6 @@ import { sha256Hex } from "../hash.js";
 import type { AgentId, ArtifactId, TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import { roomsOf } from "../room/projection.js";
-import { assigneeRefusal } from "../task/guards.js";
 import { LIVE_TAGS } from "../task/projection.js";
 import { startRefusal } from "../turn/guards.js";
 import { type TurnRecord, tokensInWindow } from "../turn/projection.js";
@@ -166,9 +165,7 @@ const assignment = (
 		const refusal =
 			(projections.org.agents.get(agent.id)?.paused
 				? { reason: `${agent.id} is paused` }
-				: undefined) ??
-			assigneeRefusal(projections, agent.id) ??
-			verifierRefusal(projections, task, agent.id);
+				: undefined) ?? verifierRefusal(projections, task, agent.id);
 		const load = (held.get(agent.id)?.length ?? 0) / agent.capacity;
 		const weight = Math.round(
 			ALLOCATION_WEIGHT[agent.tier] * Math.max(0, 1 - load) * WEIGHT_SCALE,

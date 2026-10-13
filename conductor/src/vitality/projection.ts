@@ -6,15 +6,10 @@ import type { AgentDefinition } from "../types/agent-definition.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Mood, Policy, Vitality } from "../types/vitality.js";
 import type { Standing } from "./merit.js";
-import { moodOf } from "./mood.js";
+import { currentMood } from "./mood.js";
 import { policyOf } from "./policy.js";
 import { type TrustStanding, trustOf } from "./trust.js";
-import {
-	restInEffect,
-	type SampleOptions,
-	sampleVitality,
-} from "./vitality.js";
-import { openTasks } from "./work.js";
+import { type SampleOptions, sampleVitality } from "./vitality.js";
 
 /** What the Operator sees for one Agent. */
 export type AgentVitality = {
@@ -31,8 +26,8 @@ export type AgentVitality = {
 /**
  * Vitality, Mood, Policy, Merit and Trust tier for every live Agent, in
  * Recruitment order. Vitality is the Agent's latest VitalitySampled, or a
- * sample computed from the Ledger when it has none. Mood reads Rest and Tasks
- * InProgress from the Ledger as it stands.
+ * sample computed from the Ledger when it has none. Mood is flat (#62):
+ * `fresh` for every live Agent, with the normal Policy.
  */
 export const vitalityProjection = (
 	projections: Projections,
@@ -44,11 +39,7 @@ export const vitalityProjection = (
 		const id = definition.id;
 		const sample = projections.work.samples.get(id);
 		const vitality = sample ?? sampleVitality(projections, id, options);
-		const mood = moodOf(
-			vitality,
-			restInEffect(projections.work, id),
-			openTasks(projections.tasks, id).inProgress > 0,
-		);
+		const mood = currentMood();
 		const { tier, standing } = trustOf(projections.trust, id);
 		view.set(id, {
 			vitality,

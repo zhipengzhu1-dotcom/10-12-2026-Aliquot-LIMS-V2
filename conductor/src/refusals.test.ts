@@ -177,31 +177,6 @@ const ROWS: Row[] = [
 		"TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); A-odile may not review T-1",
 	],
 	[
-		"the Task guard on Mood",
-		(s) => {
-			const task_id = s.task(agent("ines").id, { start: false });
-			s.appendNonTask({
-				actor: operator,
-				kind: "VitalitySampled",
-				payload: {
-					agent: rin.id,
-					load: 0,
-					fatigue: 0.65,
-					friction: 0,
-					confidence: 1,
-					morale: 0,
-				},
-			});
-			return {
-				actor: operator,
-				task_id,
-				kind: "TaskAssigned",
-				payload: { task_id, assignee: rin.id },
-			};
-		},
-		"TaskAssigned refused: A-rin is strained and may not accept a Task",
-	],
-	[
 		"the RoomOpened guard",
 		() => ({
 			actor: operator,

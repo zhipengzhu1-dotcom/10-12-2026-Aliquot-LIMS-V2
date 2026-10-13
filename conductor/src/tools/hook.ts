@@ -3,24 +3,21 @@ import { AppendRefused, refusalText } from "../append-guard.js";
 import { TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import type { Action } from "../types/action.js";
-import { currentMood } from "../vitality/mood.js";
-import { policyOf } from "../vitality/policy.js";
 import { ACTIONS, charterActions, performs, type ToolCall } from "./actions.js";
 import { recordRefusal } from "./lifecycle.js";
 import { toolNamed } from "./table.js";
 import { type Tool, type ToolContext, ToolRefused } from "./tool.js";
 
-/** Why the hook refuses a call: the Action the Charter forbids, or the Policy. */
+/** Why the hook refuses a call: the Action the Charter forbids. */
 export type HookRefusal = {
-	readonly action: Action | "Policy";
+	readonly action: Action;
 	readonly reason: string;
 };
 
 /**
  * The hook's verdict on one call, before it runs: refused when the Agent's
- * Charter forbids an Action the call performs, then when the Policy of its
- * Mood forbids the call. A resting Agent may call nothing, and an Agent whose
- * Policy accepts no Task may not start one or assign one to itself.
+ * Charter forbids an Action the call performs. Mood is flat (#62), so no
+ * Policy refuses a call.
  */
 export const refusalOf = (
 	call: ToolCall,
@@ -37,23 +34,6 @@ export const refusalOf = (
 				reason: `${call.agent}'s Charter forbids ${rule.action}: ${why}`,
 			};
 		}
-	}
-	const mood = currentMood(projections, call.agent);
-	const policy = policyOf(mood);
-	if (!policy.schedulable) {
-		return {
-			action: "Policy",
-			reason: `${call.agent} is ${mood}, and its Policy allows no Tool call`,
-		};
-	}
-	const takesTask =
-		call.name === "start_task" ||
-		(call.name === "assign_task" && call.input.assignee === call.agent);
-	if (takesTask && !policy.mayAcceptTasks) {
-		return {
-			action: "Policy",
-			reason: `${call.agent} is ${mood}, and its Policy accepts no Task`,
-		};
 	}
 	return undefined;
 };
