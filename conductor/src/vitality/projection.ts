@@ -35,21 +35,21 @@ export type AgentVitality = {
  * InProgress from the Ledger as it stands.
  */
 export const vitalityProjection = (
-	ledger: Projections,
+	projections: Projections,
 	options: SampleOptions,
 ): ReadonlyMap<AgentId, AgentVitality> => {
 	const view = new Map<AgentId, AgentVitality>();
-	for (const { definition, retired } of ledger.org.agents.values()) {
+	for (const { definition, retired } of projections.org.agents.values()) {
 		if (retired) continue;
 		const id = definition.id;
-		const sample = ledger.work.samples.get(id);
-		const vitality = sample ?? sampleVitality(ledger, id, options);
+		const sample = projections.work.samples.get(id);
+		const vitality = sample ?? sampleVitality(projections, id, options);
 		const mood = moodOf(
 			vitality,
-			restInEffect(ledger.work, id),
-			openTasks(ledger.tasks, id).inProgress > 0,
+			restInEffect(projections.work, id),
+			openTasks(projections.tasks, id).inProgress > 0,
 		);
-		const { tier, standing } = trustOf(ledger.trust, id);
+		const { tier, standing } = trustOf(projections.trust, id);
 		view.set(id, {
 			vitality,
 			sampled: sample !== undefined,
@@ -110,13 +110,13 @@ const tierRevision = (
  * matches, which is the case again once these are written.
  */
 export const tierRevisions = (
-	ledger: Projections,
+	projections: Projections,
 	cause: Event,
 ): NewEvent[] => {
 	const revisions: NewEvent[] = [];
-	for (const { definition, retired } of ledger.org.agents.values()) {
+	for (const { definition, retired } of projections.org.agents.values()) {
 		if (retired) continue;
-		const projected = trustOf(ledger.trust, definition.id);
+		const projected = trustOf(projections.trust, definition.id);
 		if (projected.tier === definition.trust_tier) continue;
 		revisions.push(
 			tierRevision(
@@ -138,10 +138,10 @@ export const tierRevisions = (
  * changed, gives the Merit or Gate change there, and says that it is
  * recorded late.
  */
-export const tierCatchUp = (ledger: Projections): NewEvent[] => {
+export const tierCatchUp = (projections: Projections): NewEvent[] => {
 	const revisions: NewEvent[] = [];
-	for (const { definition } of ledger.org.agents.values()) {
-		const projected = trustOf(ledger.trust, definition.id);
+	for (const { definition } of projections.org.agents.values()) {
+		const projected = trustOf(projections.trust, definition.id);
 		const { lastChange } = projected;
 		if (projected.tier === definition.trust_tier || lastChange === undefined) {
 			continue;

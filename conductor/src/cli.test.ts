@@ -97,6 +97,48 @@ describe("aliquot ledger", () => {
 		expect(verified.stdout).toBe("Ledger verified: 1 Event, chain intact\n");
 	});
 
+	it("refuses a Task Event, naming the command that appends it, and writes nothing", () => {
+		runCli(["--home", home, "ledger", "append"], { input: coached("first") });
+
+		const refused = runCli(["--home", home, "ledger", "append"], {
+			input: JSON.stringify({
+				actor: { tag: "Agent", id: "A-rin" },
+				task_id: "T-1",
+				kind: "TaskStarted",
+				payload: { task_id: "T-1" },
+			}),
+		});
+		const verified = runCli(["--home", home, "ledger", "verify"]);
+
+		expect(refused.status).toBe(1);
+		expect(refused.stderr).toBe(
+			"AppendRefused: TaskStarted refused: only the Task lifecycle appends Task Events; use aliquot task start\n",
+		);
+		expect(verified.stdout).toBe("Ledger verified: 1 Event, chain intact\n");
+	});
+
+	it("refuses a GateRequested that names a Task, which blocks it, pointing to gate request --task", () => {
+		const refused = runCli(["--home", home, "ledger", "append"], {
+			input: JSON.stringify({
+				actor: { tag: "Agent", id: "A-rin" },
+				task_id: "T-1",
+				kind: "GateRequested",
+				payload: {
+					gate_id: "G-1",
+					kind: "Deploy",
+					payload: {},
+					payload_hash: "4".repeat(64),
+					lifetime_s: 3600,
+				},
+			}),
+		});
+
+		expect(refused.status).toBe(1);
+		expect(refused.stderr).toBe(
+			"AppendRefused: GateRequested refused: only the Task lifecycle appends Task Events; use aliquot gate request --task\n",
+		);
+	});
+
 	it("reports a body that is not JSON", () => {
 		const result = runCli(["--home", home, "ledger", "append"], {
 			input: "{oops",

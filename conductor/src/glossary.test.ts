@@ -29,7 +29,6 @@ const ALLOWED: readonly Exemption[] = [
 		reason:
 			"Gate, org and Task-state rules enforced at append, not a Mood's Policy",
 	},
-	{ phrase: "step", reason: "a reducer step and the tracer's append helper" },
 	{ phrase: "priority", reason: "the Task field the glossary names under TAT" },
 	{
 		phrase: "status",

@@ -165,17 +165,7 @@ describe("TaskProjection", () => {
 		const s = scenario();
 		try {
 			for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
-			const t = s.task(rin); // T-11, which the 1 in 3 sample does not pick
-			s.append({
-				actor: { tag: "Agent", id: rin },
-				task_id: t,
-				kind: "TaskCompleted",
-				payload: {
-					task_id: t,
-					outputs: [output],
-					review: { tag: "Skipped", reason: "Trusted, not sampled" },
-				},
-			});
+			const t = s.skipped(rin); // T-11, which the 1 in 3 sample does not pick
 
 			expect(reviewSampled(t, "Trusted")).toBe(false);
 			expect(s.ledger.projections.tasks.tasks.get(t)).toMatchObject({

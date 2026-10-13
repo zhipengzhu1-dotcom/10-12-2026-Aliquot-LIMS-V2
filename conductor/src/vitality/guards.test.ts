@@ -31,8 +31,7 @@ describe("ReviewRecorded", () => {
 	});
 
 	it("is refused when the assignee reviews its own Task", () => {
-		const t = s.task(rin);
-		s.submit(rin, t);
+		const t = s.submitted(rin);
 		expect(() => s.review(t, scores(3), asRin)).toThrow(
 			new AppendRefused(
 				`ReviewRecorded refused: A-rin is the assignee of ${t} and cannot review it`,
@@ -41,10 +40,9 @@ describe("ReviewRecorded", () => {
 	});
 
 	it("is refused when the reviewer is not the actor recording it", () => {
-		const t = s.task(rin);
-		s.submit(rin, t);
+		const t = s.submitted(rin);
 		expect(() =>
-			s.append({
+			s.ledger.append({
 				actor: { tag: "Operator" },
 				kind: "ReviewRecorded",
 				payload: { task_id: t, reviewer: thorne, ...scores(3), note: "" },
@@ -64,7 +62,7 @@ describe("ReviewRecorded", () => {
 
 describe("RestOrdered", () => {
 	const rest = (agent: string, action: "begin" | "end") =>
-		s.append({
+		s.appendNonTask({
 			actor: { tag: "Operator" },
 			kind: "RestOrdered",
 			payload: { agent_id: AgentId.parse(agent), action, reason: "fatigue" },

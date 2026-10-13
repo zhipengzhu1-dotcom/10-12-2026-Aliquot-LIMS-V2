@@ -7,7 +7,6 @@ import {
 	type GateId,
 	RunId,
 	ScriptId,
-	type Seq,
 	Sha256,
 	type TaskId,
 } from "../ids.js";
@@ -26,6 +25,8 @@ import {
 	type Recorded,
 	review as reviewTask,
 	start,
+	type TaskEventKind,
+	taskEventKind,
 } from "../task/lifecycle.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
@@ -50,6 +51,9 @@ export const scores = (score: Score, overrides: Partial<Scores> = {}) => ({
 	...overrides,
 });
 
+/** An Event that the Task lifecycle does not own, which a test may append itself. */
+export type NonTaskEvent = Exclude<NewEvent, { kind: TaskEventKind }>;
+
 const operator: Actor = { tag: "Operator" };
 const artifact = ArtifactId.parse("a".repeat(64));
 
@@ -61,23 +65,11 @@ const artifact = ArtifactId.parse("a".repeat(64));
  */
 export const scenario = (
 	at = "2026-10-01T00:00:00.000Z",
-	options: {
-		storage?: Storage;
-		home?: string;
-		/**
-		 * Write no follow-on tier Revisions, as a Ledger written before
-		 * ADR-0011 did, for a test of the catch-up that repairs such a Ledger.
-		 */
-		beforeAdr0011?: boolean;
-	} = {},
+	options: { storage?: Storage; home?: string } = {},
 ) => {
 	let now = new Date(at);
-	const { home, storage, beforeAdr0011 } = options;
-	const opened: LedgerOptions = {
-		writer: true,
-		clock: () => now,
-		...(beforeAdr0011 ? { followOns: [] } : {}),
-	};
+	const { home, storage } = options;
+	const opened: LedgerOptions = { writer: true, clock: () => now };
 	const ledger: Ledger =
 		home === undefined
 			? openMemoryLedger({ ...opened, ...(storage && { storage }) })
@@ -113,112 +105,83 @@ export const scenario = (
 	});
 	let runs = 0;
 
-	const append = (e: NewEvent): Event => ledger.append(e);
-	const on = (
-		task_id: TaskId,
-		body: Omit<NewEvent, "actor">,
-		actor: Actor = operator,
-	) => append({ actor, task_id, ...body } as NewEvent);
-
-	// Each Task Event names the Task's Event before it as its cause, as the
-	// stage 1 tracer's do.
-	const causes = new Map<TaskId, Seq>();
-	const chained = (r: Recorded): Recorded => {
-		causes.set(r.task.id, r.seq);
-		return r;
+	/** Append an Event outside the Task lifecycle, such as a Gate decision. */
+	const appendNonTask = (event: NonTaskEvent): Event => {
+		const kind = taskEventKind(event);
+		if (kind !== undefined) {
+			throw new Error(`only the Task lifecycle appends ${kind}`);
+		}
+		return ledger.append(event);
 	};
-	const cause = (task_id: TaskId) => ({ causation_id: causes.get(task_id) });
 
 	const self = (agent: AgentId): Actor => ({ tag: "Agent", id: agent });
 
 	/** Propose a Task, assign it to `agent`, and start it unless told not to. */
 	const task = (agent: AgentId, { start: started = true } = {}): TaskId => {
-		const { id } = chained(
-			propose(ledger, {
-				actor: operator,
-				title: `Task ${ledger.projections.tasks.tasks.size + 1}`,
-				goal: "Do the work",
-				tat_class: "Regular",
-				priority: 1,
-			}),
-		).task;
-		chained(
-			assign(ledger, {
-				actor: operator,
-				task_id: id,
-				assignee: agent,
-				...cause(id),
-			}),
-		);
-		if (started) {
-			chained(start(ledger, { actor: self(agent), task_id: id, ...cause(id) }));
-		}
+		const { id } = propose(ledger, {
+			actor: operator,
+			title: `Task ${ledger.projections.tasks.tasks.size + 1}`,
+			goal: "Do the work",
+			tat_class: "Regular",
+			priority: 1,
+		}).task;
+		assign(ledger, { actor: operator, task_id: id, assignee: agent });
+		if (started) start(ledger, { actor: self(agent), task_id: id });
 		return id;
 	};
 
+	/** `agent` completes `task_id`, naming `reviewer` for when it is sampled. */
+	const completed = (agent: AgentId, task_id: TaskId, reviewer?: Actor) =>
+		complete(ledger, {
+			actor: self(agent),
+			task_id,
+			outputs: [artifact],
+			reviewer,
+		});
+
 	/**
-	 * Complete a started Task with review Required, so it is UnderReview,
-	 * whether or not the sample for the Agent's tier picks it.
+	 * The next Task of `agent` that the sample for its tier picks for Review,
+	 * completed for `reviewer` to review, so it is UnderReview. Each Task the
+	 * sample leaves out on the way is completed with Review skipped, as
+	 * production records it. On Probation the sample picks every Task.
 	 */
-	const submit = (
-		agent: AgentId,
-		task_id: TaskId,
-		reviewer: Actor = operator,
-	) =>
-		chained(
-			complete(ledger, {
-				actor: self(agent),
-				task_id,
-				outputs: [artifact],
-				reviewer,
-				reviewUnsampled: true,
-				...cause(task_id),
-			}),
-		);
+	const submitted = (agent: AgentId, reviewer: Actor = operator): TaskId => {
+		for (;;) {
+			const id = task(agent);
+			const { task: done } = completed(agent, id, reviewer);
+			if (done.state.tag === "UnderReview") return id;
+		}
+	};
 
 	const review = (
 		task_id: TaskId,
 		s: Scores,
 		reviewer: Actor = operator,
-	): Recorded =>
-		chained(
-			reviewTask(ledger, {
-				task_id,
-				reviewer,
-				...s,
-				note: "",
-				...cause(task_id),
-			}),
-		);
+	): Recorded => reviewTask(ledger, { task_id, reviewer, ...s, note: "" });
 
 	/** The Operator reviews a Task UnderReview with `s` and completes it. */
 	const close = (task_id: TaskId, s: Scores) => {
 		review(task_id, s);
-		chained(complete(ledger, { actor: operator, task_id, ...cause(task_id) }));
+		complete(ledger, { actor: operator, task_id });
 	};
 
-	/** A Task that `agent` finishes and the Operator reviews with `s`. */
+	/**
+	 * The next Task of `agent` that the sample picks for Review, which the
+	 * Operator reviews with `s`; see `submitted`.
+	 */
 	const reviewed = (agent: AgentId, s: Scores): TaskId => {
-		const id = task(agent);
-		submit(agent, id);
+		const id = submitted(agent);
 		close(id, s);
 		return id;
 	};
 
 	/**
-	 * A Task that `agent` completes with no reviewer. The Ledger refuses it
+	 * A Task that `agent` completes with no reviewer. The lifecycle refuses it
 	 * unless the sample for the Agent's tier leaves the next Task id out.
 	 */
 	const skipped = (agent: AgentId): TaskId => {
 		const id = task(agent);
-		chained(
-			complete(ledger, {
-				actor: self(agent),
-				task_id: id,
-				outputs: [artifact],
-				...cause(id),
-			}),
-		);
+		completed(agent, id);
 		return id;
 	};
 
@@ -228,16 +191,8 @@ export const scenario = (
 	 */
 	const worked = (agent: AgentId, s: Scores): TaskId => {
 		const id = task(agent);
-		const { task: completed } = chained(
-			complete(ledger, {
-				actor: self(agent),
-				task_id: id,
-				outputs: [artifact],
-				reviewer: operator,
-				...cause(id),
-			}),
-		);
-		if (completed.state.tag === "UnderReview") close(id, s);
+		const { task: done } = completed(agent, id, operator);
+		if (done.state.tag === "UnderReview") close(id, s);
 		return id;
 	};
 
@@ -246,11 +201,15 @@ export const scenario = (
 		runs += 1;
 		const id = RunId.parse(`R-${runs}`);
 		const script = { id: ScriptId.parse("S-copy"), version: 1 };
-		on(task_id, {
+		ledger.append({
+			actor: operator,
+			task_id,
 			kind: "RunStarted",
 			payload: { run_id: id, script, inputs: [] },
 		});
-		on(task_id, {
+		ledger.append({
+			actor: operator,
+			task_id,
 			kind: "RunFinished",
 			payload: {
 				id,
@@ -264,7 +223,9 @@ export const scenario = (
 			},
 		});
 		if (score === undefined) return;
-		on(task_id, {
+		ledger.append({
+			actor: operator,
+			task_id,
 			kind: "EvaluationRecorded",
 			payload: {
 				eval_id: EvaluationId.parse(`E-${runs}`),
@@ -288,7 +249,7 @@ export const scenario = (
 	): Event => {
 		const open = ledger.projections.gates.gates.get(gate_id);
 		if (open === undefined) throw new Error(`${gate_id} was not stored`);
-		return append(gateDecision(open, meaning, "Checked"));
+		return appendNonTask(gateDecision(open, meaning, "Checked"));
 	};
 
 	/** A Gate the Operator requests and decides at the current time. */
@@ -304,7 +265,7 @@ export const scenario = (
 
 	/** Retire `agent` through an approved RetireAgent Gate. */
 	const retire = (agent: AgentId, reason: string) =>
-		append({
+		appendNonTask({
 			actor: operator,
 			kind: "AgentRetired",
 			payload: {
@@ -316,13 +277,13 @@ export const scenario = (
 
 	return {
 		ledger,
-		append,
+		appendNonTask,
 		requested,
 		decided,
 		gate,
 		retire,
 		task,
-		submit,
+		submitted,
 		review,
 		reviewed,
 		skipped,

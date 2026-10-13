@@ -7,8 +7,8 @@ export class Refusal {
 }
 
 /**
- * One step of a Projection. Must be pure: no clock, no randomness, no I/O,
- * and no mutation of `state`. `ledger` holds every Projection as it stood
+ * How a Projection applies one Event. Must be pure: no clock, no randomness, no I/O,
+ * and no mutation of `state`. `projections` holds every Projection as it stood
  * before `event`, so one Projection may read another. An Event the
  * Projection cannot apply gets a Refusal, never a silent skip: the Ledger
  * refuses to append it, and reports a Ledger that holds it as corrupt.
@@ -16,7 +16,7 @@ export class Refusal {
 export type Reducer<T> = (
 	state: T,
 	event: Event,
-	ledger: Projections,
+	projections: Projections,
 ) => T | Refusal;
 
 /** State computed from the Ledger, never stored as truth. */

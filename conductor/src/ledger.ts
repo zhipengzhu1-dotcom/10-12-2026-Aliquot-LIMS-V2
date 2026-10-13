@@ -4,8 +4,8 @@ import {
 	AppendRefused,
 	appendFollowOns,
 	appendGuards,
-	type FollowOn,
 	ledgerCatchUps,
+	refusalText,
 } from "./guards.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
 import { IsoTime, Seq } from "./ids.js";
@@ -31,8 +31,6 @@ export type LedgerOptions = {
 	writer: boolean;
 	/** Source of each Event's `ts`. Defaults to the wall clock. */
 	clock?: () => Date;
-	/** Follow-ons run after every append. Defaults to `appendFollowOns`. */
-	followOns?: readonly FollowOn[];
 };
 
 export type Ledger = {
@@ -102,7 +100,7 @@ export const parseNewEvent = (input: unknown): NewEvent => {
 				? input.kind
 				: "Event";
 		throw new AppendRefused(
-			`${kind} refused: not a valid Event: ${z.prettifyError(parsed.error)}`,
+			refusalText(kind, `not a valid Event: ${z.prettifyError(parsed.error)}`),
 		);
 	}
 	return parsed.data;
@@ -124,7 +122,6 @@ const appended = (before: Projections, event: Event): Projections | Refusal => {
 
 const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 	const clock = options.clock ?? (() => new Date());
-	const followOns = options.followOns ?? appendFollowOns;
 
 	// Built once from every Event; each append then advances them by one.
 	let projections = emptyProjections();
@@ -135,7 +132,7 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 			const after = advance(projections, event);
 			if (after instanceof Refusal) {
 				throw new LedgerCorrupt(
-					`${storage.path} is corrupt at seq ${event.seq}: ${event.kind} refused: ${after.reason}`,
+					`${storage.path} is corrupt at seq ${event.seq}: ${refusalText(event.kind, after.reason)}`,
 				);
 			}
 			projections = after;
@@ -172,7 +169,7 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 					const event = seal(parseNewEvent(newEvent), tip, ts);
 					const after = appended(pending, event);
 					if (after instanceof Refusal) {
-						throw new AppendRefused(`${event.kind} refused: ${after.reason}`);
+						throw new AppendRefused(refusalText(event.kind, after.reason));
 					}
 					insert(rowOf(event));
 					pending = after;
@@ -190,7 +187,7 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 	const append = (newEvent: NewEvent): Event =>
 		transaction((write, current) => {
 			const cause = write(newEvent);
-			for (const followOn of followOns) {
+			for (const followOn of appendFollowOns) {
 				for (const next of followOn(current(), cause)) write(next);
 			}
 			return cause;

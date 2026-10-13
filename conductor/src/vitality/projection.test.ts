@@ -6,11 +6,11 @@ import { type OrgState, renderTree, tree } from "../org/projection.js";
 import { seedOrg } from "../org/seed.js";
 import type { Projections } from "../projections.js";
 import { memoryStorage, type Storage } from "../storage.js";
-import { forge } from "../test-support/forge.js";
+import { forge, forgeBeforeAdr0011 } from "../test-support/forge.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import type { Actor, EventActor } from "../types/actor.js";
 import { tierRevisions, vitalityProjection } from "./projection.js";
-import { reviewSampleOf } from "./trust.js";
+import { reviewSampleOf, tierCauseRefusal } from "./trust.js";
 
 const rin = AgentId.parse("A-rin");
 const ines = AgentId.parse("A-ines");
@@ -63,12 +63,12 @@ describe("vitalityProjection", () => {
 
 	it("takes Mood from Rest, Tasks InProgress and the latest Vitality sample", () => {
 		s.task(rin);
-		s.append({
+		s.appendNonTask({
 			actor: { tag: "Agent", id: AgentId.parse("A-mabel") },
 			kind: "RestOrdered",
 			payload: { agent_id: ines, action: "begin", reason: "fatigue 0.92" },
 		});
-		s.append({
+		s.appendNonTask({
 			actor: { tag: "Operator" },
 			kind: "VitalitySampled",
 			payload: {
@@ -106,8 +106,7 @@ describe("follow-on tier Revisions", () => {
 		s.events().filter((e) => e.seq > cause.seq);
 	const printedRin = () => printed(s.ledger.projections.org, "Rin");
 	const reviewOfNextTask = (scored: Parameters<typeof scores>) => {
-		const t = s.task(rin);
-		s.submit(rin, t);
+		const t = s.submitted(rin);
 		return { t, review: s.review(t, scores(...scored)) };
 	};
 
@@ -236,13 +235,23 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 	const late =
 		"recorded late: the Ledger before ADR-0011 did not record this Revision";
 
-	// A Ledger written before ADR-0011: no follow-on Revisions, so stored tiers lag.
+	// `old` writes under the rules in force; `lag` copies its Events into
+	// `storage` as a Ledger written before ADR-0011 holds them: without the
+	// follow-on Revisions, so stored tiers lag.
+	let source: Storage;
 	let storage: Storage;
 	let old: Scenario;
 	beforeEach(() => {
+		source = memoryStorage();
 		storage = memoryStorage();
-		old = scenario(undefined, { beforeAdr0011: true, storage });
+		old = scenario(undefined, { storage: source });
 	});
+
+	/** Close `old` and forge its Events into `storage`; returns where each of its seqs landed. */
+	const lag = () => {
+		old.close();
+		return forgeBeforeAdr0011(source, storage);
+	};
 
 	/** Every Event after opening the Ledger again, as the next command would. */
 	const reopened = (writer: boolean): Event[] =>
@@ -251,6 +260,8 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 	/** Open the Ledger for writing again and append one Event, as the next command would. */
 	const appendedAfterReopening = (newEvent: NewEvent): Event =>
 		openMemoryLedger({ storage }).append(newEvent);
+
+	const lagging = () => openMemoryLedger({ storage, writer: false });
 
 	const revisions = (events: readonly Event[]) =>
 		events.flatMap((e) =>
@@ -270,12 +281,10 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		);
 
 	const storedTier = (agent: AgentId) =>
-		openMemoryLedger({ storage, writer: false }).projections.org.agents.get(
-			agent,
-		)?.definition.trust_tier;
+		lagging().projections.org.agents.get(agent)?.definition.trust_tier;
 
 	const sampled = (agent: AgentId) =>
-		old.append({
+		old.appendNonTask({
 			actor: operator,
 			kind: "VitalitySampled",
 			payload: {
@@ -290,9 +299,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 
 	const reviewedTenth = (agent: AgentId, score: 2 | 3) => {
 		repeat(9, () => old.reviewed(agent, scores(score)));
-		const t = old.task(agent);
-		old.submit(agent, t);
-		return old.review(t, scores(score));
+		return old.review(old.submitted(agent), scores(score));
 	};
 
 	it("names the GateDecided that promoted a lagging Mentor, not the later Event, and says the Revision is late", () => {
@@ -300,13 +307,13 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		const gate = old.requested("PromoteToMentor", { agent_id: rin });
 		const decision = old.decided(gate);
 		const later = sampled(rin);
-		old.ledger.close();
+		const seqOf = lag();
 
 		expect(revisions(reopened(true))).toEqual([
 			{
-				seq: later.seq + 1,
+				seq: seqOf(later.seq) + 1,
 				actor: conductor,
-				causation_id: decision.seq,
+				causation_id: seqOf(decision.seq),
 				id: rin,
 				version: 2,
 				trust_tier: "Mentor",
@@ -318,7 +325,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 	it("names the Review at which the tier last changed, with the Merit then, before the first caller append", () => {
 		const tenth = reviewedTenth(ines, 2);
 		repeat(3, () => old.reviewed(ines, scores(2)));
-		old.ledger.close();
+		const seqOf = lag();
 
 		const paused = appendedAfterReopening({
 			actor: operator,
@@ -330,7 +337,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 			{
 				seq: paused.seq - 1,
 				actor: conductor,
-				causation_id: tenth.seq,
+				causation_id: seqOf(tenth.seq),
 				id: ines,
 				version: 2,
 				trust_tier: "Trusted",
@@ -341,7 +348,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 
 	it("keeps the catch-up when the first append is refused", () => {
 		repeat(10, () => old.reviewed(ines, scores(2)));
-		old.ledger.close();
+		lag();
 
 		expect(() =>
 			appendedAfterReopening({
@@ -357,24 +364,24 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 	it("catches up a Retired Agent whose stored tier lags", () => {
 		const tenth = reviewedTenth(ines, 2);
 		old.retire(ines, "Replaced");
-		old.ledger.close();
+		const seqOf = lag();
 
 		const events = reopened(true);
 		expect(storedTier(ines)).toBe("Trusted");
 		expect(revisions(events)).toMatchObject([
-			{ actor: conductor, causation_id: tenth.seq, id: ines },
+			{ actor: conductor, causation_id: seqOf(tenth.seq), id: ines },
 		]);
 	});
 
 	it("appends nothing to a caught-up Ledger, nor to any Ledger opened read-only", () => {
 		repeat(10, () => old.reviewed(ines, scores(2)));
-		const lagging = old.events().length;
-		old.ledger.close();
+		lag();
+		const forged = [...storage.rows()].length;
 
-		expect(reopened(false)).toHaveLength(lagging);
-		expect(reopened(true)).toHaveLength(lagging + 1);
-		expect(reopened(true)).toHaveLength(lagging + 1);
-		expect(reopened(false)).toHaveLength(lagging + 1);
+		expect(reopened(false)).toHaveLength(forged);
+		expect(reopened(true)).toHaveLength(forged + 1);
+		expect(reopened(true)).toHaveLength(forged + 1);
+		expect(reopened(false)).toHaveLength(forged + 1);
 	});
 
 	it("refuses a Conductor Revision whose cause is not where the projected tier last changed, earlier or latest, naming that Event", () => {
@@ -384,36 +391,22 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		);
 		const earlier = sampled(rin);
 		const latest = sampled(ines);
-		const current = old.ledger.projections.org.agents.get(rin)?.definition;
-		if (current === undefined) throw new Error("A-rin is not seeded");
-		const revisionCausedBy = (cause: Event) => () =>
-			old.append({
-				actor: conductor,
-				causation_id: cause.seq,
-				kind: "AgentDefinitionRevised",
-				payload: {
-					definition: {
-						...current,
-						version: current.version + 1,
-						trust_tier: "Mentor",
-						revised_by: conductor,
-						revision_reason: "Trust tier Probation -> Mentor",
-					},
-				},
-			});
+		const seqOf = lag();
+		// Only a lagging Ledger, which the writer catches up as it opens, has a
+		// tier change still to record, so the rule is read on one opened read-only.
+		const { trust } = lagging().projections;
 
-		for (const cause of [earlier, latest]) {
-			expect(revisionCausedBy(cause)).toThrow(
-				`AgentDefinitionRevised refused: the Conductor's Revision of ${rin} names seq ${cause.seq} as its cause, but ${rin}'s projected Trust tier last changed to Mentor at seq ${decision.seq}; the Revision names seq ${decision.seq}`,
+		for (const cause of [earlier, latest].map((e) => seqOf(e.seq))) {
+			expect(tierCauseRefusal(trust, rin, "Mentor", cause)).toBe(
+				`the Conductor's Revision of ${rin} names seq ${cause} as its cause, but ${rin}'s projected Trust tier last changed to Mentor at seq ${seqOf(decision.seq)}; the Revision names seq ${seqOf(decision.seq)}`,
 			);
 		}
-		old.ledger.close();
 	});
 
 	it("names the Recruitment of an Agent whose stored tier no Review or Gate ever supported", () => {
-		old.ledger.close();
+		old.close();
 		const unsupported = memoryStorage();
-		const seeded = openMemoryLedger({ storage: unsupported, followOns: [] });
+		const seeded = openMemoryLedger({ storage: unsupported });
 		seedOrg(seeded);
 		const events = seeded.all();
 		const recruited = events.find(
@@ -453,47 +446,27 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		});
 	});
 
-	it("still refuses an Operator Revision that keeps a lagging tier, naming the projected tier, and org tree prints that tier after the catch-up", () => {
+	it("org tree prints a lagging Agent's stored tier until the catch-up, and its projected tier after", () => {
 		repeat(10, () => old.reviewed(ines, scores(2)));
-		const current = old.ledger.projections.org.agents.get(ines)?.definition;
-		if (current === undefined) throw new Error("A-ines is not seeded");
+		lag();
+		const printedInes = () => printed(lagging().projections.org, "Ines");
 
-		expect(() =>
-			old.append({
-				actor: operator,
-				kind: "AgentDefinitionRevised",
-				payload: {
-					definition: {
-						...current,
-						version: current.version + 1,
-						capacity: current.capacity + 1,
-						revised_by: operator,
-						revision_reason: "More capacity",
-					},
-				},
-			}),
-		).toThrow(
-			`AgentDefinitionRevised refused: ${ines}'s projected Trust tier is Trusted, not Probation`,
-		);
-		old.ledger.close();
+		expect(printedInes()).toContain("Ines, Specialist, Probation");
 		reopened(true);
-
-		expect(
-			printed(
-				openMemoryLedger({ storage, writer: false }).projections.org,
-				"Ines",
-			),
-		).toContain("Ines, Specialist, Trusted");
+		expect(printedInes()).toContain("Ines, Specialist, Trusted");
 	});
 
 	it("leaves Retired Agents out of the follow-on Revisions", () => {
 		repeat(10, () => old.reviewed(rin, scores(3)));
 		repeat(10, () => old.reviewed(ines, scores(2)));
 		old.retire(ines, "Replaced");
-		const last = old.events().at(-1);
+		lag();
+		const reader = lagging();
+		const last = reader.all().at(-1);
 		if (last === undefined) throw new Error("the Ledger is empty");
+
 		expect(
-			tierRevisions(old.ledger.projections, last).map((e) =>
+			tierRevisions(reader.projections, last).map((e) =>
 				e.kind === "AgentDefinitionRevised"
 					? [e.payload.definition.id, e.causation_id]
 					: e.kind,

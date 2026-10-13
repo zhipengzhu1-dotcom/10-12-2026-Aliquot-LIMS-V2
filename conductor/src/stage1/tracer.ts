@@ -8,7 +8,6 @@ import {
 	EvaluationId,
 	nextId,
 	ScriptId,
-	type Seq,
 	type Sha256,
 	type TaskId,
 } from "../ids.js";
@@ -24,15 +23,15 @@ import {
 	complete,
 	fail,
 	propose,
-	type Recorded,
 	review,
 	start,
+	taskOf,
 } from "../task/lifecycle.js";
 import { LIVE_TAGS } from "../task/projection.js";
 import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
-import type { Task, TaskState } from "../types/task.js";
+import type { TaskState } from "../types/task.js";
 import { evaluateSubmission, type SubmissionEvaluation } from "./evaluate.js";
 
 const OPERATOR: Actor = { tag: "Operator" };
@@ -94,8 +93,9 @@ export const ensureScript = (options: {
  * Supervisor (Pia, the intake Supervisor, for a Specialist), or the Operator
  * when it has none.
  */
-export const reviewerOf = (ledger: Projections, owner: AgentId): Actor => {
-	const supervisor = ledger.org.agents.get(owner)?.definition.supervisor_id;
+export const reviewerOf = (projections: Projections, owner: AgentId): Actor => {
+	const supervisor =
+		projections.org.agents.get(owner)?.definition.supervisor_id;
 	return supervisor ? { tag: "Agent", id: supervisor } : OPERATOR;
 };
 
@@ -151,8 +151,9 @@ const evaluateRun = (
  * Stage 1 end to end for one Submission Form: store it as a Fixture, propose
  * a Task for it, assign and start the Task, run `script` on it in the
  * Sandbox, evaluate the record, record the Evaluation, and complete the
- * Task (through Review when the owner's Trust tier samples it) or fail it. From TaskProposed on, every Event names the Event before it as
- * its `causation_id`; TaskProposed names the Fixture's ArtifactStored.
+ * Task (through Review when the owner's Trust tier samples it) or fail it.
+ * From TaskProposed on, every Event names the Event before it as its
+ * `causation_id`; TaskProposed names the Fixture's ArtifactStored.
  */
 export const runStage1 = async (options: {
 	ledger: Ledger;
@@ -182,36 +183,18 @@ export const runStage1 = async (options: {
 	});
 	if (!stored) throw new Error(`no ArtifactStored for ${fixture.id}`);
 
-	let cause: Seq = stored.seq;
-	const chained = ({ task, seq }: Recorded): Task => {
-		cause = seq;
-		return task;
-	};
-	const task_id = chained(
-		propose(ledger, {
-			actor: OPERATOR,
-			causation_id: cause,
-			title: `Parse Submission Form ${filename}`,
-			goal: "Extract the submission record and pass the stage 1 Evaluation",
-			inputs: [fixture.id],
-			priority: 1,
-			tat_class: "Regular",
-		}),
-	).id;
-	const state = (): TaskState => {
-		const task = ledger.projections.tasks.tasks.get(task_id);
-		if (!task) throw new Error(`${task_id} vanished`);
-		return task.state;
-	};
-	chained(
-		assign(ledger, {
-			actor: OPERATOR,
-			task_id,
-			assignee: owner,
-			causation_id: cause,
-		}),
-	);
-	chained(start(ledger, { actor: ownerActor, task_id, causation_id: cause }));
+	const task_id = propose(ledger, {
+		actor: OPERATOR,
+		causation_id: stored.seq,
+		title: `Parse Submission Form ${filename}`,
+		goal: "Extract the submission record and pass the stage 1 Evaluation",
+		inputs: [fixture.id],
+		priority: 1,
+		tat_class: "Regular",
+	}).task.id;
+	const state = (): TaskState => taskOf(ledger.projections, task_id).state;
+	assign(ledger, { actor: OPERATOR, task_id, assignee: owner });
+	const started = start(ledger, { actor: ownerActor, task_id });
 
 	const revisions: AgentDefinition[] = [];
 	try {
@@ -222,66 +205,56 @@ export const runStage1 = async (options: {
 			inputs: [fixture.id],
 			actor: ownerActor,
 			task_id,
-			causation_id: cause,
+			causation_id: started.seq,
 			timeoutMs: options.timeoutMs,
 		});
 		const finished = ledger.projections.runs.runs.get(run.id)?.finished;
 		if (!finished) throw new Error(`no RunFinished for ${run.id}`);
-		cause = finished.seq;
 
 		const { record, evaluation } = evaluateRun(ledger, home, run);
 		const eval_id = EvaluationId.parse(
 			nextId("E", ledger.projections.work.evaluations.keys()),
 		);
-		cause = ledger.append({
+		const evaluated = ledger.append({
 			actor: OPERATOR,
 			task_id,
-			causation_id: cause,
+			causation_id: finished.seq,
 			kind: "EvaluationRecorded",
 			payload: { eval_id, run_id: run.id, task_id, ...evaluation },
-		}).seq;
+		});
 		if (evaluation.passed) {
-			const completed = chained(
-				complete(ledger, {
-					actor: ownerActor,
-					task_id,
-					outputs: record ? [record] : [],
-					reviewer: reviewerOf(ledger.projections, owner),
-					causation_id: cause,
-				}),
-			);
+			const completed = complete(ledger, {
+				actor: ownerActor,
+				task_id,
+				outputs: record ? [record] : [],
+				reviewer: reviewerOf(ledger.projections, owner),
+				causation_id: evaluated.seq,
+			}).task;
 			if (completed.state.tag === "UnderReview") {
 				const { reviewer } = completed.state;
 				// The tracer has no reviewing Agent yet, so the Review stands in
 				// for one: a passed Evaluation scores 3 on every dimension.
 				const before = ledger.projections.org;
-				chained(
-					review(ledger, {
-						task_id,
-						reviewer,
-						quality: 3,
-						traceability: 3,
-						boundary_adherence: 3,
-						collaboration: 3,
-						timeliness: 3,
-						note: `Evaluation ${eval_id} passed with score ${evaluation.score.toFixed(3)}; 3 on every dimension`,
-						causation_id: cause,
-					}),
-				);
+				review(ledger, {
+					task_id,
+					reviewer,
+					quality: 3,
+					traceability: 3,
+					boundary_adherence: 3,
+					collaboration: 3,
+					timeliness: 3,
+					note: `Evaluation ${eval_id} passed with score ${evaluation.score.toFixed(3)}; 3 on every dimension`,
+				});
 				revisions.push(...revisedBetween(before, ledger.projections.org));
-				chained(
-					complete(ledger, { actor: reviewer, task_id, causation_id: cause }),
-				);
+				complete(ledger, { actor: reviewer, task_id });
 			}
 		} else {
-			chained(
-				fail(ledger, {
-					actor: ownerActor,
-					task_id,
-					reason: `Evaluation ${eval_id} failed (score ${evaluation.score.toFixed(3)}): ${evaluation.findings.join("; ")}`,
-					causation_id: cause,
-				}),
-			);
+			fail(ledger, {
+				actor: ownerActor,
+				task_id,
+				reason: `Evaluation ${eval_id} failed (score ${evaluation.score.toFixed(3)}): ${evaluation.findings.join("; ")}`,
+				causation_id: evaluated.seq,
+			});
 		}
 		return {
 			fixture: fixture.id,
@@ -300,7 +273,6 @@ export const runStage1 = async (options: {
 				actor: ownerActor,
 				task_id,
 				reason: `stage1 tracer stopped: ${(error as Error).message}`,
-				causation_id: cause,
 			});
 		}
 		throw error;

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AppendRefused } from "../append-guard.js";
 import { AgentId, ArtifactId, type Seq, type TaskId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
@@ -46,7 +47,7 @@ const proposal = {
 } as const;
 
 describe("the Task lifecycle", () => {
-	it("chains causation_id from proposal to Review, returning each new Task and the seq it appended", () => {
+	it("names the Task's previous Event as each Event's cause, and the Review as the cause of completing after it, returning each new Task and the seq it appended", () => {
 		const cause = ledger.all().at(-1)?.seq as Seq;
 
 		const proposed = propose(ledger, { ...proposal, causation_id: cause });
@@ -55,32 +56,21 @@ describe("the Task lifecycle", () => {
 			actor: operator,
 			task_id,
 			assignee: odile,
-			causation_id: proposed.seq,
 		});
-		const started = start(ledger, {
-			actor: asOdile,
-			task_id,
-			causation_id: assigned.seq,
-		});
+		const started = start(ledger, { actor: asOdile, task_id });
 		const submitted = complete(ledger, {
 			actor: asOdile,
 			task_id,
 			outputs: [output],
 			reviewer: operator,
-			causation_id: started.seq,
 		});
 		const reviewed = review(ledger, {
 			task_id,
 			reviewer: operator,
 			...threes,
 			note: "Clean work",
-			causation_id: submitted.seq,
 		});
-		const closed = complete(ledger, {
-			actor: operator,
-			task_id,
-			causation_id: reviewed.seq,
-		});
+		const closed = complete(ledger, { actor: operator, task_id });
 
 		expect(task_id).toBe("T-1");
 		expect(proposed.task).toMatchObject({
@@ -96,10 +86,10 @@ describe("the Task lifecycle", () => {
 			state: { tag: "Done", assignee: odile },
 			outputs: [output],
 		});
-		const steps = [proposed, assigned, started, submitted, reviewed, closed];
+		const recorded = [proposed, assigned, started, submitted, reviewed, closed];
 		const bySeq = new Map(ledger.all().map((e) => [e.seq, e]));
 		expect(
-			steps.map(({ seq }) => {
+			recorded.map(({ seq }) => {
 				const e = bySeq.get(seq);
 				return [e?.kind, e?.task_id, e?.causation_id];
 			}),
@@ -126,14 +116,16 @@ const started = (agent: AgentId): TaskId => {
 	return task.id;
 };
 
-/** A Task `agent` completes and the Operator reviews with 3 on every dimension. */
+/**
+ * A Task `agent` on Probation completes, so the sample picks it, and the
+ * Operator reviews with 3 on every dimension.
+ */
 const reviewed = (agent: AgentId) => {
 	const task_id = started(agent);
 	complete(ledger, {
 		actor: { tag: "Agent", id: agent },
 		task_id,
 		reviewer: operator,
-		reviewUnsampled: true,
 	});
 	review(ledger, { task_id, reviewer: operator, ...threes, note: "" });
 	complete(ledger, { actor: operator, task_id });
@@ -149,40 +141,55 @@ describe("completing a Task decides its own Review", () => {
 		expect(ledger.projections.tasks.tasks.get(t)?.state.tag).toBe("InProgress");
 	});
 
-	it("skips Review for a Task the Trust tier leaves out, even with a reviewer named, and requires it for a sampled one", () => {
-		for (let i = 0; i < 10; i++) reviewed(rin);
-		const unsampled = started(rin); // T-11: not 1 in 3
-		for (let i = 0; i < 3; i++) propose(ledger, proposal);
-		const sampled = started(rin); // T-15: 1 in 3
+	describe("for a Trusted Agent, whom the sample picks 1 Task in 3", () => {
+		/** Rin's next Task after 10 reviewed ones, and `skip` Proposed ones. */
+		const trustedTask = (skip: number) => {
+			for (let i = 0; i < 10; i++) reviewed(rin);
+			for (let i = 0; i < skip; i++) propose(ledger, proposal);
+			return started(rin);
+		};
 
-		const skipped = complete(ledger, {
-			actor: asRin,
-			task_id: unsampled,
-			reviewer: operator,
-		});
-		expect(() => complete(ledger, { actor: asRin, task_id: sampled })).toThrow(
-			"TaskCompleted refused: T-15 is sampled for Review, as 1 in 3 Tasks of A-rin at Trusted are; its completion names a reviewer",
-		);
-		const submitted = complete(ledger, {
-			actor: asRin,
-			task_id: sampled,
-			reviewer: operator,
-		});
+		it("skips Review for a Task the sample leaves out, even with a reviewer named", () => {
+			const unsampled = trustedTask(0);
 
-		expect([unsampled, sampled]).toEqual(["T-11", "T-15"]);
-		expect(skipped.task.state).toEqual({ tag: "Done", assignee: rin });
-		expect(
-			ledger.all().find((e) => e.seq === skipped.seq)?.payload,
-		).toMatchObject({
-			review: {
+			const skipped = complete(ledger, {
+				actor: asRin,
+				task_id: unsampled,
+				reviewer: operator,
+			});
+
+			expect(unsampled).toBe("T-11");
+			expect(skipped.task.state).toEqual({ tag: "Done", assignee: rin });
+			expect(skipped.review).toEqual({
 				tag: "Skipped",
 				reason: "not sampled for Review at tier Trusted",
-			},
+			});
 		});
-		expect(submitted.task.state).toEqual({
-			tag: "UnderReview",
-			assignee: rin,
-			reviewer: operator,
+
+		it("refuses a sampled Task that names no reviewer, naming the 1 in 3 sample", () => {
+			const sampled = trustedTask(4);
+
+			expect(() =>
+				complete(ledger, { actor: asRin, task_id: sampled }),
+			).toThrow(
+				"TaskCompleted refused: T-15 is sampled for Review, as 1 in 3 Tasks of A-rin at Trusted are; its completion names a reviewer",
+			);
+		});
+
+		it("sends a sampled Task to the reviewer named", () => {
+			const sampled = trustedTask(4);
+
+			const submitted = complete(ledger, {
+				actor: asRin,
+				task_id: sampled,
+				reviewer: operator,
+			});
+
+			expect(submitted.task.state).toEqual({
+				tag: "UnderReview",
+				assignee: rin,
+				reviewer: operator,
+			});
 		});
 	});
 });
@@ -209,16 +216,32 @@ describe("completing a Task after Review", () => {
 		expect(close(pia)().task.state).toEqual({ tag: "Done", assignee: rin });
 	});
 
-	it("refuses completing a Task that is neither InProgress nor UnderReview, naming its state", () => {
+	it("refuses completing a Task that is neither InProgress nor UnderReview, naming its state, and appends nothing", () => {
 		const { task } = propose(ledger, proposal);
+		const before = ledger.all().length;
 
 		expect(() =>
 			complete(ledger, { actor: operator, task_id: task.id }),
-		).toThrow("TaskCompleted refused: T-1 is Proposed, expected InProgress");
+		).toThrow(
+			new AppendRefused(
+				"TaskCompleted refused: T-1 is Proposed, expected InProgress or UnderReview",
+			),
+		);
+		expect(ledger.all()).toHaveLength(before);
 	});
 });
 
 describe("the other Task verbs", () => {
+	it("refuses starting a Task that is not Assigned, naming its state", () => {
+		const task_id = started(rin);
+
+		expect(() => start(ledger, { actor: asRin, task_id })).toThrow(
+			new AppendRefused(
+				"TaskStarted refused: T-1 is InProgress, expected Assigned",
+			),
+		);
+	});
+
 	it("hands an InProgress Task off from its assignee, back to Assigned", () => {
 		const task_id = started(rin);
 
@@ -274,7 +297,7 @@ describe("the other Task verbs", () => {
 		});
 	});
 
-	it("blocks an InProgress Task on a Gate it requests under the next free gate id, caused by the Event the caller names", () => {
+	it("blocks an InProgress Task on a Gate it requests under the next free gate id, caused by the Task's previous Event", () => {
 		const task_id = started(rin);
 		const cause = ledger.all().at(-1)?.seq as Seq;
 
@@ -283,7 +306,6 @@ describe("the other Task verbs", () => {
 			task_id,
 			kind: "Deploy",
 			payload: { target: "staging" },
-			causation_id: cause,
 		});
 
 		expect(blocked.gate_id).toBe("G-1");

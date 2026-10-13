@@ -178,7 +178,7 @@ const recorded = {
 };
 
 // Every level refuses unknown keys: payload schemas are strict, and the
-// preprocess step refuses unknown top-level keys before the envelope and the
+// preprocess pass refuses unknown top-level keys before the envelope and the
 // kind's payload are checked.
 const withBody = <S extends z.ZodRawShape, B extends z.ZodType>(
 	shape: S,

@@ -7,7 +7,7 @@ import { refusal } from "./projection.js";
  * ADR-0010: a Room opens only with live Agents in its list. That it opens
  * once is the Room Projection's to say.
  */
-const roomOpened: AppendGuard = (ledger, event) => {
+const roomOpened: AppendGuard = (projections, event) => {
 	if (event.kind !== "RoomOpened") return undefined;
 	const { room } = event.payload;
 	if (actorText(room.opened_by) !== actorText(event.actor)) {
@@ -19,7 +19,7 @@ const roomOpened: AppendGuard = (ledger, event) => {
 		return `${event.actor.id} is not listed in ${room.id}; an Agent may open only a Room it belongs to`;
 	}
 	for (const id of listed) {
-		const agent = ledger.org.agents.get(id);
+		const agent = projections.org.agents.get(id);
 		if (agent === undefined) return notInOrg(id);
 		if (agent.retired) return `${id} is Retired`;
 	}
@@ -27,14 +27,19 @@ const roomOpened: AppendGuard = (ledger, event) => {
 };
 
 /** A Message is said by a member of an open Room, and answers one in it. */
-const messageSent: AppendGuard = (ledger, event) => {
+const messageSent: AppendGuard = (projections, event) => {
 	if (event.kind !== "MessageSent") return undefined;
 	const { room_id } = event.payload;
-	const reason = refusal(ledger.rooms, ledger.org, room_id, event.actor);
+	const reason = refusal(
+		projections.rooms,
+		projections.org,
+		room_id,
+		event.actor,
+	);
 	if (reason !== undefined) return reason;
 	const { causation_id } = event;
 	if (causation_id === undefined) return undefined;
-	const cause = ledger.rooms.messages.find((m) => m.seq === causation_id);
+	const cause = projections.rooms.messages.find((m) => m.seq === causation_id);
 	return cause?.room_id === room_id
 		? undefined
 		: `seq ${causation_id} is not a Message in ${room_id}`;

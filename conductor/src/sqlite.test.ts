@@ -11,7 +11,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { NewEvent } from "./events.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
 import { AgentId, RoomId, TaskId } from "./ids.js";
 import {
@@ -23,17 +22,21 @@ import {
 import { LAB_ROOM } from "./room/seed.js";
 import { sqliteStorage } from "./storage.js";
 import { forge } from "./test-support/forge.js";
-import { scenario, scores } from "./test-support/scenario.js";
+import {
+	type NonTaskEvent,
+	scenario,
+	scores,
+} from "./test-support/scenario.js";
 
 const operator = { tag: "Operator" } as const;
 
-const opened: NewEvent = {
+const opened: NonTaskEvent = {
 	actor: operator,
 	kind: "RoomOpened",
 	payload: { room: LAB_ROOM },
 };
 
-const said = (body: string): NewEvent => ({
+const said = (body: string): NonTaskEvent => ({
 	actor: operator,
 	kind: "MessageSent",
 	payload: { room_id: RoomId.parse("RM-lab"), body },
@@ -92,7 +95,7 @@ describe("SQLite Ledger persistence", () => {
 		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
 		const t = s.task(rin);
 		s.run(t, 1, 0.4);
-		s.append({
+		s.appendNonTask({
 			actor: operator,
 			kind: "RestOrdered",
 			payload: {
@@ -103,8 +106,8 @@ describe("SQLite Ledger persistence", () => {
 		});
 		s.gate("PromoteToMentor", { agent_id: rin }, "reject");
 		s.retire(AgentId.parse("A-bram"), "Replaced");
-		s.append(opened);
-		s.append(said("Rin is Trusted now"));
+		s.appendNonTask(opened);
+		s.appendNonTask(said("Rin is Trusted now"));
 
 		const reader = openLedger({ home, writer: false });
 		try {

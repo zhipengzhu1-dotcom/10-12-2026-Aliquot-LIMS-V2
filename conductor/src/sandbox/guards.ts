@@ -14,26 +14,28 @@ const scriptIds: AppendGuard = (_, event) => {
 		: `Script "${script.name}" must have id S-${script.name}, got ${script.id}`;
 };
 
-const unknownArtifacts = (ledger: Projections, ids: readonly ArtifactId[]) =>
-	ids.filter((id) => !ledger.artifacts.artifacts.has(id));
+const unknownArtifacts = (
+	projections: Projections,
+	ids: readonly ArtifactId[],
+) => ids.filter((id) => !projections.artifacts.artifacts.has(id));
 
 /**
  * An Artifact is named by its sha256, made from stored Artifacts, and
  * produced by a Run while it runs. Who may store the same bytes again is the
  * Artifact Projection's to say.
  */
-const artifacts: AppendGuard = (ledger, event) => {
+const artifacts: AppendGuard = (projections, event) => {
 	if (event.kind !== "ArtifactStored") return undefined;
 	const artifact = event.payload;
 	if (String(artifact.sha256) !== String(artifact.id)) {
 		return `id ${artifact.id} must equal its sha256 ${artifact.sha256}`;
 	}
-	const unknown = unknownArtifacts(ledger, artifact.lineage);
+	const unknown = unknownArtifacts(projections, artifact.lineage);
 	if (unknown.length > 0) {
 		return `Lineage of ${artifact.id} names unknown Artifacts ${unknown.join(", ")}`;
 	}
 	if (artifact.produced_by.tag === "Run") {
-		const run = ledger.runs.runs.get(artifact.produced_by.id);
+		const run = projections.runs.runs.get(artifact.produced_by.id);
 		if (!run) return `${artifact.produced_by.id} has not started`;
 		if (run.finished) return `${artifact.produced_by.id} has already finished`;
 	}
@@ -45,20 +47,20 @@ const artifacts: AppendGuard = (ledger, event) => {
  * as it started. That it starts once and finishes once is the Run
  * Projection's to say.
  */
-const runs: AppendGuard = (ledger, event) => {
+const runs: AppendGuard = (projections, event) => {
 	if (event.kind === "RunStarted") {
 		const { run_id, script, inputs } = event.payload;
-		if (!findScript(ledger.scripts, script)) {
+		if (!findScript(projections.scripts, script)) {
 			return `${script.id} v${script.version} is not registered`;
 		}
-		const unknown = unknownArtifacts(ledger, inputs);
+		const unknown = unknownArtifacts(projections, inputs);
 		return unknown.length > 0
 			? `${run_id} names unknown input Artifacts ${unknown.join(", ")}`
 			: undefined;
 	}
 	if (event.kind !== "RunFinished") return undefined;
 	const run = event.payload;
-	const started = ledger.runs.runs.get(run.id)?.started;
+	const started = projections.runs.runs.get(run.id)?.started;
 	if (started === undefined) return undefined;
 	if (
 		started.script.id !== run.script.id ||
@@ -67,7 +69,7 @@ const runs: AppendGuard = (ledger, event) => {
 	) {
 		return `${run.id} must name the Script version and inputs its RunStarted named`;
 	}
-	const unknown = unknownArtifacts(ledger, [
+	const unknown = unknownArtifacts(projections, [
 		...run.outputs,
 		run.stdout_ref,
 		run.stderr_ref,
