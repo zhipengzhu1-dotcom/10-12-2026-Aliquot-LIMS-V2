@@ -153,31 +153,32 @@ const storeWeighings = (
 	).artifact;
 };
 
+/** The Fixture, or one Done stage's outputs. */
+type Given = { readonly from: string; readonly artifacts: readonly Typed[] };
+
 /**
- * The Artifacts of the stage's input types, from the previous stage's
- * outputs and the weighings, or a refusal naming the stage and the type
- * nothing gave it.
+ * The Artifacts of the stage's input types, each type from the latest of
+ * the Fixture and the earlier stages' outputs that holds one, and the
+ * weighings; or a refusal naming the stage and the types none of them gave.
  */
 const inputsFor = (
 	stage: Stage,
-	previous: { readonly from: string; readonly artifacts: readonly Typed[] },
+	earlier: readonly Given[],
 	weighings: Typed | undefined,
 ): ArtifactId[] => {
-	const given = [
-		...previous.artifacts.filter((a) => a.artifact_type !== WEIGHINGS),
-		...(weighings ? [weighings] : []),
-	];
-	const missing = stage.inputs.filter(
-		(type) => !given.some((a) => a.artifact_type === type),
-	);
+	const given = (type: ArtifactType): readonly Typed[] => {
+		if (type === WEIGHINGS) return weighings ? [weighings] : [];
+		const holds = (a: Typed) => a.artifact_type === type;
+		const latest = earlier.filter((g) => g.artifacts.some(holds)).at(-1);
+		return latest?.artifacts.filter(holds) ?? [];
+	};
+	const missing = stage.inputs.filter((type) => given(type).length === 0);
 	if (missing.length > 0) {
 		throw new Error(
-			`stage ${stage.number} ${stage.name} refused: it takes ${missing.join(", ")} as input, and ${previous.from} gave none`,
+			`stage ${stage.number} ${stage.name} refused: it takes ${missing.join(", ")} as input, and ${earlier.map((g) => g.from).join(", ")} gave none`,
 		);
 	}
-	return given
-		.filter((a) => stage.inputs.includes(a.artifact_type))
-		.map((a) => a.id);
+	return stage.inputs.flatMap((type) => given(type).map((a) => a.id));
 };
 
 /**
@@ -386,9 +387,9 @@ const runStage = async (options: {
 
 /**
  * The toy workflow on one Submission Form: store it as a Fixture, then run
- * each planned stage in order on the previous stage's Artifacts of its input
- * types (the Fixture for the first), until the plan ends or a Task does not
- * end Done. Before the first stage that takes the weighings, store them
+ * each planned stage in order on the Artifacts of its input types, each
+ * from the latest earlier stage that wrote one (the Fixture for the first),
+ * until the plan ends or a Task does not end Done. Before the first stage that takes the weighings, store them
  * from beside the Fixture. Each stage's TaskProposed names as its cause the
  * Fixture's ArtifactStored, then the previous stage's last TaskCompleted.
  */
@@ -417,10 +418,7 @@ export const runWorkflow = async (options: {
 	);
 
 	const stages: StageRun[] = [];
-	let previous: { from: string; artifacts: readonly Typed[] } = {
-		from: "the Fixture",
-		artifacts: [fixture],
-	};
+	const earlier: Given[] = [{ from: "the Fixture", artifacts: [fixture] }];
 	let causation_id = stored;
 	let weighings: Typed | undefined;
 	for (const plan of options.plan) {
@@ -431,17 +429,17 @@ export const runWorkflow = async (options: {
 			ledger,
 			home,
 			plan,
-			inputs: inputsFor(plan.stage, previous, weighings),
+			inputs: inputsFor(plan.stage, earlier, weighings),
 			causation_id,
 			filename,
 			timeoutMs: options.timeoutMs,
 		});
 		stages.push(result);
 		if (result.state.tag !== "Done") break;
-		previous = {
+		earlier.push({
 			from: `stage ${plan.stage.number} ${plan.stage.name}`,
 			artifacts: result.outputs,
-		};
+		});
 		causation_id = seq;
 	}
 	return { fixture: fixture.id, stages };

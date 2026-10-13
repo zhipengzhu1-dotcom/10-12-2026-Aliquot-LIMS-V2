@@ -63,6 +63,12 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "the stage 2 Script, which writes Receiving Log rows",
 	},
 	{
+		phrase: "render_roa",
+		in: "workflow/",
+		reason:
+			"the stage 6 Script, which renders the Report of Analysis; issue 33 names it",
+	},
+	{
 		phrase: "toy LIMS",
 		reason: "the glossary's own name for the practice database",
 	},

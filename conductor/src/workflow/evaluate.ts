@@ -22,6 +22,12 @@
  * Stage 5: the Verification Record that `sandbox/scripts/verify_results/main.py`
  * writes names the worksheet and weighings the Run took, every recomputation
  * agrees with the weighings, and its verdict says so.
+ *
+ * Stage 6: the Report of Analysis that `sandbox/scripts/render_roa/main.py`
+ * writes holds the Receiving Log row's and the carried database's values in
+ * every metadata cell and the Verification Record's mean as its result, its
+ * PDF shows the same, the record's verdict was pass, and the `reports` row
+ * names the Sample and the PDF.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -806,6 +812,268 @@ export const evaluateVerification = ({
 		check(
 			record.verdict === (agrees ? "pass" : "fail"),
 			`the record's verdict is ${record.verdict}, but ${agrees ? "every recomputation agrees" : "a recomputation disagrees"}`,
+		);
+
+		return {
+			score: (checks - findings.length) / checks,
+			passed: findings.length === 0,
+			findings,
+		};
+	} catch (error) {
+		if (error instanceof Unreadable) return failed(error.message);
+		throw error;
+	}
+};
+
+/**
+ * The Report of Analysis's Client and metadata cells by their column A
+ * label, and where each value comes from: the Receiving Log column and the
+ * carried database's column (the Sample's `samples` row joined to its
+ * `lots` row). The Client's city line has no label, so it reads as "".
+ * Mirrors `CLIENT` and `METADATA` in `sandbox/scripts/render_roa/main.py`,
+ * whose Document Revision belongs to the report form and is checked
+ * against the `reports` row instead.
+ */
+export const REPORT_METADATA: readonly {
+	readonly label: string;
+	readonly receivingLog?: (typeof RECEIVING_LOG_COLUMNS)[number];
+	readonly database: string;
+}[] = [
+	{ label: "Client", receivingLog: "CLIENT", database: "client" },
+	{ label: "Attention", database: "report_to_contact" },
+	{ label: "Address", database: "report_to_address" },
+	{ label: "", database: "report_to_city" },
+	{ label: "Lab Reference", receivingLog: "#", database: "lab_reference" },
+	{ label: "Product", receivingLog: "PRODUCT NAME", database: "product_name" },
+	{ label: "Lot", receivingLog: "LOT#", database: "lot" },
+	{
+		label: "Product Code",
+		receivingLog: "Product Code",
+		database: "product_code",
+	},
+	{ label: "Product Type", receivingLog: "TYPE", database: "product_type" },
+	{
+		label: "Date Received",
+		receivingLog: "Rec. DATE",
+		database: "date_received",
+	},
+	{
+		label: "Time Received",
+		receivingLog: "Rec. Time",
+		database: "time_received",
+	},
+	{ label: "Received By", database: "received_by" },
+];
+
+export const REPORT_RESULT_COLUMNS = [
+	"Test",
+	"Method",
+	"Specification",
+	"Result",
+	"Unit",
+] as const;
+
+const RESULT = REPORT_RESULT_COLUMNS.indexOf("Result");
+
+/** `report_of_analysis.json` (schema `report_of_analysis/1`): the Sample's Receiving Log row as the Script read it, and the report's sheet as it read back its xlsx. */
+const ReportReadBack = z.object({
+	schema: z.literal("report_of_analysis/1"),
+	receiving_log_row: z.record(z.string(), z.string()),
+	sheet: z.array(z.array(Cell)),
+});
+
+/** The Verification Record fields stage 6 reads. */
+const VerifiedMean = z.object({
+	schema: z.literal("verification_record/1"),
+	work_order: z.string(),
+	mean: z.object({ recomputed_g: z.number().nullable() }),
+	verdict: z.enum(["pass", "fail"]),
+});
+
+/**
+ * The strings a PDF's `Tj` operators show, one per line, read from the
+ * uncompressed page streams `render_roa` writes. A compressed stream shows
+ * nothing here.
+ */
+export const pdfText = (bytes: Buffer): string =>
+	[...bytes.toString("latin1").matchAll(/\(((?:\\[\s\S]|[^\\)])*)\)\s*Tj/g)]
+		.map(([, shown = ""]) =>
+			shown.replace(/\\([0-7]{1,3}|[\s\S])/g, (_, escaped: string) =>
+				/^[0-7]/.test(escaped)
+					? String.fromCharCode(Number.parseInt(escaped, 8))
+					: escaped,
+			),
+		)
+		.join("\n");
+
+type Reported = {
+	/** The Sample's `samples` row joined to its `lots` row, as text. */
+	readonly sample: Readonly<Record<string, string>> | undefined;
+	/** The Lab References of the Work Order's `work_orders` rows. */
+	readonly onWorkOrder: ReadonlySet<string>;
+	/** The Sample's `reports` row. */
+	readonly report:
+		| { readonly document_revision: string; readonly source_artifact: string }
+		| undefined;
+};
+
+const readReported = (
+	artifact: StageArtifact,
+	ref: string,
+	workOrder: string,
+): Reported =>
+	queryDatabase(artifact, (db) => {
+		const sample = db
+			.prepare(
+				"SELECT samples.*, lots.product_code, lots.product_name, lots.product_type, lots.client FROM samples JOIN lots ON lots.lot = samples.lot WHERE samples.lab_reference = ?",
+			)
+			.get(ref);
+		const report = db
+			.prepare(
+				"SELECT document_revision, source_artifact FROM reports WHERE lab_reference = ?",
+			)
+			.get(ref);
+		return {
+			sample:
+				sample &&
+				Object.fromEntries(
+					Object.entries(sample).map(([k, v]) => [k, String(v)]),
+				),
+			onWorkOrder: new Set(
+				db
+					.prepare("SELECT lab_reference FROM work_orders WHERE work_order = ?")
+					.all(workOrder)
+					.map((row) => String(row.lab_reference)),
+			),
+			report: report && {
+				document_revision: String(report.document_revision),
+				source_artifact: String(report.source_artifact),
+			},
+		};
+	});
+
+/**
+ * Stage 6's Evaluation of its Run. The Verification Record it took has
+ * verdict pass. Every Client and metadata cell of the report equals the
+ * value `REPORT_METADATA` names in the Sample's Receiving Log row and in
+ * the database version the Run carried, and the Sample is on the record's
+ * Work Order. The result equals the record's recomputed mean within
+ * `RESULTS_TOLERANCE_G`. The PDF's text shows the report's Lab Reference,
+ * Lot, Product Code and result to 4 places. The `reports` row of the
+ * version the Run wrote names the Sample, the report's Document Revision
+ * and the PDF's Artifact id, and the carried version had none for the
+ * Sample. The sheet and the Receiving Log row come from
+ * `report_of_analysis.json`, because the Conductor has no xlsx reader; the
+ * PDF's text is read from its bytes.
+ */
+export const evaluateReport = ({ inputs, outputs }: RunArtifacts): Scored => {
+	try {
+		const record = readJson(
+			ofType(inputs, "VerificationRecord"),
+			"Verification Record",
+			VerifiedMean,
+		);
+		const { receiving_log_row: logged, sheet } = readJson(
+			outputs.find((a) => a.filename === "report_of_analysis.json"),
+			"report_of_analysis.json read-back",
+			ReportReadBack,
+		);
+		const reports = outputs.filter(
+			(a) => a.artifact_type === "ReportOfAnalysis",
+		);
+		const pdf = reports.find((a) => a.filename?.endsWith(".pdf"));
+		if (!pdf) throw new Unreadable("the Run wrote no PDF Report of Analysis");
+		if (!reports.some((a) => a.filename?.endsWith(".xlsx"))) {
+			throw new Unreadable("the Run wrote no xlsx Report of Analysis");
+		}
+		const carried = ofType(inputs, "LimsDatabase");
+		if (!carried) throw new Unreadable("the Run carried no LimsDatabase");
+		const written = ofType(outputs, "LimsDatabase");
+		if (!written) throw new Unreadable("the Run wrote no LimsDatabase");
+
+		const header = sheet.findIndex((row) =>
+			REPORT_RESULT_COLUMNS.every((column, i) => row[i] === column),
+		);
+		const resultRow = sheet[header + 1];
+		if (header < 0 || !resultRow) {
+			throw new Unreadable(
+				`the report has no results table of the columns ${REPORT_RESULT_COLUMNS.join(", ")}`,
+			);
+		}
+		const cells = new Map(
+			sheet
+				.slice(0, header)
+				.filter((row) => row[1] !== null && row[1] !== undefined)
+				.map((row) => [String(row[0] ?? ""), String(row[1])]),
+		);
+		const ref = cells.get("Lab Reference") ?? "";
+		const before = readReported(carried, ref, record.work_order);
+		const after = readReported(written, ref, record.work_order);
+
+		const findings: string[] = [];
+		let checks = 0;
+		const check = (ok: boolean, finding: string) => {
+			checks++;
+			if (!ok) findings.push(finding);
+		};
+		check(
+			record.verdict === "pass",
+			`the Verification Record's verdict is ${record.verdict}, so no Report of Analysis may be rendered from it`,
+		);
+		check(
+			before.onWorkOrder.has(ref),
+			`${ref || "the report's Lab Reference"} is not a Sample of Work Order ${record.work_order}`,
+		);
+		for (const { label, receivingLog, database } of REPORT_METADATA) {
+			const name = label || "Address, second line";
+			const cell = cells.get(label);
+			if (receivingLog) {
+				check(
+					cell === logged[receivingLog],
+					`${name}: the report holds ${cell ?? "nothing"}, not the Receiving Log row's ${receivingLog} ${logged[receivingLog] ?? "(none)"}`,
+				);
+			}
+			const stored = before.sample?.[database];
+			check(
+				cell === stored,
+				`${name}: the report holds ${cell ?? "nothing"}, not ${stored ?? "(no samples row)"}, the carried database's ${database} for ${ref}`,
+			);
+		}
+
+		const result = resultRow[RESULT];
+		const mean = record.mean.recomputed_g;
+		check(
+			typeof result === "number" &&
+				mean !== null &&
+				Math.abs(result - mean) <= RESULTS_TOLERANCE_G,
+			`the result is ${shown(result)}, not the Verification Record's mean ${mean ?? "(none)"}, within ${RESULTS_TOLERANCE_G} g`,
+		);
+		const text = pdfText(pdf.bytes);
+		const shownInPdf = [
+			["Lab Reference", ref],
+			["Lot", cells.get("Lot")],
+			["Product Code", cells.get("Product Code")],
+			["result", typeof result === "number" ? result.toFixed(4) : undefined],
+		] as const;
+		for (const [what, value] of shownInPdf) {
+			check(
+				value !== undefined && text.split("\n").includes(value),
+				`the PDF's text does not show the ${what} ${value ?? "(none)"}`,
+			);
+		}
+
+		check(
+			before.report === undefined,
+			`the carried database already has a reports row for ${ref}`,
+		);
+		check(
+			after.report?.source_artifact === pdf.id,
+			`the reports row for ${ref} names ${after.report?.source_artifact ?? "nothing"}, not the PDF ${pdf.id}`,
+		);
+		const revision = cells.get("Document Revision");
+		check(
+			after.report !== undefined && after.report.document_revision === revision,
+			`the reports row for ${ref} has Document Revision ${after.report?.document_revision ?? "(no row)"}, not the report's ${revision ?? "(none)"}`,
 		);
 
 		return {

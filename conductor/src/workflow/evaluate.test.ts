@@ -9,12 +9,16 @@ import type { ArtifactType } from "../types/artifact.js";
 import {
 	dueDate,
 	evaluateReceipt,
+	evaluateReport,
 	evaluateResults,
 	evaluateSubmission,
 	evaluateVerification,
 	evaluateWorkOrder,
 	MEAN_AVERAGE_WEIGHT,
+	pdfText,
 	RECEIVING_LOG_COLUMNS,
+	REPORT_METADATA,
+	REPORT_RESULT_COLUMNS,
 	RESULT_WORKSHEET_COLUMNS,
 	WORK_ORDER_COLUMNS,
 } from "./evaluate.js";
@@ -936,5 +940,320 @@ describe("evaluateVerification", () => {
 		).toEqual([
 			expect.stringMatching(/^verification_record\.json is not JSON/),
 		]);
+	});
+});
+
+const REF = "LR-2026-0001";
+const RESULT_G = Number(SEED1_MEAN.toFixed(4));
+
+/** Seed 1's Sample: its `samples` row joined to its `lots` row. */
+const SEED1_SAMPLE = {
+	lab_reference: REF,
+	lot: LOT,
+	date_received: "2026-01-06",
+	time_received: "15:17",
+	received_by: "LG",
+	report_to_contact: "Maren Vantongeren",
+	report_to_address: "39 Juniper Mill Drive",
+	report_to_city: "Orrin Bay, NY 14999",
+	product_code: PRODUCT_CODE,
+	product_name: NAME,
+	product_type: "60 ct amber glass bottle",
+	client: "Tallowby Botanicals LLC",
+};
+
+/** Seed 1's Receiving Log row for LR-2026-0001, as `render_roa` reads it back. */
+const seed1LogRow = (): Record<string, string> =>
+	Object.fromEntries(
+		RECEIVING_LOG_COLUMNS.map((column, i) => [column, row(REF)[i] ?? ""]),
+	);
+
+/** The sheet `render_roa` writes for seed 1, as its read-back holds it, each labelled cell from `cells`. */
+const reportSheet = (cells: Record<string, string>): Cell[][] => {
+	const labelled = (label: string): Cell[] => [
+		label || null,
+		cells[label] ?? null,
+	];
+	return [
+		["Quillmere Analytical Laboratories", null],
+		["27 Wrenfield Court, Velmora, NJ 07999", null],
+		["Tel (201) 555-0100 · reports@quillmere.example", null],
+		[null, null],
+		["REPORT OF ANALYSIS", null],
+		[null, null],
+		...["Client", "Attention", "Address", ""].map(labelled),
+		[null, null],
+		...[
+			"Lab Reference",
+			"Product",
+			"Lot",
+			"Product Code",
+			"Product Type",
+			"Document Revision",
+			"Date Received",
+			"Time Received",
+			"Received By",
+		].map(labelled),
+		[null, null],
+		[null, null],
+		[...REPORT_RESULT_COLUMNS],
+		[TEST, "QAL-SOP-114", "Report value", RESULT_G, "g"],
+	];
+};
+
+/** Seed 1's report cells: each `REPORT_METADATA` value of the Sample, and the form's revision. */
+const seed1Cells = (): Record<string, string> => ({
+	...Object.fromEntries(
+		REPORT_METADATA.map(({ label, database }) => [
+			label,
+			SEED1_SAMPLE[database as keyof typeof SEED1_SAMPLE],
+		]),
+	),
+	"Document Revision": "Rev. 03",
+});
+
+/** A PDF page stream showing each string with `Tj`, uncompressed, as reportlab writes it. */
+const pdfShowing = (shown: readonly string[]): Buffer =>
+	Buffer.from(
+		[
+			"%PDF-1.4",
+			"stream",
+			...shown.map(
+				(text) =>
+					`BT 1 0 0 1 72 700 Tm (${text.replace(/[\\()]/g, (c) => `\\${c}`)}) Tj T* ET`,
+			),
+			"endstream",
+		].join("\n"),
+		"latin1",
+	);
+
+const SEED1_PDF = [REF, NAME, LOT, PRODUCT_CODE, RESULT_G.toFixed(4)];
+
+/** A database version holding seed 1's Sample, the Work Order's rows and `reports` rows. */
+const reportDatabase = (
+	reports: readonly (readonly [string, string, string])[] = [],
+): Buffer => {
+	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
+	try {
+		const path = join(dir, "lims.sqlite");
+		const db = new DatabaseSync(path);
+		const { product_code, product_name, product_type, client, ...sample } =
+			SEED1_SAMPLE;
+		db.exec(
+			`CREATE TABLE lots (lot TEXT PRIMARY KEY, product_code TEXT, product_name TEXT, product_type TEXT, client TEXT);
+			CREATE TABLE samples (${Object.keys(sample).join(", ")});
+			CREATE TABLE work_orders (work_order TEXT, lab_reference TEXT, test TEXT);
+			CREATE TABLE reports (lab_reference TEXT PRIMARY KEY, issued_date TEXT, document_revision TEXT, source_artifact TEXT)`,
+		);
+		db.prepare("INSERT INTO lots VALUES (?, ?, ?, ?, ?)").run(
+			LOT,
+			product_code,
+			product_name,
+			product_type,
+			client,
+		);
+		db.prepare(
+			`INSERT INTO samples VALUES (${Object.keys(sample)
+				.map(() => "?")
+				.join(", ")})`,
+		).run(...Object.values(sample));
+		for (const ref of [REF, "LR-2026-0002"]) {
+			db.prepare("INSERT INTO work_orders VALUES (?, ?, ?)").run(WO, ref, TEST);
+		}
+		for (const [ref, revision, source] of reports) {
+			db.prepare("INSERT INTO reports VALUES (?, '2026-10-13', ?, ?)").run(
+				ref,
+				revision,
+				source,
+			);
+		}
+		db.close();
+		return readFileSync(path);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+/** Stage 6's Run on seed 1, each part of what it read and wrote replaceable. */
+const reportRun = ({
+	record = seed1Record(WORKSHEET.id, WEIGHINGS.id),
+	logRow = seed1LogRow(),
+	cells = seed1Cells(),
+	pdf = pdfShowing(SEED1_PDF),
+	carried = reportDatabase(),
+	reports,
+}: {
+	record?: VerificationRecordJson;
+	logRow?: Record<string, string>;
+	cells?: Record<string, string>;
+	pdf?: Buffer;
+	carried?: Buffer;
+	reports?: readonly (readonly [string, string, string])[];
+} = {}) => {
+	const pdfId = sha256Hex(pdf);
+	return {
+		inputs: [
+			stageArtifact(
+				"VerificationRecord",
+				"verification_record.json",
+				Buffer.from(JSON.stringify(record)),
+			),
+			stageArtifact(
+				"ReceivingLogRow",
+				"receiving_log_row.xlsx",
+				Buffer.from("the row"),
+			),
+			stageArtifact("LimsDatabase", "lims.sqlite", carried),
+		],
+		outputs: [
+			stageArtifact(
+				"LimsDatabase",
+				"lims.sqlite",
+				reportDatabase(reports ?? [[REF, "Rev. 03", pdfId]]),
+			),
+			stageArtifact(
+				"Other",
+				"report_of_analysis.json",
+				Buffer.from(
+					JSON.stringify({
+						schema: "report_of_analysis/1",
+						receiving_log_row: logRow,
+						sheet: reportSheet(cells),
+					}),
+				),
+			),
+			stageArtifact("ReportOfAnalysis", "report_of_analysis.pdf", pdf),
+			stageArtifact(
+				"ReportOfAnalysis",
+				"report_of_analysis.xlsx",
+				Buffer.from("the xlsx"),
+			),
+		],
+	};
+};
+
+// The verdict, the Work Order, 1 per database column and 1 per Receiving Log
+// column of the metadata, the result, 4 in the PDF, and 3 on the reports rows.
+const REPORT_CHECKS =
+	2 +
+	REPORT_METADATA.length +
+	REPORT_METADATA.filter((m) => m.receivingLog).length +
+	1 +
+	4 +
+	3;
+
+describe("evaluateReport", () => {
+	it("passes seed 1's report: every metadata cell is the Receiving Log row's and the database's, the result is the record's mean, the PDF shows it, and the reports row names the PDF", () => {
+		expect(evaluateReport(reportRun())).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+	});
+
+	it("fails a metadata cell that differs from the Receiving Log row, naming the cell and both sources", () => {
+		const cells = seed1Cells();
+		cells["Product Type"] = "90 ct amber glass bottle";
+
+		const evaluation = evaluateReport(reportRun({ cells }));
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.score).toBeCloseTo((REPORT_CHECKS - 2) / REPORT_CHECKS);
+		expect(evaluation.findings).toEqual([
+			"Product Type: the report holds 90 ct amber glass bottle, not the Receiving Log row's TYPE 60 ct amber glass bottle",
+			"Product Type: the report holds 90 ct amber glass bottle, not 60 ct amber glass bottle, the carried database's product_type for LR-2026-0001",
+		]);
+	});
+
+	it("fails a Receiving Log row read back with a value the report and the database do not hold", () => {
+		const logRow = seed1LogRow();
+		logRow["Rec. Time"] = "15:71";
+
+		expect(evaluateReport(reportRun({ logRow })).findings).toEqual([
+			"Time Received: the report holds 15:17, not the Receiving Log row's Rec. Time 15:71",
+		]);
+	});
+
+	it("fails a report rendered from a Verification Record whose verdict is fail", () => {
+		const record = seed1Record(WORKSHEET.id, WEIGHINGS.id);
+		record.verdict = "fail";
+
+		const evaluation = evaluateReport(reportRun({ record }));
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.findings).toEqual([
+			"the Verification Record's verdict is fail, so no Report of Analysis may be rendered from it",
+		]);
+	});
+
+	it("fails a result that is not the record's mean, and a PDF that does not show it", () => {
+		const record = seed1Record(WORKSHEET.id, WEIGHINGS.id);
+		record.mean.recomputed_g = SEED1_MEAN + 0.001;
+
+		expect(evaluateReport(reportRun({ record })).findings).toEqual([
+			`the result is ${RESULT_G}, not the Verification Record's mean ${SEED1_MEAN + 0.001}, within 0.0001 g`,
+		]);
+		expect(
+			evaluateReport(reportRun({ pdf: pdfShowing(SEED1_PDF.slice(0, -1)) }))
+				.findings,
+		).toEqual([
+			`the PDF's text does not show the result ${RESULT_G.toFixed(4)}`,
+		]);
+	});
+
+	it("fails a reports row that names another Artifact than the PDF, or a carried database that already reported the Sample", () => {
+		const other = "0".repeat(64);
+		const pdfId = sha256Hex(pdfShowing(SEED1_PDF));
+
+		expect(
+			evaluateReport(reportRun({ reports: [[REF, "Rev. 03", other]] }))
+				.findings,
+		).toEqual([
+			`the reports row for ${REF} names ${other}, not the PDF ${pdfId}`,
+		]);
+		expect(
+			evaluateReport(
+				reportRun({ carried: reportDatabase([[REF, "Rev. 03", other]]) }),
+			).findings,
+		).toEqual([`the carried database already has a reports row for ${REF}`]);
+	});
+
+	it("fails a Sample that is not on the record's Work Order", () => {
+		const record = seed1Record(WORKSHEET.id, WEIGHINGS.id);
+		record.work_order = "WO-2026-0999";
+
+		expect(evaluateReport(reportRun({ record })).findings).toEqual([
+			`${REF} is not a Sample of Work Order WO-2026-0999`,
+		]);
+	});
+
+	it("scores 0 when the Run wrote no PDF", () => {
+		const run = reportRun();
+
+		expect(
+			evaluateReport({
+				...run,
+				outputs: run.outputs.filter(
+					(o) => o.filename !== "report_of_analysis.pdf",
+				),
+			}),
+		).toEqual({
+			score: 0,
+			passed: false,
+			findings: ["the Run wrote no PDF Report of Analysis"],
+		});
+	});
+});
+
+describe("pdfText", () => {
+	it("reads each string a Tj shows, unescaping parentheses, backslashes and octal codes", () => {
+		expect(
+			pdfText(
+				Buffer.from(
+					"BT (Tel \\(201\\) 555-0100 \\267 a\\\\b) Tj T* ET\nBT (LR-2026-0001) Tj ET",
+					"latin1",
+				),
+			),
+		).toBe("Tel (201) 555-0100 · a\\b\nLR-2026-0001");
 	});
 });
