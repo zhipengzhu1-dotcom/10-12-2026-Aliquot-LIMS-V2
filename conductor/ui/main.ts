@@ -167,5 +167,8 @@ page.addEventListener("click", (clicked) => {
 });
 
 addEventListener("hashchange", () => void refresh());
-onLedgerEvent(() => void refresh());
+onLedgerEvent(
+	() => void refresh(),
+	() => void refresh(),
+);
 void refresh();
