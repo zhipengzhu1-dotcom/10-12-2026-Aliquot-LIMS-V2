@@ -7,9 +7,9 @@
 		"node": ">=24"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
+		"build": "tsc -p tsconfig.build.json && tsc -p ui/tsconfig.build.json && cp ui/index.html dist/ui/index.html",
 		"lint": "biome check .",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc --noEmit && tsc -p ui/tsconfig.json",
 		"test": "vitest run",
 		"cli": "tsx src/cli.ts"
 	},

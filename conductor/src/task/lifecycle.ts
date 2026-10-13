@@ -21,8 +21,12 @@ import { reviewRefusal } from "../vitality/guards.js";
 import { reviewerRefusal } from "../vitality/reviewers.js";
 import { reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
-import { assigneeRefusal, sampledRefusal } from "./guards.js";
-import { stateIn } from "./projection.js";
+import {
+	assigneeRefusal,
+	helpTargetRefusal,
+	sampledRefusal,
+} from "./guards.js";
+import { helpRequester, stateIn } from "./projection.js";
 
 /** The Event kinds that only the Task lifecycle appends. */
 export const TASK_EVENT_KINDS = [
@@ -34,6 +38,7 @@ export const TASK_EVENT_KINDS = [
 	"TaskFailed",
 	"TaskEscalated",
 	"ReviewRecorded",
+	"HelpRequested",
 ] as const satisfies readonly EventKind[];
 export type TaskEventKind = (typeof TASK_EVENT_KINDS)[number];
 
@@ -288,6 +293,35 @@ export const escalate = (
 		kind: "TaskEscalated",
 		payload: { task_id, to, reason },
 	});
+
+/**
+ * The assignee of a live Task requests help on it from the Operator or
+ * another Agent. The Task keeps its state.
+ */
+export const requestHelp = (
+	ledger: Ledger,
+	{
+		task_id,
+		to,
+		question,
+		...origin
+	}: Origin & {
+		readonly task_id: TaskId;
+		readonly to: Actor;
+		readonly question: string;
+	},
+): Recorded<"task", Task> => {
+	const { projections } = ledger;
+	orRefuse(
+		"HelpRequested",
+		helpRequester(projections.tasks, task_id, origin.actor),
+	);
+	orRefuse("HelpRequested", helpTargetRefusal(projections, to));
+	return record(ledger, origin, {
+		kind: "HelpRequested",
+		payload: { task_id, to, question },
+	});
+};
 
 export const fail = (
 	ledger: Ledger,

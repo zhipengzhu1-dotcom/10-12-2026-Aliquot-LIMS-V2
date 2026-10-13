@@ -123,10 +123,16 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "Tasks grouped by state in a listing",
 	},
 	{ phrase: "ask", in: "org/seed.ts", reason: "a Persona's quirk text" },
-	{
+	...["types/skill.ts", "training/commands.ts"].map((file) => ({
 		phrase: "lesson",
-		in: "types/skill.ts",
+		in: file,
 		reason: "the Memory note field the glossary names",
+	})),
+	{
+		phrase: "coach",
+		in: "training/commands.ts",
+		reason:
+			"the `training coach` command, by which the Operator gives Coaching",
 	},
 	{ phrase: "ticket", in: "events.ts", reason: "a GitHub issue, not a Task" },
 	{
@@ -139,6 +145,27 @@ const ALLOWED: readonly Exemption[] = [
 		in: file,
 		reason: "process memory, the Ledger's storage for tests, not a Memory note",
 	})),
+	...["createServer", "ServerResponse", "Server-Sent"].map((phrase) => ({
+		phrase,
+		in: "serve/",
+		reason: "names in Node's http API and the SSE standard, not the Conductor",
+	})),
+	{ phrase: "POST", in: "serve/", reason: "the HTTP method" },
+	{
+		phrase: "no-cache",
+		in: "serve/sse.ts",
+		reason: "an HTTP cache-control value",
+	},
+	{
+		phrase: "cache-control",
+		in: "serve/",
+		reason: "the HTTP header, not a Projection",
+	},
+	{
+		phrase: "format",
+		in: "serve/access.ts",
+		reason: "the key format createPublicKey reads, a JWK",
+	},
 ];
 
 type Entry = { readonly term: string; readonly avoided: readonly string[] };

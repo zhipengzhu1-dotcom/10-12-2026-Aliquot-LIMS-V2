@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
+	type Command,
 	type CommandContext,
 	type CommandTable,
 	UsageError,
@@ -10,7 +11,9 @@ import { ledgerCommands } from "./ledger-commands.js";
 import { orgCommands } from "./org/commands.js";
 import { roomCommands } from "./room/commands.js";
 import { sandboxCommands } from "./sandbox/commands.js";
+import { serveCommand } from "./serve/command.js";
 import { taskCommands } from "./task/commands.js";
+import { trainingCommands } from "./training/commands.js";
 import { turnCommands } from "./turn/commands.js";
 import { vitalityCommands } from "./vitality/commands.js";
 import { workflowCommands } from "./workflow/commands.js";
@@ -20,6 +23,7 @@ const domains: Readonly<Record<string, CommandTable>> = {
 	ledger: ledgerCommands,
 	org: orgCommands,
 	task: taskCommands,
+	training: trainingCommands,
 	room: roomCommands,
 	gate: gateCommands,
 	sandbox: sandboxCommands,
@@ -28,18 +32,29 @@ const domains: Readonly<Record<string, CommandTable>> = {
 	workflow: workflowCommands,
 };
 
+/** `aliquot <command>`: commands that belong to no one domain. */
+const processes: CommandTable = { serve: serveCommand };
+
 const globalOptions = {
 	home: { type: "string" },
 	help: { type: "boolean", short: "h" },
 } as const;
 
 const usage = () => {
-	const rows = Object.entries(domains).flatMap(([domain, table]) =>
-		Object.entries(table).map(([name, command]) => [
-			[domain, name, command.args].filter(Boolean).join(" "),
-			command.describe,
-		]),
-	);
+	const synopsis = (words: string[], command: Command) => [
+		[...words, command.args].filter(Boolean).join(" "),
+		command.describe,
+	];
+	const rows = [
+		...Object.entries(processes).map(([name, command]) =>
+			synopsis([name], command),
+		),
+		...Object.entries(domains).flatMap(([domain, table]) =>
+			Object.entries(table).map(([name, command]) =>
+				synopsis([domain, name], command),
+			),
+		),
+	];
 	const width = Math.max(...rows.map(([synopsis]) => synopsis?.length ?? 0));
 	const lines = rows.map(
 		([synopsis, describe]) => `  ${synopsis?.padEnd(width)}  ${describe}`,
@@ -92,7 +107,11 @@ export const main = async (
 			io.stdout.write(usage());
 			return 0;
 		}
-		const command = name === undefined ? undefined : domains[domain]?.[name];
+		const own = Object.hasOwn(processes, domain)
+			? processes[domain]
+			: undefined;
+		const command =
+			own ?? (name === undefined ? undefined : domains[domain]?.[name]);
 		if (command === undefined) {
 			io.stderr.write(
 				`unknown command: ${[domain, name].filter(Boolean).join(" ")}\n\n${usage()}`,
@@ -102,7 +121,10 @@ export const main = async (
 		const home = resolve(
 			values.home ?? (process.env.ALIQUOT_HOME || ".aliquot"),
 		);
-		return await command.run(args, { ...io, home });
+		return await command.run(own === undefined ? args : rest.slice(1), {
+			...io,
+			home,
+		});
 	} catch (error) {
 		const message =
 			error instanceof Error

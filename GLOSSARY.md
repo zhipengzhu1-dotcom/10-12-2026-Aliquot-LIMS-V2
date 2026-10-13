@@ -97,7 +97,7 @@ The move of a Task up the reporting line because the assignee cannot finish it w
 _Avoid_: bump, raise
 
 **Help request**:
-A request in which an Agent asks another Agent for help or Coaching on a Task, recorded as a `HelpRequested` Event.
+A request in which the assignee of a live Task asks the Operator or another Agent for help on it, with a question, recorded as a `HelpRequested` Event. The reply is a Message in a Room.
 _Avoid_: ask, ping, SOS
 
 **Room**:
@@ -141,8 +141,20 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns.
+The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns.
 _Avoid_: orchestrator, server, backend, scheduler
+
+**Interface**:
+The single-page application the Conductor serves to the Operator: one view per hash route, each showing Projections that update on every Event from the Event stream, and the Operator's actions.
+_Avoid_: dashboard, frontend, portal
+
+**Event stream**:
+The Server-Sent Events at `/api/events`: one for each Event the Ledger appends, with the Event's seq as its id, so a client that reconnects resumes from the Ledger.
+_Avoid_: feed, websocket
+
+**Action**:
+A lifecycle verb the Operator runs through the Interface, as `POST /api/actions/<verb>`, which appends the same Event the matching command appends, always as the Operator.
+_Avoid_: RPC, endpoint
 
 **Sandbox**:
 The isolated environment, with no network access, where every Script and every piece of agent-written code runs.
@@ -227,15 +239,15 @@ Any of the four ways an Agent improves: Skills, Revisions, Memory notes, and Coa
 _Avoid_: learning, fine-tuning
 
 **Skill**:
-A versioned Markdown procedure that any Agent can be granted, such as "parse a Submission Form".
+A versioned Markdown procedure that any Agent can be granted, such as "parse a Submission Form". Each version is a `SkillPublished` Event, and a Skill is granted by a Revision that lists its id.
 _Avoid_: playbook, recipe, SOP
 
 **Memory note**:
-A private lesson that an Agent attaches to a Task outcome and reads before similar Tasks.
+A private lesson that an Agent attaches to the outcome of a Task it worked and reads before similar Tasks, recorded as a `MemoryNoted` Event.
 _Avoid_: memory, lesson, journal
 
 **Coaching**:
-Direct guidance from the Operator to one Agent, recorded as a `HumanCoached` Event.
+Direct guidance from the Operator to one Agent, about a Task when there is one, recorded as a `HumanCoached` Event.
 _Avoid_: feedback, training, mentoring
 
 ## Lab

@@ -82,19 +82,20 @@ Only a domain's lifecycle module appends Events, and no command appends a raw on
 | Lifecycle module | Event kinds |
 |---|---|
 | `org/lifecycle.ts` | `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired` |
-| `task/lifecycle.ts` | `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `ReviewRecorded` |
+| `task/lifecycle.ts` | `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `ReviewRecorded`, `HelpRequested` |
 | `gate/lifecycle.ts` | `GateRequested`, `GateDecided`; only the Task lifecycle's `block` requests a Gate that blocks a Task |
 | `room/lifecycle.ts` | `RoomOpened`, `MessageSent` |
 | `sandbox/lifecycle.ts` | `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored` |
 | `vitality/lifecycle.ts` | `VitalitySampled`, `RestOrdered` |
 | `turn/lifecycle.ts` | `TurnStarted`, `TurnFinished`, always as the Conductor (ADR-0013) |
 | `workflow/lifecycle.ts` | `EvaluationRecorded` |
+| `training/lifecycle.ts` | `MemoryNoted`, `SkillPublished`, `HumanCoached` |
 
-The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). No lifecycle appends `HelpRequested`, `HumanCoached`, `MemoryNoted` or `SkillPublished` yet. Those kinds are reserved for a later slice, and no command writes them. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
+The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). Every kind has a lifecycle that appends it; none is reserved. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
 
 ### 2. Agent definition
 
-An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it.
+An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it. Granting a Skill is a Revision that adds its id to `skills`, and the Ledger refuses a Recruitment or a Revision whose `skills` names an id that no `SkillPublished` has published, naming that id.
 
 One module, the Org lifecycle (`org/lifecycle.ts`), appends every Agent Event that the Operator or an Agent causes: it recruits, revises, pauses, resumes, and retires an Agent, and the seed recruits the starting roster through it. Each verb returns the Agent as the Event left it and the seq it appended. Each verb names the Event's cause in `causation_id`: the Agent's previous Org Event, which the Org Projection keeps, so a Recruitment names none, and for a retirement the `GateDecided` that approved its `RetireAgent` Gate, which the Gate Projection keeps. A caller names a cause only when it lies outside the Org; a retirement takes none, since its cause is always the approving decision. `retire` refuses an Agent that is not live, an actor other than the Operator, and a Gate that is unknown, undecided, rejected, of another kind or naming another Agent, before it builds the Event, through the predicate the Org guard uses. A retirement's reason defaults to the one in its `RetireAgent` Gate's payload, and is refused when neither gives one. The Conductor's tier Revisions stay Ledger follow-ons (ADR-0011).
 
@@ -130,6 +131,8 @@ Two rules from `docs/design/vitality-and-merit.md` decide who takes a Task and w
 
 - The reviewer rule (`vitality/reviewers.ts`). The role of the assignee decides the reviewer: either Supervisor for a Specialist, the Director for a Supervisor, and the Operator for the Director, the Steward, and the Auditor. The Auditor may review any Task, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`. No one reviews their own Task. One predicate decides both the reviewer that a `TaskCompleted` names and the actor of a `ReviewRecorded`, so the two cannot disagree. A refusal names the assignee, its role, and who may review it. The design names no reviewer for the Developer and the Tester, so until they join in slice 2 they take the Specialists' rule.
 - The Mood rule. A `TaskAssigned` or a `TaskHandedOff` is refused when the Policy of the new assignee's Mood does not let it accept Tasks: when it is `strained`, `overloaded`, `discouraged`, or `resting`. The refusal names the Agent and its Mood. The Mood comes from the Agent's latest `VitalitySampled`, with Rest and Tasks `InProgress` read from the Ledger as it stands. A guard reads no clock, so it cannot take a new sample. An Agent with no sample counts as one with no work, so it is `fresh` unless Rest or a Task `InProgress` changes that. A new sample or the end of Rest lifts the refusal.
+
+A Help request is a `HelpRequested` Event with payload `{ task_id, to: Actor, question }`, by the assignee of a live Task (`Assigned`, `InProgress`, `UnderReview` or `Blocked`), to the Operator or a live Agent. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Task Projection refuses a Help request from anyone but the assignee, and on a Task with no assignee or that is no longer live. It keeps each Task's Help requests as `{ seq, from, to, question }[]`, and every Agent each Task has been assigned to, which the Training guard reads for a Memory note. A reply is a Message in a Room, not an Event kind of its own.
 
 ```ts
 type TaskState =
@@ -297,12 +300,22 @@ type GateDecision = {
 
 ### 9. Skill and Memory note
 
-A Skill is a versioned Markdown procedure that any Agent can be granted. A Memory note is a private lesson that one Agent reads before similar Tasks. Both are Events, so Training is auditable.
+A Skill is a versioned Markdown procedure that any Agent can be granted. A Memory note is a private lesson that one Agent reads before similar Tasks. Coaching is the Operator's guidance to one Agent. All three are Events, so Training is auditable.
+
+One module, the Training lifecycle (`training/lifecycle.ts`), appends `MemoryNoted`, `SkillPublished` and `HumanCoached`. Each verb decides its refusals before it builds the Event, through the predicate the Training guard uses, and returns what it recorded with the seq it appended.
+
+- A Memory note is the Agent's own, on a Task the Agent has been assigned at some point, which the Task Projection keeps. The Ledger refuses a note by any other actor, and a note on a Task the Agent was never assigned. The note names the Task's previous Event, the outcome it learned from, as its cause.
+- Publishing a Skill id appends its next version, starting at 1, with the actor as `author`. A version after the first names the version before it as its cause. The Ledger refuses a version that skips one, an author other than the actor, and a later version that names any other cause. A Skill id is a name the publisher chooses.
+- Coaching is a `HumanCoached` Event with payload `{ agent_id, task_id?, note }`, by the Operator only, to an Agent in the Org. With a Task, it names the Task's previous Event as its cause.
+
+The Training Projection (`training/projection.ts`) keeps each Agent's Memory notes and Coaching, and every version of each Skill, each with its seq.
 
 ```ts
 type Skill = { id: SkillId; version: number; title: string; body_md: string; author: Actor };
 
 type MemoryNote = { agent: AgentId; task_id: TaskId; lesson: string; applies_to: string[] };
+
+type Coaching = { agent_id: AgentId; task_id?: TaskId; note: string };
 ```
 
 ### 10. Room and Message
@@ -357,7 +370,7 @@ Every table is `STRICT`. Every row's `source_artifact` holds the Artifact id of 
 
 Stage 2 assigns each container a Lab Reference at receipt, `LR-<year received>-<n>` with n written as four digits or more. n is one more than the highest n for that year in `samples`, so the numbering continues from the carried version, and a container numbered in one version is never numbered again.
 
-**Interface.** The Conductor serves a single-page application. Cloudflare Tunnel exposes it at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the Operator's email. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
+**Interface.** `aliquot serve` is the Conductor process. It holds the Ledger's writer for its lifetime. On Node's built-in `http`, with no framework, it serves four things: every Projection as JSON under `/api/`, the Ledger's Events as Server-Sent Events at `/api/events` with each Event's seq as its id, the Operator's actions at `POST /api/actions/<verb>`, and a single-page application. An action runs the lifecycle verb its command runs, as the Operator, and answers with the Event it appended or the Ledger's refusal. The application is plain TypeScript in `conductor/ui/`, compiled to ES modules with no bundler. Without Cloudflare Access, the Conductor serves `127.0.0.1` only. With Access, it admits only a request whose `Cf-Access-Jwt-Assertion` is signed by one of the team's published keys and names the application's audience and the Operator's email. README.md's Serve section lists the routes. Cloudflare Tunnel exposes the application at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the Operator's email. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
 
 **Cost.** Everything on Cloudflare stays on the free tier, which covers Tunnel, Access for up to 50 users, and DNS. There is no Workers paid plan, no Containers, and no R2 beyond the free tier. The Ledger and the Artifact store stay on the Mac.
 
@@ -410,7 +423,7 @@ The workflow lifecycle (`workflow/lifecycle.ts`) appends every `EvaluationRecord
 
 ## The Operator's interface
 
-Every view is a Projection of the Ledger and updates live over SSE. No view stores its own state.
+Every view is a Projection of the Ledger and updates live over SSE. No view stores its own state. Each view has a hash route (`#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance`, `#/ledger`). It fetches its Projections from `/api/` and fetches them again on every Event the stream delivers. A view's markup is a pure function of that JSON. Until its own ticket draws it, a view shows the JSON as it came.
 
 | View | Shows | Operator actions |
 |---|---|---|

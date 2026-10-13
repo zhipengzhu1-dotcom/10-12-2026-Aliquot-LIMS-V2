@@ -9,7 +9,7 @@ Aliquot LIMS is a society of AI Agents that does the paperwork and computation o
 
 ## Layout
 
-- `conductor/` is the Conductor, a TypeScript package (pnpm, Node 24). The `aliquot` command line starts at `conductor/src/cli.ts`.
+- `conductor/` is the Conductor, a TypeScript package (pnpm, Node 24). The `aliquot` command line starts at `conductor/src/cli.ts`. The interface that `aliquot serve` serves is in `conductor/ui/`.
 - `sandbox/` holds the Sandbox Scripts and their tests, a Python project managed by uv (Python 3.13 or later).
 - `fixtures/` holds the Fixture Artifacts committed to git. Every Fixture is synthetic.
 - `Templates/` is ignored by git and stays out of the repository (ADR-0009).
@@ -37,9 +37,9 @@ tools/check.sh
 | Install dependencies | `pnpm -C conductor install` |
 | Lint and check formatting (Biome) | `pnpm -C conductor lint` |
 | Fix lint and formatting | `pnpm -C conductor exec biome check --write .` |
-| Typecheck (`tsc --noEmit`) | `pnpm -C conductor typecheck` |
+| Typecheck the Conductor and the interface (`tsc --noEmit`) | `pnpm -C conductor typecheck` |
 | Test (vitest) | `pnpm -C conductor test` |
-| Build to `conductor/dist/` | `pnpm -C conductor build` |
+| Build the Conductor and the interface to `conductor/dist/` | `pnpm -C conductor build` |
 | Run the `aliquot` command line | `pnpm -C conductor cli <args>`, or `tools/aliquot <args>` from any directory |
 
 A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either. The GritQL plugin `conductor/lint/no-append-outside-lifecycle.grit` refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a domain's `lifecycle.ts`, `ledger.ts` and the test scenario in `test-support/`, so only a lifecycle module appends Events; `conductor/src/append-rule.test.ts` checks which files it refuses.
@@ -81,11 +81,11 @@ Off CI, a test that needs a missing prerequisite skips with a notice: the Docker
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
-No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `room`, `gate`, `sandbox`, `vitality`, `workflow`), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
+No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `training`, `room`, `gate`, `sandbox`, `vitality`, `workflow`) and the actions of `aliquot serve` (see [Serve](#serve)), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
-The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, and Turns) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
+The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, Turns, and Training) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
 
 Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`. It reads only the chain, so it also works on a Ledger too corrupt to open.
 
@@ -132,7 +132,7 @@ pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
 pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
 ```
 
-These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)).
+These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)). Granting a Skill is a Revision that adds its id to `skills`. The Ledger refuses a definition whose `skills` names an id that no `training skill publish` has published, and the refusal names the id (see [Training](#training)).
 
 Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
 
@@ -181,7 +181,33 @@ pnpm -C conductor cli --home /tmp/aliquot task complete T-1   # Done after the O
 pnpm -C conductor cli --home /tmp/aliquot task list
 ```
 
-`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. `task complete` takes `--output <artifact id>` once for each output. The other commands are `task handoff <id> <agent> --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
+`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. `task complete` takes `--output <artifact id>` once for each output. The other commands are `task handoff <id> <agent> --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee, with a `help` line under the Task for each Help request on it.
+
+A Help request is a `HelpRequested` Event, appended by the Task lifecycle. The assignee of a live Task requests help on it from the Operator or a live Agent, with the question on stdin. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Ledger refuses a Help request from anyone but the assignee, and on a Task that is `Proposed`, `Done`, `Failed` or `Escalated`. A reply is a Message in a Room.
+
+```sh
+echo "Which column holds the TAT code?" | pnpm -C conductor cli --home /tmp/aliquot task help T-1 --to A-pia --as A-odile
+```
+
+## Training
+
+Training is how an Agent improves: Skills, Revisions, Memory notes, and Coaching. Revisions belong to the Org (see [Org](#org)). The Training lifecycle, `conductor/src/training/lifecycle.ts`, appends `MemoryNoted`, `SkillPublished` and `HumanCoached`, and the Training Projection keeps each Agent's Memory notes and Coaching, and every version of each Skill.
+
+- `training note <agent> --task <task id> --applies-to <a,b>` notes a Memory note, read from stdin, as that Agent. The Ledger refuses a note by anyone but that Agent, and a note on a Task the Agent was never assigned. The note names the Task's previous Event as its cause.
+- `training skill publish <skill id> --title <t> [file]` publishes the next version of a Skill, with the body from the file or stdin. The first version is 1, the actor is its author, and each later version names the version before it as its cause.
+- `training skill show <skill id> [--version <n>]` prints the latest version of a Skill, or the version that `--version` names. `training skills` lists every Skill at its latest version.
+- `training coach <agent> [--task <task id>]` gives the Agent Coaching, read from stdin, as the Operator. The Ledger refuses Coaching from anyone else, so `--as` is refused. With `--task`, the Coaching names the Task's previous Event as its cause.
+- `training notes <agent>` prints the Agent's Memory notes and Coaching in seq order.
+
+`training skill publish` and `training coach` write as the Operator unless `--as A-<id>` names an Agent.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot training skill publish parse-submission-form --title "Parse a Submission Form" parse-form.md
+pnpm -C conductor cli --home /tmp/aliquot org revise A-odile odile-v2.json   # grants parse-submission-form
+echo "The TAT code sits in the last column" | pnpm -C conductor cli --home /tmp/aliquot training note A-odile --task T-1 --applies-to "Submission Form"
+echo "Check the TAT code first" | pnpm -C conductor cli --home /tmp/aliquot training coach A-odile --task T-1
+pnpm -C conductor cli --home /tmp/aliquot training notes A-odile
+```
 
 ## Rooms
 
@@ -416,3 +442,93 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 ```
 
 CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. `run-all` takes the Fixtures in name order on one home, so each Fixture's stage 2 carries the database the one before it wrote. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
+
+## Serve
+
+`aliquot serve` is the long-running Conductor. It opens the Ledger for writing and holds the writer lock until it stops. While it runs, a command that writes exits 1 with `LedgerLocked: <home>/ledger.sqlite.lock held by pid <pid>`, and a command that only reads still works. On SIGINT or SIGTERM it closes the Ledger, which releases the lock, and exits 0.
+
+```sh
+pnpm -C conductor build                   # compiles the interface
+tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0.0.1:8787
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--port <n>` | `8787` | The port. `0` lets the system choose one. |
+| `--bind <address>` | `127.0.0.1` | The address. Any other address needs Cloudflare Access; without it, the command exits 2. |
+| `--access-team <team>` `--access-aud <aud>` `--operator-email <email>` | none | Cloudflare Access. Give all three or none. |
+
+`--home` works before or after `serve`.
+
+### Routes
+
+| Route | Answers |
+|---|---|
+| `GET /` | The interface, from `conductor/dist/ui/`. |
+| `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts`, `/api/turns` | The Projection as JSON. Each map is an object keyed by id. `/api/turns` holds every Turn by id and each Agent's open Turn, the data `turn list` prints. |
+| `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
+| `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
+| `GET /api/ledger?from=<seq>&limit=<n>` | `{events, next}`: the Events from seq `from` (default 1), at most `limit` (default 100, at most 1000). `next` is the seq the next page starts from, or `null` after the last Event. |
+| `GET /api/ledger/verify` | The chain check as `{ok: true, count}` or `{ok: false, seq, reason}`, the verdict `ledger verify` prints. |
+| `GET /api/events` | The Ledger's Events as Server-Sent Events. |
+| `POST /api/actions/<verb>` | One of the Operator's actions. |
+
+The `training` route and the `coach` action wait for the Training lifecycle and Projection (#46).
+
+### Events
+
+`/api/events` sends one Server-Sent Event for each Event the Ledger appends, follow-ons included. The event id is the Event's seq, and the data is the Event as JSON. A client that reconnects with a `Last-Event-ID` header first receives every Event after that seq, read from the Ledger, so it misses nothing. An `EventSource` sends that header when it reconnects by itself. A page that opens a new `EventSource` passes `?lastEventId=<seq>` instead. A comment line every 30 seconds keeps the connection open through Cloudflare Tunnel. No view polls.
+
+```sh
+curl -N localhost:8787/api/events
+```
+
+### Actions
+
+Each action runs the lifecycle verb its command runs, always as the Operator. No body takes `--as`, and the Operator opens a Room that `room-open` opens. Send the body as JSON with `content-type: application/json`.
+
+| Verb | Command | Body |
+|---|---|---|
+| `pause` | `org pause` | `{agent_id, reason}` |
+| `resume` | `org resume` | `{agent_id}` |
+| `revise` | `org revise` | `{definition}`, the full next version |
+| `retire-request` | `org retire` without `--gate` | `{agent_id, reason}`; requests a `RetireAgent` Gate |
+| `gate-decide` | `gate decide` | `{gate_id, decision: "approve" or "reject", hash, reason}` |
+| `task-assign` | `task assign` | `{task_id, assignee}` |
+| `task-handoff` | `task handoff` | `{task_id, to, reason}` |
+| `task-review` | `vitality review` | `{task_id, quality, traceability, boundary_adherence, collaboration, timeliness, note}` |
+| `room-say` | `room say` | `{room_id, body, reply_to?}` |
+| `room-open` | `room open` | The Room without `opened_by` |
+| `rest-order` | `vitality rest` | `{agent_id, action: "begin" or "end", reason}` |
+
+The answer is one of these:
+
+- 200 and the Event the verb appended. Its follow-ons arrive on `/api/events`.
+- 409 and the refusal, such as `AgentResumed refused: A-bram is not paused`. The command prints the same text after `AppendRefused: `.
+- 400 and the reason for a body that is not JSON, is not sent as JSON, or does not fit the verb. A page on another site can send JSON only after a CORS preflight, which the Conductor does not grant, so it cannot run an action.
+- 404 for an unknown verb.
+
+```sh
+curl -s -X POST -H 'content-type: application/json' \
+  -d '{"agent_id": "A-rin", "reason": "Too many retries"}' \
+  localhost:8787/api/actions/pause
+```
+
+### Access
+
+Without `--access-team`, the Conductor serves `127.0.0.1` only. It answers 403 to a request whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>`, so a page that rebinds its own hostname to `127.0.0.1` cannot reach it.
+
+With `--access-team`, `--access-aud` and `--operator-email`, every request must carry a `Cf-Access-Jwt-Assertion` that meets all of these conditions. Otherwise the answer is 401 with no body.
+
+- An RS256 signature by one of the team's keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. The Conductor fetches the keys on the first request and keeps them for the `max-age` of that response, or for an hour without one.
+- An `aud` that includes `--access-aud`.
+- An `email` equal to `--operator-email`, ignoring case.
+- An `exp` in the future.
+
+Node's `crypto` verifies the token, so Access needs no dependency.
+
+### Interface
+
+The interface is plain TypeScript in `conductor/ui/`, with no framework and no bundler. `pnpm -C conductor build` compiles it with `ui/tsconfig.build.json` to ES modules in `conductor/dist/ui/`, and copies `ui/index.html` beside them. `pnpm -C conductor lint` and `typecheck` cover `ui/`. Without a build, `aliquot serve` says so on stderr and serves the API only.
+
+The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and shows them as JSON. It fetches them again on every Event from `/api/events`. In `ui/views.ts`, each view is a pure function from Projection JSON to markup, so its ticket replaces that function and tests it without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body.
