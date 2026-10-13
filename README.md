@@ -815,7 +815,7 @@ The first admitted request for an email prints one line to stdout, `Admitted <em
 
 ### Tunnel
 
-`tools/serve.sh` serves the interface at `https://agents.nitrolims-demo.com`. It starts `aliquot serve --no-schedule` on `127.0.0.1:8787`, so no Turn starts behind the Tunnel, with the Access flags from `.aliquot/serve.json`, which git ignores (`tools/tunnel/serve.example.json` shows its shape), and `cloudflared` running the Cloudflare Tunnel `aliquot` from `tools/tunnel/config.yml`. Ctrl-C stops both. `--no-tunnel` starts the Conductor alone.
+`tools/serve.sh` serves the interface at `https://agents.nitrolims-demo.com`. It starts `aliquot serve` on `127.0.0.1:8787` with the Scheduler on, so a Message said in the Chat view behind the Tunnel gets a Turn on the subscription login within the Energy budget, with the Access flags from `.aliquot/serve.json`, which git ignores (`tools/tunnel/serve.example.json` shows its shape), and `cloudflared` running the Cloudflare Tunnel `aliquot` from `tools/tunnel/config.yml`. Ctrl-C stops both. `--no-tunnel` starts the Conductor alone. `--no-schedule` serves without the Scheduler, so no Turn starts.
 
 ```sh
 tools/serve.sh

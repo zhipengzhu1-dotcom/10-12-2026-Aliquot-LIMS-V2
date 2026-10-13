@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Serve the Conductor at agents.nitrolims-demo.com: `aliquot serve` behind Cloudflare Access,
 # and the Cloudflare Tunnel `aliquot` in front of it. Ctrl-C stops both. See docs/ops/tunnel.md.
-# Usage: tools/serve.sh [--home <dir>] [--no-tunnel]
+# The Scheduler runs, as in `aliquot serve`, so a Message said in the Chat view gets a Turn on the
+# subscription login, within the Energy budget. --no-schedule serves without it: no Turn starts.
+# Usage: tools/serve.sh [--home <dir>] [--no-tunnel] [--no-schedule]
 set -euo pipefail
 
 root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -9,9 +11,10 @@ settings="$root/.aliquot/serve.json"
 tunnel_config="$root/tools/tunnel/config.yml"
 home="${ALIQUOT_HOME:-$root/.aliquot}"
 tunnel=yes
+no_schedule=""
 
 usage() {
-	echo "usage: tools/serve.sh [--home <dir>] [--no-tunnel]" >&2
+	echo "usage: tools/serve.sh [--home <dir>] [--no-tunnel] [--no-schedule]" >&2
 	exit 2
 }
 
@@ -19,6 +22,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--home) [ $# -ge 2 ] || usage; home="$2"; shift 2 ;;
 		--no-tunnel) tunnel=no; shift ;;
+		--no-schedule) no_schedule=yes; shift ;;
 		*) usage ;;
 	esac
 done
@@ -57,8 +61,7 @@ stop() {
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 
-# --no-schedule keeps live Turns off until the owner says run; #41 removes it.
-node "$root/conductor/dist/cli.js" --home "$home" serve --bind 127.0.0.1 --port "$port" --no-schedule \
+node "$root/conductor/dist/cli.js" --home "$home" serve --bind 127.0.0.1 --port "$port" ${no_schedule:+--no-schedule} \
 	--access-team "$access_team" --access-aud "$access_aud" --operator-email "$operator_email" &
 serve_pid=$!
 
