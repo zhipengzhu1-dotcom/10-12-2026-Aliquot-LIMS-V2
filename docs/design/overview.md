@@ -340,7 +340,7 @@ Five parts run on the Operator's Mac. Cloudflare carries only the Operator's bro
 
 **Toy System of record.** A SQLite database in the Sandbox stands in for the lab's LIMS tables (samples, lots, work orders, results, and reports). It is synthetic, so it is not a System of record and Agents write to it without a Gate. Each data source declares in configuration whether it is a System of record. Connecting a real database turns the `WriteSystemOfRecord` Gate on by configuration, with no code change.
 
-**Interface.** The Conductor serves a single-page application. Cloudflare Tunnel exposes it at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the Operator's email. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
+**Interface.** `aliquot serve` is the Conductor process. It holds the Ledger's writer for its lifetime. On Node's built-in `http`, with no framework, it serves four things: every Projection as JSON under `/api/`, the Ledger's Events as Server-Sent Events at `/api/events` with each Event's seq as its id, the Operator's actions at `POST /api/actions/<verb>`, and a single-page application. An action runs the lifecycle verb its command runs, as the Operator, and answers with the Event it appended or the Ledger's refusal. The application is plain TypeScript in `conductor/ui/`, compiled to ES modules with no bundler. Without Cloudflare Access, the Conductor serves `127.0.0.1` only. With Access, it admits only a request whose `Cf-Access-Jwt-Assertion` is signed by one of the team's published keys and names the application's audience and the Operator's email. README.md's Serve section lists the routes. Cloudflare Tunnel exposes the application at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the Operator's email. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
 
 **Cost.** Everything on Cloudflare stays on the free tier, which covers Tunnel, Access for up to 50 users, and DNS. There is no Workers paid plan, no Containers, and no R2 beyond the free tier. The Ledger and the Artifact store stay on the Mac.
 
@@ -391,7 +391,7 @@ The workflow lifecycle (`workflow/lifecycle.ts`) appends every `EvaluationRecord
 
 ## The Operator's interface
 
-Every view is a Projection of the Ledger and updates live over SSE. No view stores its own state.
+Every view is a Projection of the Ledger and updates live over SSE. No view stores its own state. Each view has a hash route (`#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance`, `#/ledger`). It fetches its Projections from `/api/` and fetches them again on every Event the stream delivers. A view's markup is a pure function of that JSON. Until its own ticket draws it, a view shows the JSON as it came.
 
 | View | Shows | Operator actions |
 |---|---|---|

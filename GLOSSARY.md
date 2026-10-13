@@ -141,8 +141,20 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns.
+The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns.
 _Avoid_: orchestrator, server, backend, scheduler
+
+**Interface**:
+The single-page application the Conductor serves to the Operator: one view per hash route, each showing Projections that update on every Event from the Event stream, and the Operator's actions.
+_Avoid_: dashboard, frontend, portal
+
+**Event stream**:
+The Server-Sent Events at `/api/events`: one for each Event the Ledger appends, with the Event's seq as its id, so a client that reconnects resumes from the Ledger.
+_Avoid_: feed, websocket
+
+**Action**:
+A lifecycle verb the Operator runs through the Interface, as `POST /api/actions/<verb>`, which appends the same Event the matching command appends, always as the Operator.
+_Avoid_: RPC, endpoint
 
 **Sandbox**:
 The isolated environment, with no network access, where every Script and every piece of agent-written code runs.

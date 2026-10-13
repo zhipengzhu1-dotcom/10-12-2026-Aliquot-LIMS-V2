@@ -50,6 +50,12 @@ export type Ledger = {
 	all(): Event[];
 	/** Walk the chain from seq 1 and report the first broken link. */
 	verify(): VerifyResult;
+	/**
+	 * Call `listener` with every Event an append writes, follow-ons included,
+	 * in seq order once the transaction commits. Returns the call that
+	 * removes it.
+	 */
+	onAppend(listener: (event: Event) => void): () => void;
 	close(): void;
 };
 
@@ -121,6 +127,7 @@ const appended = (before: Projections, event: Event): Projections | Refusal => {
 
 const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 	const clock = options.clock ?? (() => new Date());
+	const listeners = new Set<(event: Event) => void>();
 
 	// Built once from every Event; each append then advances them by one.
 	let projections = emptyProjections();
@@ -161,6 +168,7 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 		}
 		let pending = projections;
 		let tip = last;
+		const written: Event[] = [];
 		const result = storage.transaction((insert) =>
 			body(
 				(newEvent) => {
@@ -173,6 +181,7 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 					insert(rowOf(event));
 					pending = after;
 					tip = event;
+					written.push(event);
 					return event;
 				},
 				() => pending,
@@ -180,6 +189,19 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 		);
 		projections = pending;
 		last = tip;
+		for (const event of written) {
+			for (const listener of listeners) {
+				// The Events are committed, so a listener's failure must not
+				// reach the appender as a refusal; it surfaces on its own.
+				try {
+					listener(event);
+				} catch (error) {
+					queueMicrotask(() => {
+						throw error;
+					});
+				}
+			}
+		}
 		return result;
 	};
 
@@ -219,6 +241,10 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 		events,
 		all: () => [...events()],
 		verify: () => verifyRows(storage.rows()),
+		onAppend: (listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
 		close: () => storage.close(),
 	};
 };
