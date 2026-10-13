@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentId, SkillId } from "../ids.js";
+import { Action } from "./action.js";
 import { EventActor } from "./actor.js";
 import { TrustTier } from "./merit.js";
 
@@ -13,6 +14,15 @@ export const Role = z.enum([
 	"Tester",
 ]);
 export type Role = z.infer<typeof Role>;
+
+/**
+ * A Charter's forbidden Actions. A definition recorded before the Action
+ * vocabulary holds the roster's free text instead, which still loads
+ * (ADR-0012); the Org guard refuses a new definition that names anything but
+ * an Action.
+ */
+export const Forbidden = z.union([z.array(Action), z.array(z.string().min(1))]);
+export type Forbidden = z.infer<typeof Forbidden>;
 
 export const AgentDefinition = z.strictObject({
 	id: AgentId,
@@ -28,7 +38,7 @@ export const AgentDefinition = z.strictObject({
 	charter: z.strictObject({
 		purpose: z.string(),
 		responsibilities: z.array(z.string()),
-		forbidden: z.array(z.string().min(1)),
+		forbidden: Forbidden,
 		escalation: z.string(),
 	}),
 	tools: z.array(z.string().min(1)),

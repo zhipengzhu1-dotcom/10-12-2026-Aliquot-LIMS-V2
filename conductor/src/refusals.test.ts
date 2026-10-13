@@ -403,6 +403,20 @@ const ROWS: Row[] = [
 		}),
 		"EvaluationRecorded refused: R-9 has not started",
 	],
+	[
+		"the refused Tool call guard",
+		() => ({
+			actor: { tag: "Conductor" },
+			kind: "ActionRefused",
+			payload: {
+				agent: nobody,
+				tool: "run_script",
+				action: "RunScript",
+				reason: "A-nobody's Charter forbids RunScript",
+			},
+		}),
+		"ActionRefused refused: A-nobody is not in the Org",
+	],
 ];
 
 describe("every refusal reads <Kind> refused: <reason>", () => {

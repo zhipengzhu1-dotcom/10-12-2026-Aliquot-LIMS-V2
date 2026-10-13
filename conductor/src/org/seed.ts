@@ -1,6 +1,7 @@
 import { AgentId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Recorded } from "../lifecycle-support.js";
+import type { Action } from "../types/action.js";
 import type { AgentDefinition, Role } from "../types/agent-definition.js";
 import { recruit } from "./lifecycle.js";
 import type { AgentState } from "./projection.js";
@@ -15,9 +16,29 @@ type RosterEntry = {
 	quirk: string;
 	purpose: string;
 	responsibilities: string[];
-	forbidden: string[];
+	forbidden: RosterForbidden[];
 	escalation: string;
 };
+
+/**
+ * The roster's "Forbidden actions" column in docs/design/overview.md, each
+ * phrase as the Action a Charter records. A definition recorded before the
+ * Action vocabulary holds these phrases, and the Charter reads them through
+ * this table.
+ */
+export const ACTION_OF_ROSTER_TEXT = {
+	"Run Scripts": "RunScript",
+	"Touch Artifacts directly": "TouchArtifact",
+	"Decide Gates": "DecideGate",
+	"Assign lab work": "AssignLabWork",
+	"Accept its own proposals": "AcceptOwnProposal",
+	"Do lab work": "DoLabWork",
+	"Touch results or Reports of Analysis": "TouchResults",
+	"Verify a calculation from its own team's Run": "VerifyOwnTeamRun",
+	"Run code outside the Sandbox": "RunOutsideSandbox",
+	"Write to a System of record without a Gate": "WriteSystemOfRecord",
+} as const satisfies Readonly<Record<string, Action>>;
+type RosterForbidden = keyof typeof ACTION_OF_ROSTER_TEXT;
 
 // The starting roster from docs/design/overview.md. Persona voice is the
 // roster's Persona text verbatim; traits and quirk split it.
@@ -187,7 +208,7 @@ const definitionOf = (entry: RosterEntry): AgentDefinition => ({
 	charter: {
 		purpose: entry.purpose,
 		responsibilities: entry.responsibilities,
-		forbidden: entry.forbidden,
+		forbidden: entry.forbidden.map((text) => ACTION_OF_ROSTER_TEXT[text]),
 		escalation: entry.escalation,
 	},
 	tools: [],
@@ -209,9 +230,12 @@ export const rosterDefinitions = (): AgentDefinition[] =>
  * the Operator, through the Org lifecycle. Returns what it recruited; a
  * second run recruits none.
  */
-export const seedOrg = (ledger: Ledger): Recorded<"agent", AgentState>[] => {
+export const seedOrg = (
+	ledger: Ledger,
+	roster: readonly AgentDefinition[] = rosterDefinitions(),
+): Recorded<"agent", AgentState>[] => {
 	const { agents } = ledger.projections.org;
-	return rosterDefinitions()
+	return roster
 		.filter((d) => !agents.has(d.id))
 		.map((definition) =>
 			recruit(ledger, { actor: { tag: "Operator" }, definition }),

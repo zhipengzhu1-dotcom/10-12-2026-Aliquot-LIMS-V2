@@ -50,7 +50,6 @@ const ALLOWED: readonly Exemption[] = [
 		phrase: "toy LIMS",
 		reason: "the glossary's own name for the practice database",
 	},
-	{ phrase: "tools", reason: "the Agent definition field the glossary names" },
 	{ phrase: "MemoryNoted", reason: "the Event kind for a Memory note" },
 	{ phrase: "team-level", reason: "English" },
 	{ phrase: "update(", reason: "Node's Hash.update" },
@@ -58,10 +57,6 @@ const ALLOWED: readonly Exemption[] = [
 		phrase: "level",
 		in: "events.ts",
 		reason: "nesting levels of a payload schema",
-	},
-	{
-		phrase: "tool_calls",
-		reason: "the count of tool calls the model reports for a Turn",
 	},
 	...["cache_creation", "cache_read"].map((phrase) => ({
 		phrase,
@@ -73,6 +68,16 @@ const ALLOWED: readonly Exemption[] = [
 		phrase: "history",
 		in: "room/",
 		reason: "a Room's Messages, the `room history` command",
+	},
+	{
+		phrase: "history",
+		in: "tools/table.ts",
+		reason: "the Room function that reads a Room's Messages",
+	},
+	{
+		phrase: "note_memory",
+		in: "tools/table.ts",
+		reason: "the Tool that notes a Memory note, as the ticket names it",
 	},
 	{
 		phrase: "log",
@@ -111,11 +116,13 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "Tasks grouped by state in a listing",
 	},
 	{ phrase: "ask", in: "org/seed.ts", reason: "a Persona's quirk text" },
-	...["types/skill.ts", "training/commands.ts"].map((file) => ({
-		phrase: "lesson",
-		in: file,
-		reason: "the Memory note field the glossary names",
-	})),
+	...["types/skill.ts", "training/commands.ts", "tools/table.ts"].map(
+		(file) => ({
+			phrase: "lesson",
+			in: file,
+			reason: "the Memory note field the glossary names",
+		}),
+	),
 	{
 		phrase: "coach",
 		in: "training/commands.ts",
@@ -139,6 +146,17 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "names in Node's http API and the SSE standard, not the Conductor",
 	})),
 	{ phrase: "POST", in: "serve/", reason: "the HTTP method" },
+	{
+		phrase: "McpSdkServerConfigWithInstance",
+		in: "tools/sdk.ts",
+		reason: "the Agent SDK's type of an in-process MCP server",
+	},
+	{
+		phrase: "server",
+		in: "tools/",
+		reason:
+			"an MCP server, the Agent SDK's name for what serves an Agent its Tools, not the Conductor",
+	},
 	{
 		phrase: "no-cache",
 		in: "serve/sse.ts",

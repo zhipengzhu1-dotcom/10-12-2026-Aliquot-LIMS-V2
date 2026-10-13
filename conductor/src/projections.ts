@@ -10,6 +10,7 @@ import {
 import { type RunProjection, runProjection } from "./sandbox/runs.js";
 import { type ScriptProjection, scriptProjection } from "./sandbox/scripts.js";
 import { TaskProjection, type TaskView } from "./task/projection.js";
+import { ProposalProjection, type ProposalState } from "./tools/projection.js";
 import {
 	TrainingProjection,
 	type TrainingState,
@@ -36,6 +37,7 @@ export type Projections = {
 	readonly trust: TrustState;
 	readonly turns: TurnState;
 	readonly training: TrainingState;
+	readonly proposals: ProposalState;
 };
 
 const PROJECTIONS: { [K in keyof Projections]: Projection<Projections[K]> } = {
@@ -50,6 +52,7 @@ const PROJECTIONS: { [K in keyof Projections]: Projection<Projections[K]> } = {
 	trust: TrustProjection,
 	turns: TurnProjection,
 	training: TrainingProjection,
+	proposals: ProposalProjection,
 };
 
 const KEYS = Object.keys(PROJECTIONS) as (keyof Projections)[];

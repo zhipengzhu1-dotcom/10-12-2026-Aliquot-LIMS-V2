@@ -10,6 +10,7 @@ import { canonicalJson } from "../hash.js";
 import type { AgentId, GateId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
+import { Action, isAction } from "../types/action.js";
 import { actorText, type EventActor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { tierCauseRefusal, tierRefusal } from "../vitality/trust.js";
@@ -89,6 +90,24 @@ const skillRefusal = (
 		: `${definition.id}'s definition grants the Skill ${unpublished}, which has not been published`;
 };
 
+/**
+ * A Charter forbids only Actions. A definition recorded before the vocabulary
+ * holds free text (ADR-0012), which its Revisions, the Conductor's tier
+ * Revisions among them, may carry over; no definition adds any.
+ */
+const forbiddenRefusal = (
+	definition: AgentDefinition,
+	current?: AgentDefinition,
+) => {
+	const carried: readonly string[] = current?.charter.forbidden ?? [];
+	const unknown = definition.charter.forbidden.find(
+		(entry) => !isAction(entry) && !carried.includes(entry),
+	);
+	return unknown === undefined
+		? undefined
+		: `${definition.id}'s Charter forbids ${JSON.stringify(unknown)}, which is not an Action; the Actions are ${Action.options.join(", ")}`;
+};
+
 const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 	"version",
 	"trust_tier",
@@ -103,6 +122,7 @@ const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 const CONDUCTOR_ACTS: ReadonlySet<EventKind> = new Set([
 	"TurnStarted",
 	"TurnFinished",
+	"ActionRefused",
 ]);
 
 /**
@@ -161,6 +181,7 @@ const orgGuard: AppendGuard = (projections, event) => {
 		case "AgentRecruited":
 			return (
 				authorRefusal(event, event.payload) ??
+				forbiddenRefusal(event.payload) ??
 				skillRefusal(projections, event.payload) ??
 				tierRefusal(
 					projections.trust,
@@ -180,6 +201,7 @@ const orgGuard: AppendGuard = (projections, event) => {
 			}
 			return (
 				authorRefusal(event, definition) ??
+				forbiddenRefusal(definition, current) ??
 				skillRefusal(projections, definition) ??
 				tierRefusal(projections.trust, definition.id, definition.trust_tier)
 			);

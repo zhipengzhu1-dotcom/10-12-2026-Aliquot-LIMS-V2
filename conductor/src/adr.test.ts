@@ -188,6 +188,31 @@ describe("ADR rules the slice-0 review found missing", () => {
 			});
 		});
 
+		it("accepts a refused Tool call recorded by the Conductor and refuses one recorded by the Operator or an Agent", () => {
+			const refusal = (actor: EventActor) => () =>
+				s.appendNonTask({
+					actor,
+					kind: "ActionRefused",
+					payload: {
+						agent: rin,
+						tool: "run_script",
+						action: "RunOutsideSandbox",
+						reason: "A-rin's Charter forbids RunOutsideSandbox",
+					},
+				});
+
+			expect(refusal(operator)).toThrow(
+				"ActionRefused refused: only the Conductor records a refused Tool call; Operator tried to record A-rin's run_script",
+			);
+			expect(refusal({ tag: "Agent", id: rin })).toThrow(
+				"ActionRefused refused: only the Conductor records a refused Tool call; A-rin tried to record A-rin's run_script",
+			);
+			expect(refusal(conductor)()).toMatchObject({
+				kind: "ActionRefused",
+				actor: conductor,
+			});
+		});
+
 		it("still refuses every Conductor Event that is neither its own act nor a tier Revision", () => {
 			expect(() =>
 				s.appendNonTask({
