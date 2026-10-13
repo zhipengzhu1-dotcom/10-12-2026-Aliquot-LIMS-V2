@@ -36,6 +36,8 @@ export type WorkState = {
 	readonly resting: ReadonlySet<AgentId>;
 	/** Each Agent's latest VitalitySampled. */
 	readonly samples: ReadonlyMap<AgentId, Vitality>;
+	/** The seq of each Agent's latest VitalitySampled or RestOrdered. */
+	readonly lastVitalitySeq: ReadonlyMap<AgentId, Seq>;
 	/** How many Runs for each Task finished with a nonzero exit code. */
 	readonly failedRuns: ReadonlyMap<TaskId, number>;
 	/** Every Evaluation, in Ledger order. */
@@ -118,6 +120,7 @@ export const WorkProjection: Projection<WorkState> = {
 		skipped: new Set(),
 		resting: new Set(),
 		samples: new Map(),
+		lastVitalitySeq: new Map(),
 		failedRuns: new Map(),
 		evaluations: new Map(),
 	},
@@ -178,16 +181,23 @@ export const WorkProjection: Projection<WorkState> = {
 				const resting = new Set(state.resting);
 				if (action === "begin") resting.add(agent_id);
 				else resting.delete(agent_id);
-				return { ...state, resting };
-			}
-			case "VitalitySampled":
 				return {
 					...state,
-					samples: new Map(state.samples).set(
-						event.payload.agent,
-						event.payload,
+					resting,
+					lastVitalitySeq: new Map(state.lastVitalitySeq).set(
+						agent_id,
+						event.seq,
 					),
 				};
+			}
+			case "VitalitySampled": {
+				const { agent } = event.payload;
+				return {
+					...state,
+					samples: new Map(state.samples).set(agent, event.payload),
+					lastVitalitySeq: new Map(state.lastVitalitySeq).set(agent, event.seq),
+				};
+			}
 			case "RunFinished": {
 				const { task_id } = event;
 				if (task_id === undefined || event.payload.exit_code === 0) {

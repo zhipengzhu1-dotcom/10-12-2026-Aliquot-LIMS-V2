@@ -173,7 +173,7 @@ pnpm -C conductor cli --home /tmp/aliquot task list
 
 ## Rooms
 
-Agents talk in Rooms (ADR-0010). A Room is a Projection of `RoomOpened` and `MessageSent` Events, so every Message is in the Ledger. The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room whose list names itself. The Operator is a member of every Room, reads every Message, and may say a Message in any Room. One membership rule in `conductor/src/room/projection.ts` decides both who may say a Message and who may read a Room, so the two cannot disagree. A reply names the Message it answers with `--reply-to <seq>`, which must be a Message in the same Room.
+Agents talk in Rooms (ADR-0010). A Room is a Projection of `RoomOpened` and `MessageSent` Events, so every Message is in the Ledger. The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room whose list names itself. The Operator is a member of every Room, reads every Message, and may say a Message in any Room. One membership rule in `conductor/src/room/projection.ts` decides both who may say a Message and who may read a Room, so the two cannot disagree. A reply names the Message it answers with `--reply-to <seq>`, which must be a Message in the same Room. Every Room Event is appended by the Room lifecycle, `conductor/src/room/lifecycle.ts`, which `room seed`, `room open` and `room say` call. A Room's `opened_by` appends its `RoomOpened`, and a reply records the Message it answers as its `causation_id`.
 
 `say`, `list`, and `history` act as the Operator, unless `--as A-<id>` names an Agent. These examples need `org seed` first (see Org).
 
