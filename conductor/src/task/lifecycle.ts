@@ -81,34 +81,25 @@ const orRefuse = <T>(kind: EventKind, value: T | Refusal): T => {
 	return value;
 };
 
+/**
+ * Append `body`, naming the caller's cause or else the Task's previous Event;
+ * a proposal has none.
+ */
 const record = (
 	ledger: Ledger,
-	actor: Actor,
-	causation_id: Seq | undefined,
+	{ actor, causation_id }: Origin,
 	body: TaskBody,
 ): Recorded => {
 	const { task_id } = body.payload;
+	const cause = causation_id ?? ledger.projections.tasks.lastSeq.get(task_id);
 	const { seq } = ledger.append({
 		actor,
 		task_id,
-		...(causation_id === undefined ? {} : { causation_id }),
+		...(cause === undefined ? {} : { causation_id: cause }),
 		...body,
 	});
 	return { task: taskOf(ledger.projections, task_id), seq };
 };
-
-/** Append `body`, naming the caller's cause or else the Task's previous Event. */
-const recordNext = (
-	ledger: Ledger,
-	{ actor, causation_id }: Origin,
-	body: TaskBody,
-): Recorded =>
-	record(
-		ledger,
-		actor,
-		causation_id ?? ledger.projections.tasks.lastSeq.get(body.payload.task_id),
-		body,
-	);
 
 /** Propose a Task under the next free Task id. */
 export const propose = (
@@ -129,15 +120,21 @@ export const propose = (
 		readonly parent_task?: TaskId;
 	},
 ): Recorded =>
-	record(ledger, actor, causation_id, {
-		kind: "TaskProposed",
-		payload: {
-			task_id: TaskId.parse(nextId("T", ledger.projections.tasks.tasks.keys())),
-			...fields,
-			inputs: [...inputs],
-			rubric_id,
+	record(
+		ledger,
+		{ actor, causation_id },
+		{
+			kind: "TaskProposed",
+			payload: {
+				task_id: TaskId.parse(
+					nextId("T", ledger.projections.tasks.tasks.keys()),
+				),
+				...fields,
+				inputs: [...inputs],
+				rubric_id,
+			},
 		},
-	});
+	);
 
 export const assign = (
 	ledger: Ledger,
@@ -147,7 +144,7 @@ export const assign = (
 		...origin
 	}: Origin & { readonly task_id: TaskId; readonly assignee: AgentId },
 ): Recorded =>
-	recordNext(ledger, origin, {
+	record(ledger, origin, {
 		kind: "TaskAssigned",
 		payload: { task_id, assignee },
 	});
@@ -156,7 +153,7 @@ export const start = (
 	ledger: Ledger,
 	{ task_id, ...origin }: Origin & { readonly task_id: TaskId },
 ): Recorded =>
-	recordNext(ledger, origin, { kind: "TaskStarted", payload: { task_id } });
+	record(ledger, origin, { kind: "TaskStarted", payload: { task_id } });
 
 type ReviewDecision = PayloadOf<"TaskCompleted">["review"];
 
@@ -223,7 +220,7 @@ export const complete = (
 		(state.tag === "UnderReview"
 			? reviewsBy(projections.work, task_id, state.reviewer).at(-1)?.seq
 			: undefined);
-	const recorded = recordNext(
+	const recorded = record(
 		ledger,
 		{ actor: origin.actor, causation_id },
 		{
@@ -242,7 +239,7 @@ export const review = (
 		...payload
 	}: Review & { readonly causation_id?: Seq | undefined },
 ): Recorded =>
-	recordNext(
+	record(
 		ledger,
 		{ actor: payload.reviewer, causation_id },
 		{ kind: "ReviewRecorded", payload },
@@ -269,7 +266,7 @@ export const handOff = (
 		"TaskHandedOff",
 		stateIn(ledger.projections.tasks, task_id, ["InProgress"]),
 	);
-	return recordNext(ledger, origin, {
+	return record(ledger, origin, {
 		kind: "TaskHandedOff",
 		payload: { task_id, from, to, reason },
 	});
@@ -288,7 +285,7 @@ export const escalate = (
 		readonly reason: string;
 	},
 ): Recorded =>
-	recordNext(ledger, origin, {
+	record(ledger, origin, {
 		kind: "TaskEscalated",
 		payload: { task_id, to, reason },
 	});
@@ -301,7 +298,7 @@ export const fail = (
 		...origin
 	}: Origin & { readonly task_id: TaskId; readonly reason: string },
 ): Recorded =>
-	recordNext(ledger, origin, {
+	record(ledger, origin, {
 		kind: "TaskFailed",
 		payload: { task_id, reason },
 	});
