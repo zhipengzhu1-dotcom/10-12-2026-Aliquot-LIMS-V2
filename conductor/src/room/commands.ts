@@ -14,6 +14,7 @@ import { type CommandTable, UsageError } from "../command.js";
 import { RoomId, Seq } from "../ids.js";
 import { emptyProjections, type Projections } from "../projections.js";
 import { Room } from "../types/room.js";
+import { open, say } from "./lifecycle.js";
 import { history, type Message, RoomRefused, roomsOf } from "./projection.js";
 import { LAB_ROOM, seedRooms } from "./seed.js";
 
@@ -79,14 +80,7 @@ export const roomCommands: CommandTable = {
 				throw new Error(`the Room is not JSON: ${(error as Error).message}`);
 			}
 			const room = parseOrThrow(Room, json, "not a Room");
-			withLedger(ctx.home, true, (ledger) =>
-				ledger.append({
-					actor: room.opened_by,
-					...(room.task_id === undefined ? {} : { task_id: room.task_id }),
-					kind: "RoomOpened",
-					payload: { room },
-				}),
-			);
+			withLedger(ctx.home, true, (ledger) => open(ledger, room));
 			ctx.stdout.write(
 				`Opened ${room.id} (${room.name}) for ${membersText(room)}\n`,
 			);
@@ -105,20 +99,15 @@ export const roomCommands: CommandTable = {
 			const room_id = roomIdOf("say", positionals);
 			const actor = parseActor(values.as);
 			const replyTo = values["reply-to"];
-			const causation_id =
+			const reply_to =
 				replyTo === undefined
 					? undefined
 					: parseOrUsage(SeqText, replyTo, "--reply-to must be a seq like 12");
 			const body = (await readAll(ctx.stdin)).replace(/\n$/, "");
-			const event = withLedger(ctx.home, true, (ledger) =>
-				ledger.append({
-					actor,
-					kind: "MessageSent",
-					payload: { room_id, body },
-					...(causation_id === undefined ? {} : { causation_id }),
-				}),
+			const { seq } = withLedger(ctx.home, true, (ledger) =>
+				say(ledger, { actor, room_id, body, reply_to }),
 			);
-			ctx.stdout.write(`${event.seq}  ${actorText(actor)} in ${room_id}\n`);
+			ctx.stdout.write(`${seq}  ${actorText(actor)} in ${room_id}\n`);
 			return 0;
 		},
 	},

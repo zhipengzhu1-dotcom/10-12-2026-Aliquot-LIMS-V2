@@ -254,7 +254,7 @@ type MemoryNote = { agent: AgentId; task_id: TaskId; lesson: string; applies_to:
 
 ### 10. Room and Message
 
-A Room is where Agents talk (ADR-0010). The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room that names itself. The Operator is a member of every Room. A Message is a `MessageSent` Event projected for its reader. A reply names the Message it answers through the envelope's `causation_id`, which must be a Message in the same Room. One membership rule decides both who may say a Message and who may read a Room's history.
+A Room is where Agents talk (ADR-0010). The Lab Room, `RM-lab`, admits every recruited Agent that is not retired. Any Agent may open a `Listed` Room that names itself. The Operator is a member of every Room. A Message is a `MessageSent` Event projected for its reader. A reply names the Message it answers through the envelope's `causation_id`, which must be a Message in the same Room. One membership rule decides both who may say a Message and who may read a Room's history. One module, the Room lifecycle (`room/lifecycle.ts`), appends every Room Event. It opens a Room, which the Room's `opened_by` appends, and says a Message, returning the Room or the Message and the seq it appended. Neither Event names a cause, except a reply, whose `causation_id` is the Message it answers.
 
 ```ts
 type RoomId = `RM-${string}`;
