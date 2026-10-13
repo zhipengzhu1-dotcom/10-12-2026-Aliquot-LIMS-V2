@@ -8,15 +8,15 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { sha256Hex } from "../hash.js";
-import { ArtifactId, type Seq, Sha256, type TaskId } from "../ids.js";
+import { ArtifactId, type Seq, Sha256 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { type Projection, Refusal } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
 import type {
 	Artifact,
 	ArtifactFilename,
 	StoredArtifact,
 } from "../types/artifact.js";
+import { type Origin, store } from "./lifecycle.js";
 
 /** One ArtifactStored: the record it wrote, and its seq. */
 export type Production = {
@@ -102,25 +102,12 @@ export type ArtifactMeta = Pick<
 	"artifact_type" | "media_type" | "produced_by"
 > & { lineage: readonly ArtifactId[]; filename?: ArtifactFilename };
 
-/** Envelope fields for the ArtifactStored Event. */
-export type EventContext = {
-	actor: Actor;
-	task_id?: TaskId | undefined;
-	causation_id?: Seq | undefined;
-};
-
 export type Artifacts = {
 	/**
-	 * Write the bytes to `blobs/<sha256>` and record ArtifactStored. Bytes the
-	 * Ledger already holds get a new record only when a Run produces them that
-	 * has not recorded them yet; otherwise nothing is appended and the existing
-	 * record comes back (the producer's own, else the canonical one).
+	 * Write the bytes to `blobs/<sha256>` and store them through the Sandbox
+	 * lifecycle, which returns the record of these bytes for this producer.
 	 */
-	store(
-		bytes: Uint8Array,
-		meta: ArtifactMeta,
-		by: EventContext,
-	): StoredArtifact;
+	store(bytes: Uint8Array, meta: ArtifactMeta, by: Origin): StoredArtifact;
 	/** The bytes, checked against the id. */
 	read(id: ArtifactId): Buffer;
 	/** Where the bytes live on disk. */
@@ -163,28 +150,9 @@ export const openArtifacts = ({
 			return bytes;
 		},
 		store: (bytes, meta, by) => {
-			const digest = sha256Hex(bytes);
-			const id = ArtifactId.parse(digest);
-			writeBlob(id, bytes);
-			const projection = ledger.projections.artifacts;
-			const canonical = projection.artifacts.get(id);
-			if (canonical) {
-				const own = productionOf(projection, id, meta.produced_by);
-				if (own) return own.record;
-				if (meta.produced_by.tag === "Operator") return canonical;
-			}
-			const event = ledger.append({
-				...by,
-				kind: "ArtifactStored",
-				payload: {
-					id,
-					sha256: Sha256.parse(digest),
-					...meta,
-					lineage: [...meta.lineage],
-				},
-			});
-			if (event.kind !== "ArtifactStored") throw new Error("unreachable");
-			return event.payload;
+			const sha256 = Sha256.parse(sha256Hex(bytes));
+			writeBlob(ArtifactId.parse(sha256), bytes);
+			return store(ledger, by, { sha256, ...meta }).artifact;
 		},
 	};
 };

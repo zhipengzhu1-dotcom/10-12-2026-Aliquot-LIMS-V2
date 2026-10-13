@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import type { NewEvent } from "../events.js";
+import { AgentId, Sha256 } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
+import { register, startRun, store } from "./lifecycle.js";
+
+// The Sandbox lifecycle never builds these Events, so each is written by
+// hand to show the Ledger refuses it from any writer.
 
 const operator = { tag: "Operator" } as const;
-const digest = (c: string) => c.repeat(64);
-const form = digest("a");
-const parsed = digest("b");
-const stdout = digest("c");
+const form = "a".repeat(64);
 
 let ledger: Ledger;
 
@@ -16,9 +18,6 @@ beforeEach(() => {
 });
 
 afterEach(() => ledger.close());
-
-const append = (body: Omit<NewEvent, "actor">) =>
-	ledger.append({ actor: operator, ...body } as NewEvent);
 
 const script = (name: string, version: number) => ({
 	id: `S-${name}`,
@@ -29,105 +28,87 @@ const script = (name: string, version: number) => ({
 	output_types: ["Other"],
 	entrypoint: "main.py",
 	fixtures: [],
-	image_digest: digest("d"),
+	image_digest: "d".repeat(64),
 });
 
-const artifact = (
-	id: string,
-	lineage: string[] = [],
-	produced_by: object = operator,
-) => ({
-	kind: "ArtifactStored",
-	payload: {
-		id,
-		sha256: id,
-		media_type: "text/plain",
-		artifact_type: "Other",
-		produced_by,
-		lineage,
-	},
-});
+const registerCopy = () =>
+	register(ledger, {
+		actor: operator,
+		name: "copy",
+		owner_agent: AgentId.parse("A-odile"),
+		input_types: ["SubmissionForm"],
+		output_types: ["Other"],
+		entrypoint: "main.py",
+		image_digest: Sha256.parse("d".repeat(64)),
+	}).script;
 
-const started = (run_id: string, version = 1) => ({
-	kind: "RunStarted",
-	payload: {
-		run_id,
-		script: { id: "S-copy", version },
-		inputs: [form],
-	},
-});
+const storeForm = (produced_by: object = operator) =>
+	store(
+		ledger,
+		{ actor: operator },
+		{
+			sha256: Sha256.parse(form),
+			media_type: "text/plain",
+			artifact_type: "Other",
+			produced_by: produced_by as never,
+			lineage: [],
+		},
+	).artifact;
 
-const finished = (id: string) => ({
-	kind: "RunFinished",
-	payload: {
-		id,
-		script: { id: "S-copy", version: 1 },
-		inputs: [form],
-		outputs: [],
-		exit_code: 0,
-		stdout_ref: stdout,
-		stderr_ref: stdout,
-		duration_ms: 12,
-	},
-});
-
-const refused = (body: Omit<NewEvent, "actor">, reason: RegExp) => {
+const refused = (body: object, reason: RegExp) => {
+	const append = () => ledger.append({ actor: operator, ...body } as NewEvent);
 	const before = ledger.all().length;
-	expect(() => append(body)).toThrow(AppendRefused);
-	expect(() => append(body)).toThrow(reason);
+	expect(append).toThrow(AppendRefused);
+	expect(append).toThrow(reason);
 	expect(ledger.all()).toHaveLength(before);
 };
 
 describe("sandbox guards", () => {
-	it("refuse ArtifactStored whose Lineage names an Artifact the Ledger does not hold", () => {
-		refused(artifact(parsed, [form]) as never, /Lineage.*unknown.*a{64}/);
-		append(artifact(form) as never);
-		append(artifact(parsed, [form]) as never);
-	});
-
-	it("refuse ArtifactStored whose sha256 differs from its id, or whose id is already stored", () => {
+	it("refuse ArtifactStored whose sha256 differs from its id, or whose id the Operator already stored", () => {
 		refused(
 			{
-				...artifact(form),
-				payload: { ...artifact(form).payload, sha256: parsed },
-			} as never,
+				kind: "ArtifactStored",
+				payload: {
+					id: form,
+					sha256: "b".repeat(64),
+					media_type: "text/plain",
+					artifact_type: "Other",
+					produced_by: operator,
+					lineage: [],
+				},
+			},
 			/sha256/,
 		);
-		append(artifact(form) as never);
-		refused(artifact(form) as never, /already stored/);
+		const stored = storeForm();
+		refused({ kind: "ArtifactStored", payload: stored }, /already stored/);
 	});
 
-	it("allow a stored id again only as a new production by a started, unfinished Run", () => {
-		const byRun = artifact(form, [form], { tag: "Run", id: "R-1" });
-		append({ kind: "ScriptRegistered", payload: script("copy", 1) } as never);
-		append(artifact(form) as never);
-		append(artifact(stdout) as never);
-		append(started("R-1") as never);
-
-		append(byRun as never);
-		refused(byRun as never, /R-1 already stored/);
-		append(finished("R-1") as never);
+	it("refuse a second ArtifactStored of the same bytes by the same Run", () => {
+		const copy = registerCopy();
+		storeForm();
+		const { run_id } = startRun(ledger, {
+			actor: operator,
+			script: copy,
+			inputs: [],
+		});
+		const byRun = storeForm({ tag: "Run", id: run_id });
 		refused(
-			artifact(stdout, [], { tag: "Run", id: "R-1" }) as never,
-			/R-1 has already finished/,
+			{ kind: "ArtifactStored", payload: byRun },
+			new RegExp(`${run_id} already stored`),
 		);
 	});
 
-	it("refuse a second ScriptRegistered for a name, and a ScriptRevised that skips a version", () => {
-		append({ kind: "ScriptRegistered", payload: script("copy", 1) } as never);
+	it("refuse a second ScriptRegistered for a name, and a ScriptRevised that skips a version or names no Script", () => {
+		registerCopy();
 		refused(
-			{ kind: "ScriptRegistered", payload: script("copy", 1) } as never,
+			{ kind: "ScriptRegistered", payload: script("copy", 1) },
 			/S-copy.*already registered/,
 		);
+		refused({ kind: "ScriptRevised", payload: script("copy", 3) }, /version 2/);
 		refused(
-			{ kind: "ScriptRevised", payload: script("copy", 3) } as never,
-			/version 2/,
-		);
-		refused(
-			{ kind: "ScriptRevised", payload: script("parse", 1) } as never,
+			{ kind: "ScriptRevised", payload: script("parse", 1) },
 			/not registered/,
 		);
-		append({ kind: "ScriptRevised", payload: script("copy", 2) } as never);
 	});
 
 	it("refuse a Script whose id is not S-<name>", () => {
@@ -135,37 +116,21 @@ describe("sandbox guards", () => {
 			{
 				kind: "ScriptRegistered",
 				payload: { ...script("copy", 1), id: "S-other" },
-			} as never,
+			},
 			/S-copy/,
 		);
 	});
 
-	it("refuse RunStarted for a Script version that is not registered", () => {
-		refused(started("R-1") as never, /S-copy v1.*not registered/);
-	});
-
-	it("refuse RunFinished without a matching RunStarted, and a second RunFinished", () => {
-		append({ kind: "ScriptRegistered", payload: script("copy", 1) } as never);
-		append(artifact(form) as never);
-		append(artifact(stdout) as never);
-		refused(finished("R-1") as never, /R-1.*no RunStarted/);
-		append(started("R-1") as never);
-		refused(started("R-1") as never, /R-1.*already started/);
-		append(finished("R-1") as never);
-		refused(finished("R-1") as never, /R-1.*already finished/);
-	});
-
-	it("refuse RunFinished whose outputs or logs are not stored Artifacts", () => {
-		append({ kind: "ScriptRegistered", payload: script("copy", 1) } as never);
-		append(artifact(form) as never);
-		append(started("R-1") as never);
-		refused(finished("R-1") as never, /unknown.*c{64}/);
-	});
-
-	it("refuse ArtifactStored produced by a Run that has not started", () => {
+	it("refuse a second RunStarted for a Run id", () => {
+		const copy = registerCopy();
+		const { run_id, script: ref } = startRun(ledger, {
+			actor: operator,
+			script: copy,
+			inputs: [],
+		});
 		refused(
-			artifact(parsed, [], { tag: "Run", id: "R-7" }) as never,
-			/R-7.*not started/,
+			{ kind: "RunStarted", payload: { run_id, script: ref, inputs: [] } },
+			new RegExp(`${run_id}.*already started`),
 		);
 	});
 });

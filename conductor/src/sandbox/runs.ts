@@ -1,11 +1,15 @@
 import type { PayloadOf } from "../events.js";
-import type { RunId, Seq } from "../ids.js";
+import type { RunId, Seq, TaskId } from "../ids.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { Run } from "../types/script.js";
 
 /** A Run as the Ledger knows it: started, and finished once RunFinished lands. */
 export type RunRecord = {
 	readonly started: PayloadOf<"RunStarted">;
+	/** The seq of its RunStarted. */
+	readonly seq: Seq;
+	/** The Task its RunStarted named, if any. */
+	readonly task_id?: TaskId | undefined;
 	/** The Run and the seq of its RunFinished. */
 	readonly finished?: { readonly run: Run; readonly seq: Seq };
 };
@@ -24,7 +28,11 @@ export const runProjection: Projection<RunProjection> = {
 				return new Refusal(`${run_id} has already started`);
 			}
 			return {
-				runs: new Map(state.runs).set(run_id, { started: event.payload }),
+				runs: new Map(state.runs).set(run_id, {
+					started: event.payload,
+					seq: event.seq,
+					task_id: event.task_id,
+				}),
 			};
 		}
 		if (event.kind === "RunFinished") {

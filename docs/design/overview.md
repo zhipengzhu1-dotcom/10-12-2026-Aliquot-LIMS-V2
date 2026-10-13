@@ -169,6 +169,8 @@ type Run = {
 };
 ```
 
+One module, the Sandbox lifecycle (`sandbox/lifecycle.ts`), appends every Sandbox Event: it registers and revises a Script, starts and finishes a Run, and stores an Artifact. The Script registry, the runner and the Artifact store keep their own work, the copy of a Script's code, the `docker run` and the blob, and call the lifecycle to record it. Each verb mints the ids it needs from the Projections and returns what it appended with its seq. Each verb also names the Event's cause in `causation_id`, from the Projections. A `ScriptRevised` names the Script's previous version. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. A caller names a cause only when it lies outside the Sandbox, as the stage 1 tracer names the `TaskStarted` it runs a Script on. Storing bytes the Ledger already holds appends nothing unless a new Run produced them, and returns the `ArtifactStored` that already records them.
+
 ### 6. Vitality, Mood, and Policy
 
 Vitality is measured from the Ledger, never reported by the Agent. The Conductor samples it once per Turn. Mood and Policy are pure functions.
