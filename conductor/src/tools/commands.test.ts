@@ -179,9 +179,12 @@ describe.skipIf(!requireDocker())(suite, () => {
 		);
 
 		expect(ran.status, ran.stderr).toBe(0);
-		expect(JSON.parse(ran.stdout)).toMatchObject({
-			run: { id: "R-2", script: { id: "S-parse_submission" }, exit_code: 0 },
-			evaluation: { stage: 1, run_id: "R-2", task_id, score: 1, passed: true },
+		expect(
+			JSON.parse(ran.stdout),
+			"R-3 follows the workflow's two stage Runs",
+		).toMatchObject({
+			run: { id: "R-3", script: { id: "S-parse_submission" }, exit_code: 0 },
+			evaluation: { stage: 1, run_id: "R-3", task_id, score: 1, passed: true },
 		});
 		expect(aliquot("ledger", "verify").status).toBe(0);
 	}, 120_000);

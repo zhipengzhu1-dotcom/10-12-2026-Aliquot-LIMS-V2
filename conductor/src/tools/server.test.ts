@@ -479,7 +479,7 @@ const fixtureId = ArtifactId.parse(sha256Hex(readFileSync(fixture)));
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 
 describe.skipIf(!requireDocker())(suite, () => {
-	it("runs the stage 1 Script for Rin on a Task and returns the Run with the stage's Evaluation", async () => {
+	it("runs the stage 1 Script for Rin, then the stage 2 Script for Bram on its record and the carried LimsDatabase, each returning the Run with the stage's Evaluation", async () => {
 		const workflow = spawnSync(
 			process.execPath,
 			["--import", "tsx", cli, "--home", home, "workflow", "run", fixture],
@@ -489,48 +489,74 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const ledger = openLedger({ home, writer: true });
 		try {
 			const operator = { tag: "Operator" } as const;
-			const task_id = propose(ledger, {
-				actor: operator,
-				title: "Stage 1 again",
-				goal: "",
-				tat_class: "Regular",
-				priority: 1,
-				inputs: [fixtureId],
-			}).task.id;
-			assign(ledger, {
-				actor: operator,
-				task_id,
-				assignee: AgentId.parse("A-rin"),
-			});
-			start(ledger, { actor: agent("rin"), task_id });
-			const rin = await connect(
-				await aliquotServer(
-					toolContext({ ledger, home, agent: AgentId.parse("A-rin") }),
-				),
+			/** `slug` runs `script` on `inputs` through its server, on a Task assigned to it and started. */
+			const runAs = async (
+				slug: string,
+				script: string,
+				inputs: readonly ArtifactId[],
+			) => {
+				const task_id = propose(ledger, {
+					actor: operator,
+					title: `${script} again`,
+					goal: "",
+					tat_class: "Regular",
+					priority: 1,
+					inputs,
+				}).task.id;
+				assign(ledger, {
+					actor: operator,
+					task_id,
+					assignee: AgentId.parse(`A-${slug}`),
+				});
+				start(ledger, { actor: agent(slug), task_id });
+				const client = await connect(
+					await aliquotServer(
+						toolContext({ ledger, home, agent: AgentId.parse(`A-${slug}`) }),
+					),
+				);
+				const { text, error } = await client.call("run_script", {
+					script,
+					inputs,
+					task_id,
+				});
+				expect(error, text).toBe(false);
+				const ran = JSON.parse(text);
+				expect(ran.run.exit_code).toBe(0);
+				expect(ran.evaluation).toMatchObject({
+					run_id: ran.run.id,
+					task_id: TaskId.parse(task_id),
+					score: 1,
+					passed: true,
+				});
+				expect(ledger.all().find((e) => e.seq === ran.seq)).toMatchObject({
+					kind: "EvaluationRecorded",
+					actor: agent(slug),
+				});
+				return ran;
+			};
+			const typeOf = (id: ArtifactId) =>
+				ledger.projections.artifacts.artifacts.get(id)?.artifact_type;
+			const latestDatabase = [
+				...ledger.projections.artifacts.artifacts.values(),
+			]
+				.filter((a) => a.artifact_type === "LimsDatabase")
+				.at(-1)?.id;
+			if (latestDatabase === undefined) {
+				throw new Error("the workflow's stage 2 stored no LimsDatabase");
+			}
+
+			const parsed = await runAs("rin", "S-parse_submission", [fixtureId]);
+			expect(parsed.evaluation.stage).toBe(1);
+			const record = parsed.run.outputs.find(
+				(id: ArtifactId) => typeOf(id) === "SubmissionRecord",
 			);
+			const received = await runAs("bram", "S-log_receipt", [
+				record,
+				latestDatabase,
+			]);
 
-			const { text, error } = await rin.call("run_script", {
-				script: "S-parse_submission",
-				inputs: [fixtureId],
-				task_id,
-			});
-
-			expect(error, text).toBe(false);
-			const ran = JSON.parse(text);
-			expect(ran.run).toMatchObject({ id: "R-2", exit_code: 0 });
-			expect(ran.evaluation).toMatchObject({
-				eval_id: "E-2",
-				stage: 1,
-				run_id: "R-2",
-				task_id: TaskId.parse(task_id),
-				score: 1,
-				passed: true,
-			});
-			const recorded = ledger.all().find((e) => e.seq === ran.seq);
-			expect(recorded).toMatchObject({
-				kind: "EvaluationRecorded",
-				actor: agent("rin"),
-			});
+			expect(received.evaluation.stage).toBe(2);
+			expect(received.run.inputs).toEqual([record, latestDatabase]);
 			expect(ledger.verify().ok).toBe(true);
 		} finally {
 			ledger.close();

@@ -5,7 +5,7 @@ import { runScript } from "../sandbox/runner.js";
 import type { Actor } from "../types/actor.js";
 import type { Run } from "../types/script.js";
 import { recordEvaluation, type Scored } from "../workflow/lifecycle.js";
-import type { Stage, StageOutput } from "../workflow/stages.js";
+import type { RunArtifacts, Stage } from "../workflow/stages.js";
 import { type ToolContext, ToolRefused } from "./tool.js";
 
 export const stageOfScript = (
@@ -13,35 +13,33 @@ export const stageOfScript = (
 	script: ScriptId,
 ): Stage | undefined => stages.find((s) => `S-${s.script}` === script);
 
-// The scoring below copies the workflow tracer's private `outputsOf` and
+// The scoring below copies the workflow tracer's private `artifactsOf` and
 // `evaluateRun`; issue #51 keeps one copy.
 
-/** The Run's Artifacts of the stage's output types, as this Run recorded them. */
-const stageOutputs = (
-	ledger: Ledger,
-	home: string,
-	stage: Stage,
-	run: Run,
-): StageOutput[] => {
+/** The Run's input Artifacts and every Artifact it wrote, typed as this Run recorded them. */
+const runArtifacts = (ledger: Ledger, home: string, run: Run): RunArtifacts => {
 	const artifacts = openArtifacts({ ledger, home });
-	return run.outputs.flatMap((id) => {
-		const production = productionOf(ledger.projections.artifacts, id, {
+	const { projections } = ledger;
+	const inputs = run.inputs.flatMap((id) => {
+		const stored = projections.artifacts.artifacts.get(id);
+		if (!stored) return [];
+		const { artifact_type, filename } = stored;
+		return [{ id, artifact_type, filename, bytes: artifacts.read(id) }];
+	});
+	const outputs = run.outputs.flatMap((id) => {
+		const production = productionOf(projections.artifacts, id, {
 			tag: "Run",
 			id: run.id,
 		});
 		if (!production) return [];
 		const { artifact_type, filename } = production.record;
-		if (!stage.outputs.includes(artifact_type)) return [];
 		return [{ id, artifact_type, filename, bytes: artifacts.read(id) }];
 	});
+	return { inputs, outputs };
 };
 
 /** A failed Run, or one that wrote none of an output type, scores 0; else the stage scores it. */
-const scoreRun = (
-	stage: Stage,
-	run: Run,
-	outputs: readonly StageOutput[],
-): Scored => {
+const scoreRun = (stage: Stage, run: Run, artifacts: RunArtifacts): Scored => {
 	const failed = (finding: string): Scored => ({
 		score: 0,
 		passed: false,
@@ -53,12 +51,12 @@ const scoreRun = (
 		);
 	}
 	const missing = stage.outputs.filter(
-		(type) => !outputs.some((o) => o.artifact_type === type),
+		(type) => !artifacts.outputs.some((o) => o.artifact_type === type),
 	);
 	if (missing.length > 0) {
 		return failed(`${run.id} wrote no ${missing.join(", ")}`);
 	}
-	return stage.evaluate(outputs);
+	return stage.evaluate(artifacts);
 };
 
 /**
@@ -106,7 +104,7 @@ export const runScriptAs = async (
 		timeoutMs,
 	});
 	if (stage === undefined || task_id === undefined) return { run };
-	const scored = scoreRun(stage, run, stageOutputs(ledger, home, stage, run));
+	const scored = scoreRun(stage, run, runArtifacts(ledger, home, run));
 	const { evaluation, seq } = recordEvaluation(ledger, {
 		actor,
 		stage: stage.number,
