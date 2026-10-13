@@ -1,0 +1,36 @@
+# Agent page
+
+The Agent view at `#/agent?id=<id>` shows one Agent's Charter, Persona, Vitality with Mood and Policy, Merit after each Review counted toward it, Memory notes, Coaching and Skills, and lets the Operator open the Agent's Room, give Coaching, and author a Revision of its definition.
+
+## Sub-features
+
+- `agent-index` lists the Agents at `#/agent` with links to each page.
+- `agent-sections` draws `#charter`, `#persona`, `#vitality`, `#merit`, `#notes`, `#coaching` and `#skills`.
+- `agent-merit` draws one row and one chart point per Review counted toward Merit, with the five rubric scores, the note and the Merit after it.
+- `agent-coach` gives Coaching with an optional Task (`form#coach-<id>`, verb `coach`); it appears under `#coaching`.
+- `agent-revise` authors a Revision in `#revise-<id>-panel`: a JSON editor over the next version (version one higher, `revised_by` the Operator) and a reason that becomes `revision_reason`.
+- `agent-room` links the Agent's Room, or opens `RM-<name>` as the Operator and goes to `#/rooms?id=RM-<name>`.
+
+## How to get to it (user POV)
+
+- Choose an Agent's name in the Org view, or `Agent` in the navigation and then a name.
+- Go to `#/agent?id=A-rin`.
+
+## Driving it with drive.sh and browser.mjs
+
+Preconditions:
+
+- The baseline of [README.md](./README.md): Rin at version 1, reviewed on T-1 and T-4 by the workflow run.
+
+- **Whole drive.** Run `scripts/drive.sh "$RUN" agent`.
+- **Sections and Merit.** `scripts/browser.mjs "$RUN" agent/ui goto '#/agent?id=A-rin' wait '#charter' wait '#vitality' wait '#merit table' save '#merit' merit.txt`. `merit.txt` lists T-1 and T-4.
+- **Coaching.** `fill '#coach-A-rin-note' 'verify: name the Lot in every Artifact' click '#coach-A-rin button' text '#answer' 'Appended HumanCoached' text '#coaching' 'verify: name the Lot in every Artifact'`.
+- **Revision.** `click '#revise-A-rin-panel > summary' fill '#revise-A-rin-reason' 'verify: a Revision from the Agent view' click '#revise-A-rin button' text '#answer' 'Appended AgentDefinitionRevised'`.
+- **Proof.** `scripts/api.sh "$RUN" get org` has Rin at `definition.version` 2 with the typed `revision_reason`; `scripts/api.sh "$RUN" get training` has the note under `.coaching["A-rin"]`; the `HumanCoached` and `AgentDefinitionRevised` rows are in `home/ledger.sqlite`.
+
+## Gotchas
+
+- The Coaching Event kind is `HumanCoached`, not `CoachingGiven`.
+- The Revision editor is pre-filled. A redraw restores only a field the Operator changed, so after a Revision the editor shows the next version again; a Revision that keeps the current version shows the Ledger's refusal.
+- The Room action goes to `#/rooms?id=RM-<name>`, which shows the Rooms JSON: the Rooms view is not drawn yet (Gate G1).
+- The Merit table covers every Review counted toward Merit, in Ledger order; the `Probation` workflow run gives Rin two.
