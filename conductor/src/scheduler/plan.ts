@@ -5,6 +5,7 @@ import { roomsOf } from "../room/projection.js";
 import { LIVE_TAGS } from "../task/projection.js";
 import { startRefusal } from "../turn/guards.js";
 import { type TurnRecord, tokensInWindow } from "../turn/projection.js";
+import { actorText } from "../types/actor.js";
 import type { Role } from "../types/agent-definition.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Task } from "../types/task.js";
@@ -253,6 +254,12 @@ const workFor = (
 			if (r.seq > since && r.to.tag === "Agent" && r.to.id === agent.id) {
 				reasons.push(`a Help request from ${r.from} on ${task_id}`);
 			}
+		}
+	}
+
+	for (const [task_id, e] of tasks.escalations) {
+		if (e.seq > since && e.to.tag === "Agent" && e.to.id === agent.id) {
+			reasons.push(`escalated ${task_id} from ${actorText(e.from)}`);
 		}
 	}
 

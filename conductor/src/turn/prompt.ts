@@ -37,6 +37,10 @@ if (RECEIPT === undefined || WORK_ORDER === undefined) {
  */
 const RECEIVING_WORK = `A Message in ${LAB_ROOM.id} that reports received Samples is work. When it names the Client, the product, the Lot, the Product Code, the quantity, the Sample Type and the TAT, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_MESSAGE} on it, run S-${RECEIPT.script} (stage ${RECEIPT.number} ${RECEIPT.name}) on its Submission Record and S-${WORK_ORDER.script} (stage ${WORK_ORDER.number} ${WORK_ORDER.name}) on the Receiving Log row and toy LIMS database that writes, all with the Task's id, then reply to the Message in ${LAB_ROOM.id} with each Lab Reference and the Work Order's due date. Then assign it to ${RECEIPT.worked_by}, who works stage ${RECEIPT.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, naming what is missing, and propose no Task.`;
 
+/** Escalated has no way out, so a Task escalated to an Agent is taken on as a new Task. */
+const ESCALATED_WORK =
+	"An escalated Task stays Escalated. To take one on, propose a new Task with the same inputs with propose_task and assign it with assign_task, or say why not in a Room with send_message.";
+
 const list = (lines: readonly string[]) =>
 	lines.length === 0 ? "None." : lines.map((l) => `- ${l}`).join("\n");
 
@@ -189,6 +193,17 @@ const work = (
 				: [];
 		},
 	);
+	const escalated = [...projections.tasks.escalations].flatMap(
+		([task_id, e]) => {
+			const task = projections.tasks.tasks.get(task_id);
+			const mine = e.seq > since && e.to.tag === "Agent" && e.to.id === agent;
+			return mine && task !== undefined
+				? [
+						`${taskLine(task, projections, messagesById(projections))}\n  Escalated by ${actorText(e.from)}: ${e.reason}`,
+					]
+				: [];
+		},
+	);
 	const gates = [...projections.gates.gates.values()]
 		.filter((g) => g.requester.tag === "Agent" && g.requester.id === agent)
 		.map(
@@ -204,6 +219,12 @@ const work = (
 		section("Your Tasks", tasksByState(projections, agent)),
 		section("Messages in your Rooms since your last Turn", list(messages)),
 		section("Help requests addressed to you", list(help)),
+		section(
+			"Tasks escalated to you since your last Turn",
+			escalated.length === 0
+				? list(escalated)
+				: `${ESCALATED_WORK}\n\n${list(escalated)}`,
+		),
 		section("Gates you requested", list(gates)),
 		section("Coaching from the Operator since your last Turn", list(coaching)),
 	];

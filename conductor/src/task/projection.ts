@@ -12,12 +12,22 @@ export type HelpRequest = {
 	readonly question: string;
 };
 
+/** The escalation of a Task, which ends it: who escalated it, to whom, and why. */
+export type Escalation = {
+	readonly seq: Seq;
+	readonly from: EventActor;
+	readonly to: Actor;
+	readonly reason: string;
+};
+
 export type TaskView = {
 	readonly tasks: ReadonlyMap<TaskId, Task>;
 	/** The seq of the latest Event that created or moved each Task. */
 	readonly lastSeq: ReadonlyMap<TaskId, Seq>;
 	/** Each Task's Help requests, in seq order. */
 	readonly help: ReadonlyMap<TaskId, readonly HelpRequest[]>;
+	/** The escalation of each Escalated Task, in seq order. */
+	readonly escalations: ReadonlyMap<TaskId, Escalation>;
 	/** Every Agent each Task has been assigned to, which a Memory note's Task must include. */
 	readonly assignees: ReadonlyMap<TaskId, ReadonlySet<AgentId>>;
 };
@@ -269,7 +279,18 @@ const move = (view: TaskView, task: Task, event: Event) => {
 		event.kind === "TaskCompleted"
 			? [...task.outputs, ...event.payload.outputs]
 			: task.outputs;
-	return withTask(view, { ...task, state, outputs }, event);
+	const moved = withTask(view, { ...task, state, outputs }, event);
+	if (event.kind !== "TaskEscalated") return moved;
+	const { to, reason } = event.payload;
+	return {
+		...moved,
+		escalations: new Map(view.escalations).set(task.id, {
+			seq: event.seq,
+			from: event.actor,
+			to,
+			reason,
+		}),
+	};
 };
 
 /**
@@ -312,6 +333,7 @@ export const TaskProjection: Projection<TaskView> = {
 		tasks: new Map(),
 		lastSeq: new Map(),
 		help: new Map(),
+		escalations: new Map(),
 		assignees: new Map(),
 	},
 	reduce: applyTaskEvent,
