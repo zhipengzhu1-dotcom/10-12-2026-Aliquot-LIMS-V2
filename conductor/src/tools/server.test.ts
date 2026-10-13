@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Event } from "../events.js";
 import { sha256Hex } from "../hash.js";
-import { AgentId, ArtifactId, RoomId, TaskId } from "../ids.js";
+import { AgentId, ArtifactId, RoomId, Sha256, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { say } from "../room/lifecycle.js";
 import { seedRooms } from "../room/seed.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
+import { register } from "../sandbox/lifecycle.js";
 import { assign, propose, start } from "../task/lifecycle.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
@@ -126,7 +127,41 @@ describe("the Agent's MCP server", () => {
 		const listed = await rin.list();
 
 		expect(listed.map((t) => t.name)).toEqual(TOOLS.map((t) => t.name));
-		expect(listed).toHaveLength(25);
+		expect(listed).toHaveLength(26);
+	});
+
+	it("gives every Agent list_scripts, which returns each registered Script's id, latest version, input types and stage (#64)", async () => {
+		const receipt = {
+			actor: { tag: "Operator" },
+			name: "log_receipt",
+			owner_agent: AgentId.parse("A-bram"),
+			input_types: ["SubmissionRecord", "LimsDatabase"],
+			output_types: ["ReceivingLogRow", "LimsDatabase"],
+			entrypoint: "main.py",
+			image_digest: Sha256.parse("c".repeat(64)),
+		} as const;
+		register(s.ledger, receipt);
+		register(s.ledger, receipt);
+
+		const agents = [...s.ledger.projections.org.agents.keys()];
+		expect(agents, "the seeded roster").toHaveLength(8);
+		for (const agent of agents) {
+			const client = await as(agent.slice("A-".length));
+			expect(
+				(await client.list()).map((t) => t.name),
+				`${agent}'s Tools`,
+			).toContain("list_scripts");
+			expect(await done(client, "list_scripts"), agent).toEqual([
+				{ id: "S-copy", version: 1, input_types: [], output_types: [] },
+				{
+					id: "S-log_receipt",
+					version: 2,
+					input_types: ["SubmissionRecord", "LimsDatabase"],
+					output_types: ["ReceivingLogRow", "LimsDatabase"],
+					stage: "stage 2 Receipt, worked by A-bram",
+				},
+			]);
+		}
 	});
 
 	it("walks a Task through propose, assign, start, Help, Memory note, complete, Review and completion, each as the calling Agent", async () => {

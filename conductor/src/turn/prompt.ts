@@ -72,9 +72,8 @@ const VERIFICATION_GOAL = `${runs(VERIFICATION)} on them with the Task's id, the
 /**
  * The Director's judgement on a results Message in the Lab Room: stage 4's
  * Specialist reads it into the weighings and works stage 4, and each stage
- * hands on to the Agent who works the next one through its goal, since no
- * Agent can look a Script up (#64). An unreadable one gets a reply naming
- * what is missing.
+ * hands on to the Agent who works the next one through its goal. An
+ * unreadable one gets a reply naming what is missing.
  */
 const RESULTS_WORK = `A Message in ${LAB_ROOM.id} that reports results is work too. When it names a Lab Reference or a Lot, the notebook reference, and for each container the weight of 20 capsules and the weight taken, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_RESULTS_MESSAGE} on it and the Work Order of that Lab Reference or Lot, then ${runs(RESULTS)} on the Work Order, the weighings that writes and the latest toy LIMS database, all with the Task's id, then ${handOn(VERIFICATION, "the Result Worksheet and the weighings", VERIFICATION_GOAL)}. Then assign it to ${RESULTS.worked_by}, who works stage ${RESULTS.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, asking for the Lab Reference, the notebook reference and the weighings it lacks, and propose no Task.`;
 
@@ -166,8 +165,18 @@ const taskLine = (
 			: `${a} (${type}, ${said})`;
 	});
 	const stage = stageOfInputs(STAGES, projections, task.inputs);
-	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.${reportNote(task, stage, projections, messages)}${reviewNote(task, stage, projections)}`;
+	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.${stageNote(stage)}${reportNote(task, stage, projections, messages)}${reviewNote(task, stage, projections)}`;
 };
+
+/**
+ * The stage a Task works, read from its inputs as the Action table reads
+ * it, and the Script that works it with the types it takes, as `workflow
+ * run` registers it (#64).
+ */
+const stageNote = (stage: Stage | undefined): string =>
+	stage === undefined
+		? ""
+		: `\n  Stage ${stage.number} ${stage.name}: its Script is S-${stage.script}, which takes ${[...stage.inputs, ...stage.carried].join(", ")}; run it with run_script naming this Task.`;
 
 /**
  * What the holder of stage 6's Task does once the report is rendered: the

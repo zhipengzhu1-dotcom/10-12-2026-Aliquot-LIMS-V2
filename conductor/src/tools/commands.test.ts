@@ -55,7 +55,10 @@ describe("aliquot tools", () => {
 		expect(lines).toContain(
 			"verify_ledger     Verify the Ledger's hash chain from the first Event",
 		);
-		expect(lines.filter((l) => l !== "")).toHaveLength(26);
+		expect(lines).toContain(
+			"list_scripts      List the registered Scripts: each one's id, latest version, input and output types, and the workflow stage it runs, if any",
+		);
+		expect(lines.filter((l) => l !== "")).toHaveLength(27);
 		expect(anselm.stdout).toMatch(
 			/\nrun_script {8}Run a Script .* \(refused when it is VerifyOwnTeamRun\)\n/,
 		);

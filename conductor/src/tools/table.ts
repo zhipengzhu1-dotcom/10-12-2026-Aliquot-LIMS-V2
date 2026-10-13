@@ -37,7 +37,7 @@ import { Score } from "../types/merit.js";
 import { TaskState, TatClass } from "../types/task.js";
 import { orderRest } from "../vitality/lifecycle.js";
 import { storeMessage } from "./message.js";
-import { runScriptAs } from "./run-script.js";
+import { runScriptAs, stageOfScript } from "./run-script.js";
 import { asText, type Tool, type ToolContext, ToolRefused } from "./tool.js";
 
 /** One row, typed by its input shape; the verb's result goes back as JSON text. */
@@ -185,6 +185,29 @@ export const TOOLS = [
 		input: { task_id: TaskId, to: ActorName, question: z.string().min(1) },
 		call: ({ ledger }, { to, ...fields }, actor) =>
 			requestHelp(ledger, { actor, to: actorOf(to), ...fields }),
+	}),
+	tool({
+		name: "list_scripts",
+		description:
+			"List the registered Scripts: each one's id, latest version, input and output types, and the workflow stage it runs, if any",
+		input: {},
+		call: ({ ledger, stages }) =>
+			[...ledger.projections.scripts.scripts.values()].flatMap((versions) => {
+				const latest = versions.at(-1);
+				if (latest === undefined) return [];
+				const stage = stageOfScript(stages, latest.id);
+				return [
+					{
+						id: latest.id,
+						version: latest.version,
+						input_types: latest.input_types,
+						output_types: latest.output_types,
+						stage:
+							stage &&
+							`stage ${stage.number} ${stage.name}, worked by ${stage.worked_by}`,
+					},
+				];
+			}),
 	}),
 	tool({
 		name: "run_script",
