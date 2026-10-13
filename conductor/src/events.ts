@@ -123,6 +123,9 @@ const BODIES = [
 		"EvaluationRecorded",
 		z.strictObject({
 			eval_id: EvaluationId,
+			// Absent only from an Evaluation recorded before the stage table
+			// existed (ADR-0012); the workflow guard refuses a new one without it.
+			stage: z.number().int().min(1).optional(),
 			run_id: RunId,
 			task_id: TaskId,
 			score: z.number().min(0).max(1),

@@ -20,7 +20,7 @@ Install Node 24, pnpm 12, and uv first, and start Docker. Run every command from
 
 ### Check everything
 
-`tools/check.sh` runs every check CI runs, for both languages, and exits non-zero at the first failure. It prints one `check: <step>` line per step: conductor install, lint, typecheck, the Sandbox image build, vitest; Sandbox sync, ruff check, ruff format check, pytest, the synthetic generator; then `stage1 run-all` on `fixtures/` against a fresh temporary home and `ledger verify` on that home. It works from any directory. `--conductor-only` runs the conductor steps and stage 1; `--sandbox-only` runs the Sandbox steps. Run it before every commit.
+`tools/check.sh` runs every check CI runs, for both languages, and exits non-zero at the first failure. It prints one `check: <step>` line per step: conductor install, lint, typecheck, the Sandbox image build, vitest; Sandbox sync, ruff check, ruff format check, pytest, the synthetic generator; then `workflow run-all` on `fixtures/` against a fresh temporary home and `ledger verify` on that home. It works from any directory. `--conductor-only` runs the conductor steps and the workflow; `--sandbox-only` runs the Sandbox steps. Run it before every commit.
 
 ```sh
 tools/check.sh
@@ -73,7 +73,7 @@ The Conductor keeps its Ledger and blobs in `ALIQUOT_HOME`, which defaults to `.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request, in two jobs that each call `tools/check.sh`. The `conductor` job runs `tools/check.sh --conductor-only`: lint, typecheck, the Sandbox image build, and test, so the Docker-backed runner tests run there too, then stage 1 on every Fixture (see Stage 1 tracer) and `ledger verify`. The `sandbox` job runs `tools/check.sh --sandbox-only`: ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), and the synthetic generator.
+`.github/workflows/ci.yml` runs on every push and pull request, in two jobs that each call `tools/check.sh`. The `conductor` job runs `tools/check.sh --conductor-only`: lint, typecheck, the Sandbox image build, and test, so the Docker-backed runner tests run there too, then the toy workflow on every Fixture (see Workflow tracer) and `ledger verify`. The `sandbox` job runs `tools/check.sh --sandbox-only`: ruff check, ruff format check, pytest (with `ALIQUOT_FORBIDDEN_TERMS` from the repository secret of that name), and the synthetic generator.
 
 Off CI, a test that needs a missing prerequisite skips with a notice: the Docker-backed vitest suites when `docker info` fails, and the forbidden-terms pytest when `ALIQUOT_FORBIDDEN_TERMS` is unset. When the `CI` environment variable is set, as it is on GitHub Actions, the same tests fail instead, so a green run means they ran. The vitest suites check through `conductor/src/test-support/docker.ts`.
 
@@ -81,7 +81,7 @@ Off CI, a test that needs a missing prerequisite skips with a notice: the Docker
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
-No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `room`, `gate`, `sandbox`, `vitality`, `stage1`), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
+No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `room`, `gate`, `sandbox`, `vitality`, `workflow`), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
@@ -146,7 +146,7 @@ The Ledger refuses an `AgentRetired` that is not written by the Operator, or who
 
 ## Tasks
 
-A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. Every Task Event is appended by the Task lifecycle, `conductor/src/task/lifecycle.ts`. It mints Task ids and holds the default rubric. It also names the cause of each Event in `causation_id`, from the Projections: the Task's previous Event, or for a completion after Review the reviewer's Review. Only a cause outside the Task, such as the Evaluation that the stage 1 tracer completes a Task on, comes from the caller.
+A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. Every Task Event is appended by the Task lifecycle, `conductor/src/task/lifecycle.ts`. It mints Task ids and holds the default rubric. It also names the cause of each Event in `causation_id`, from the Projections: the Task's previous Event, or for a completion after Review the reviewer's Review. Only a cause outside the Task, such as the Evaluation that the workflow tracer completes a Task on, comes from the caller.
 
 `task complete <id>` decides the Review itself. The sample for the assignee's current Trust tier picks which Tasks get a Review: every Task on `Probation`, 1 in 3 at `Trusted`, and 1 in 5 at `Senior` and `Mentor`, picked from the hash of the Task id. A Task that the sample leaves out goes from `InProgress` straight to `Done`, with its Review skipped. If `--reviewer` was given, the command prints a second line that says the Review was skipped because the Task was not sampled, so the reviewer is unused. A Task that the sample picks goes to `UnderReview` with the reviewer that `--reviewer` names. Without `--reviewer`, it is refused, and the refusal says the Task was sampled for Review. `task complete` on a Task `UnderReview` completes it after Review. The Ledger refuses that until the reviewer has recorded a Review of the Task, and from anyone but that reviewer.
 
@@ -249,11 +249,19 @@ pnpm -C conductor cli --home $H sandbox run copy --input <artifact id> --timeout
 pnpm -C conductor cli --home $H sandbox runs
 pnpm -C conductor cli --home $H sandbox artifacts    # each Artifact with its type and one line per production: producer and Lineage
 pnpm -C conductor cli --home $H sandbox cat <artifact id>
+pnpm -C conductor cli --home $H sandbox lineage <artifact id>
+```
+
+`sandbox lineage` prints an Artifact's Lineage back to the Artifacts that have none. Each line is one production: the Artifact id, its type, and after `<-` the Run and Script version that produced it, or `none` for an Artifact the Operator stored. The lines for an Artifact's inputs follow it, indented two spaces more, and an Artifact produced more than once gets a line per production. An Artifact already on the path is not walked again, so a Run that writes back its own input does not loop. On the stage 1 record:
+
+```text
+<record id> SubmissionRecord <- R-1 S-parse_submission v1
+  <fixture id> SubmissionForm <- none
 ```
 
 `register` records `ScriptRegistered` for a new name and `ScriptRevised` with the next version for a known one. It copies `sandbox/scripts/<name>/` (or `--script-dir`) to `<home>/scripts/S-<name>/<version>/`, so a version never changes, and records the image `Id` as `image_digest`; a local build has no registry digest. A Run uses the image its Script version names.
 
-Every Sandbox Event is appended by the Sandbox lifecycle, `conductor/src/sandbox/lifecycle.ts`. The Script registry, the runner and the Artifact store do their work on disk and in Docker, then call it. It mints Script versions and Run ids. It also names the cause of each Event in `causation_id`, from the Projections. A `ScriptRevised` names the version before it. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. Only a cause outside the Sandbox, such as the `TaskStarted` that the stage 1 tracer runs a Script on, comes from the caller, and only when it starts a Run.
+Every Sandbox Event is appended by the Sandbox lifecycle, `conductor/src/sandbox/lifecycle.ts`. The Script registry, the runner and the Artifact store do their work on disk and in Docker, then call it. It mints Script versions and Run ids. It also names the cause of each Event in `causation_id`, from the Projections. A `ScriptRevised` names the version before it. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. Only a cause outside the Sandbox, such as the `TaskStarted` that the workflow tracer runs a Script on, comes from the caller, and only when it starts a Run.
 
 ### Script convention
 
@@ -316,33 +324,47 @@ pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --end --reason "fa
 pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --budget 1000000
 ```
 
-## Stage 1 tracer
+## Workflow tracer
 
-Stage 1 of the toy workflow turns a Submission Form into a structured submission record. One command runs the whole chain on a Fixture:
+The toy workflow is one table of stages, `conductor/src/workflow/stages.ts`. Each row names the stage number and name, the Script, the input Artifact types it takes from the previous stage, the types it carries from the Ledger instead, its output types, the Agent that works it, the Agent that reviews it, and its Evaluation, which scores the Run's outputs from 0 to 1 with a list of findings. Adding a stage is adding a row, a Script directory under `sandbox/scripts/`, and an Evaluation. The table is refused when its rows are not stages 1, 2, 3 in order, or when stage 5 (Verification) is worked by the Agent that works stage 4 (Results). Today the table has stage 1, which turns a Submission Form into a `SubmissionRecord`.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot stage1 run fixtures/submission-form-seed1.docx
-pnpm -C conductor cli --home /tmp/aliquot stage1 run-all fixtures   # every *.docx; exits 1 if any Task fails
+pnpm -C conductor cli --home /tmp/aliquot workflow stages
+pnpm -C conductor cli --home /tmp/aliquot workflow run fixtures/submission-form-seed1.docx
+pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.docx; exits 1 if any Task fails
 ```
 
-The command does these steps in one process:
+```text
+1 Submission  script parse_submission  inputs SubmissionForm  carried none  outputs SubmissionRecord  worked by A-rin  reviewed by A-pia
+```
+
+`workflow run` does these steps in one process:
 
 1. It builds the Sandbox image if Docker does not have `aliquot-sandbox:<short sha>`.
-2. It recruits the starting roster if the Org is empty.
-3. It registers `sandbox/scripts/parse_submission` as `S-parse_submission`. A later run reuses that version, unless the image or the Script's code changed; then it records `ScriptRevised`.
+2. It recruits the starting roster if the Org is empty, and refuses when a stage names an Agent the Org lacks.
+3. It registers each stage's Script, `sandbox/scripts/<name>` as `S-<name>`, owned by the Agent that works the stage. A later run reuses that version, unless the image or the Script's code changed; then it records `ScriptRevised`.
 4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
-5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
-6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
-7. It records `EvaluationRecorded` through the stage 1 lifecycle (`conductor/src/stage1/lifecycle.ts`), which mints the Evaluation id and names the Run's `RunFinished` as the cause. When the Evaluation failed, it records `TaskFailed` with the findings.
-8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
+5. For each stage in order, it takes the previous stage's output Artifacts whose type is among the stage's input types; stage 1 takes the Fixture. When an input type is missing, it refuses before it proposes the Task, naming the stage and the type. For each carried type it adds the latest Artifact of that type in the Ledger, and nothing when the Ledger holds none.
+6. It proposes a Task (`Stage <n> <name>: <file>`, TAT `Regular`, priority 1, those Artifacts as inputs), naming as its cause the Fixture's `ArtifactStored` for stage 1 and the previous stage's last `TaskCompleted` after that. It assigns the Task to the stage's Agent and starts it as that Agent.
+7. It runs the stage's Script in the Sandbox on the inputs. A Run that exits non-zero, or writes no Artifact of one of the stage's output types, scores 0. Otherwise the stage's Evaluation scores the Run's Artifacts of its output types. Stage 1's Evaluation reads the `SubmissionRecord`: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/workflow/evaluate.ts`).
+8. It records `EvaluationRecorded`, which names the stage, through the workflow lifecycle (`conductor/src/workflow/lifecycle.ts`). The lifecycle mints the Evaluation id and names the Run's `RunFinished` as the cause. When the Evaluation failed, it records `TaskFailed` with the findings, and the workflow stops.
+9. When the Evaluation passed and the Agent's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the stage's reviewer and the stage's output Artifacts as outputs. Then, as the reviewer, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
-The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
+The command prints each stage's Task, Run, output Artifacts, and score. It exits 0 when every stage's Task is `Done` and 1 when one is `Failed`. Options:
 
-- `--owner A-rin` sets the Agent that owns the Script and works the Task. `A-rin` is the default.
-- `--timeout <ms>` sets the Run's time limit. The default is 60000.
-- `--script-dir <dir>` runs another copy of the Script. The tests use it to prove that a record without a Lot fails.
+- `--to <stage number>` stops after that stage. Without it, every stage in the table runs.
+- `--timeout <ms>` sets each Run's time limit. The default is 60000.
 
-After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin` is on `Probation`, so the Task goes through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`.
+```text
+submission-form-seed1.docx
+  fixture   <fixture id> (SubmissionForm)
+  stage 1 Submission: T-1 Done
+    run       R-1 S-parse_submission v1, exit 0
+    output    <record id> SubmissionRecord submission.json
+    eval      E-1 score 1.000, passed
+```
+
+After one run on a fresh home, `ledger verify` passes and the Ledger holds this chain; `A-rin` is on `Probation`, so the Task goes through Review. Each Event from `TaskProposed` on names the Event before it as its `causation_id`, and the Run's `ArtifactStored` Events name `RunStarted`. `conductor/src/workflow/commands.test.ts` checks this table.
 
 | seq | kind | task | causation |
 |---|---|---|---|
@@ -353,11 +375,11 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 | 12 | TaskAssigned | T-1 | 11 |
 | 13 | TaskStarted | T-1 | 12 |
 | 14 | RunStarted | T-1 | 13 |
-| 15–17 | ArtifactStored (`submission.json`, stdout, stderr; Lineage the Fixture) | T-1 | 14 |
+| 15–17 | ArtifactStored (`submission.json` as a `SubmissionRecord`, stdout, stderr; Lineage the Fixture) | T-1 | 14 |
 | 18 | RunFinished | T-1 | 14 |
-| 19 | EvaluationRecorded (score 1, passed) | T-1 | 18 |
+| 19 | EvaluationRecorded (stage 1, score 1, passed) | T-1 | 18 |
 | 20 | TaskCompleted (Review required from A-pia), as A-rin | T-1 | 19 |
 | 21 | ReviewRecorded (3 on every dimension), as A-pia | T-1 | 20 |
 | 22 | TaskCompleted (Reviewed), as A-pia | T-1 | 21 |
 
-`task list` shows T-1 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage and the record with a Lineage of the Fixture. CI runs `stage1 run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
+`task list` shows T-1 as `Done`. `sandbox artifacts` shows the Fixture with no Lineage and the record with a Lineage of the Fixture, and `sandbox lineage <record id>` walks the same Lineage (see Sandbox). CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. To add a Fixture, see [fixtures/README.md](fixtures/README.md).

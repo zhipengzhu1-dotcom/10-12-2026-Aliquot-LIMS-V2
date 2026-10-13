@@ -41,17 +41,17 @@ sandbox() {
 	step "synth --seed 42" uv run --directory sandbox synth --seed 42 --out "$scratch/synth-42"
 }
 
-# Stage 1 on every Fixture against a fresh home: fails when any Evaluation fails.
-stage1() {
+# The toy workflow on every Fixture against a fresh home: fails when any Evaluation fails.
+workflow() {
 	local home="$scratch/home"
-	step "stage1 run-all fixtures" pnpm --silent -C conductor cli --home "$home" stage1 run-all "$PWD/fixtures"
+	step "workflow run-all fixtures" pnpm --silent -C conductor cli --home "$home" workflow run-all "$PWD/fixtures"
 	step "ledger verify" pnpm --silent -C conductor cli --home "$home" ledger verify
 }
 
 case "$mode" in
-	--conductor-only) conductor; stage1 ;;
+	--conductor-only) conductor; workflow ;;
 	--sandbox-only) sandbox ;;
-	all) conductor; sandbox; stage1 ;;
+	all) conductor; sandbox; workflow ;;
 esac
 
 echo "check: all passed"

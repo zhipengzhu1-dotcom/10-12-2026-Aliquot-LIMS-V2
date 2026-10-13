@@ -63,7 +63,10 @@ def test_parse_submission_writes_the_expected_record(form, tmp_path):
     expected = json.loads(form.with_suffix(".expected.json").read_text())
     assert json.loads((outputs / "submission.json").read_text()) == expected
     assert json.loads((outputs / "manifest.json").read_text()) == {
-        "submission.json": {"artifact_type": "Other", "media_type": "application/json"}
+        "submission.json": {
+            "artifact_type": "SubmissionRecord",
+            "media_type": "application/json",
+        }
     }
     assert sorted(p.name for p in outputs.iterdir()) == [
         "manifest.json",

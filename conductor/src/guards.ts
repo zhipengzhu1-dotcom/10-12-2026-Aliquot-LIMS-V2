@@ -3,11 +3,11 @@ import { gateGuards } from "./gate/guards.js";
 import { orgGuards } from "./org/guards.js";
 import { roomGuards } from "./room/guards.js";
 import { sandboxGuards } from "./sandbox/guards.js";
-import { stage1Guards } from "./stage1/guards.js";
 import { taskGuards } from "./task/guards.js";
 import { turnGuards } from "./turn/guards.js";
 import { vitalityGuards } from "./vitality/guards.js";
 import { tierCatchUp, tierRevisions } from "./vitality/projection.js";
+import { workflowGuards } from "./workflow/guards.js";
 
 export {
 	type AppendGuard,
@@ -26,7 +26,7 @@ export const appendGuards: readonly AppendGuard[] = [
 	...gateGuards,
 	...sandboxGuards,
 	...vitalityGuards,
-	...stage1Guards,
+	...workflowGuards,
 ];
 
 /** Every follow-on the Ledger appends after an Event, in order. */

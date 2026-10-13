@@ -337,6 +337,7 @@ const ROWS: Row[] = [
 			kind: "EvaluationRecorded",
 			payload: {
 				eval_id: EvaluationId.parse("E-1"),
+				stage: 1,
 				run_id: RunId.parse("R-9"),
 				task_id: T1,
 				score: 1,

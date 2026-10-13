@@ -17,7 +17,6 @@ import type { Recorded } from "../lifecycle-support.js";
 import { retire as retireAgent } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
 import { finishRun, register, startRun, store } from "../sandbox/lifecycle.js";
-import { recordEvaluation } from "../stage1/lifecycle.js";
 import type { Storage } from "../storage.js";
 import {
 	assign,
@@ -34,6 +33,7 @@ import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
 import type { Task } from "../types/task.js";
 import { reviewerOf } from "../vitality/reviewers.js";
+import { recordEvaluation } from "../workflow/lifecycle.js";
 
 export type Scores = Pick<
 	Review,
@@ -232,6 +232,7 @@ export const scenario = (
 		if (score === undefined) return;
 		recordEvaluation(ledger, {
 			actor: operator,
+			stage: 1,
 			task_id,
 			run_id: id,
 			score,

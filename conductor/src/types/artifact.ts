@@ -3,6 +3,7 @@ import { ArtifactId, RunId, Sha256 } from "../ids.js";
 
 export const ArtifactType = z.enum([
 	"SubmissionForm",
+	"SubmissionRecord",
 	"ReceivingLogRow",
 	"WorkOrder",
 	"ResultWorksheet",
