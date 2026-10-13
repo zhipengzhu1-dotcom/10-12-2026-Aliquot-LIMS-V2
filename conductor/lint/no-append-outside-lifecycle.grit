@@ -1,5 +1,11 @@
 language js
 
-`$ledger.append` as $member where {
+or {
+	`$ledger.append`,
+	`$ledger?.append`,
+	`$ledger["append"]`,
+	JsObjectBindingPatternShorthandProperty(identifier=`append`),
+	JsObjectBindingPatternProperty(member=`append`)
+} as $member where {
 	register_diagnostic(span=$member, message="Only a domain's lifecycle module appends its Events: call a verb in that domain's lifecycle.ts.", severity="error")
 }
