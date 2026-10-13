@@ -63,11 +63,12 @@ export const register = (
  * only when a Run produces them that has not stored them yet; otherwise
  * nothing is appended, and the ArtifactStored that already records them comes
  * back: the producer's own, else the first. An Artifact a Run produces names
- * the Run's RunStarted as its cause and the Run's Task.
+ * the Run's RunStarted as its cause and the Run's Task; any other names the
+ * `cause` its caller gives, such as the Message it holds.
  */
 export const store = (
 	ledger: Ledger,
-	{ actor }: { readonly actor: Actor },
+	{ actor, cause }: { readonly actor: Actor; readonly cause?: Seq },
 	facts: ArtifactMeta & { readonly sha256: Sha256 },
 ): Recorded<"artifact", StoredArtifact> => {
 	const { artifacts, runs } = ledger.projections;
@@ -93,7 +94,7 @@ export const store = (
 	const { seq } = ledger.append({
 		actor,
 		task_id: run?.task_id,
-		causation_id: run?.seq,
+		causation_id: run?.seq ?? cause,
 		kind: "ArtifactStored",
 		payload: artifact,
 	});

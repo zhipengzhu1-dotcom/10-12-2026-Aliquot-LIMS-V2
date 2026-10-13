@@ -334,6 +334,7 @@ An Agent acts through its Tools: Ledger-backed verbs it calls during a Turn, alw
 | `run_script` | Runs a Script in the Sandbox; on a stage Script, also records the stage's Evaluation, so it needs the Task |
 | `read_artifact`, `list_artifacts`, `lineage` | Read the Artifact Projection and the blob store |
 | `send_message`, `read_room`, `open_room` | The Room lifecycle, under the membership rule |
+| `store_message` | Stores the Operator's Message at a seq as an `Other` Artifact of its JSON, naming its `MessageSent` as cause (see Chat) |
 | `note_memory`, `publish_skill` | The Training lifecycle |
 | `propose_revision` | Revises an Agent definition |
 | `request_gate` | Requests a Gate; with a Task, blocks it |
@@ -347,7 +348,7 @@ Each Action is one predicate, in `conductor/src/tools/actions.ts`:
 | Action | Refuses |
 |---|---|
 | `RunScript` | `run_script` |
-| `TouchArtifact` | `read_artifact` |
+| `TouchArtifact` | `read_artifact`, `store_message` |
 | `DecideGate`, `RunOutsideSandbox`, `WriteSystemOfRecord` | Nothing yet: no Tool decides a Gate, runs code outside the Sandbox, or writes a System of record |
 | `AssignLabWork` | `propose_task` or `assign_task` of a workflow stage's Task |
 | `AcceptOwnProposal` | `assign_task` or `start_task` on a Task the caller proposed |
@@ -624,6 +625,34 @@ tools/aliquot --home /tmp/aliquot intake fixtures/submission-form-seed1.docx
 # Stored <id> SubmissionForm submission-form-seed1.docx
 ```
 
+## Chat
+
+The Chat view, `#/chat`, is how the Operator talks to the whole team. It shows the Lab Room `RM-lab`: every Message in `seq` order, newest last, each with the name of who said it, from `GET /api/chat`. It draws again on every Event. The box at the bottom says the Operator's text in `RM-lab` through the `room-say` action. An attached Submission Form does not go through the box: it still goes through `aliquot intake` and stage 1, and the view says so in one line.
+
+The Operator can report received Samples in free text, such as `Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, finished product, from Acme Nutrition, regular TAT`. The Scheduler gives every Agent a Turn for the new Message. What follows is the work, in order:
+
+1. The Director's prompt lists the Operator's Messages in `RM-lab` since its last Turn, each with the Artifact id it will have once stored, and says what to do with them. When a Message names the Client, the product, the Lot, the Product Code, the quantity, the Sample Type and the TAT, the Director proposes a Task whose one input is that id, and assigns it to the Specialist who works stage 2, `A-bram`. When it cannot read the Message so, it replies in `RM-lab` saying what is missing, and proposes no Task.
+2. The Specialist's prompt names the Message in the Task's input line. Its Turn stores the Message with `store_message` as an `Other` Artifact, then runs `S-parse_message` on it, which writes a `SubmissionRecord` in the shape stage 1 writes.
+3. It runs stage 2 Receipt and stage 3 Work Order on that record, on the same Task. The toy LIMS database gains the Receiving Log rows and a Work Order.
+4. It replies to the Message in `RM-lab` with each Lab Reference and the Work Order's due date.
+
+A stored Message is the JSON `{"seq":<n>,"room":"RM-lab","said_by":"Operator","ts":"<time>","body":"<text>"}`, keys in that order and no spaces, so its Artifact id, the sha256 of those bytes, is known before it is stored (ADR-0015). Its producer is the Operator. Its `ArtifactStored` names the Agent that stored it as actor and the Message's `MessageSent` as cause. Only the Operator's Messages are stored.
+
+`parse_message` reads each value by a labelled pattern and never guesses one: the Lot after "Lot", the Product Code after "Product Code", the Client after "from", the quantity and product from "<n> bottles of <product>", the Sample Type from "finished product", "in-process", "raw material" or "R&D", and the TAT from "regular TAT", "rush 1-2 days" or "rush 3-4 days". The date and time received are the Message's `ts`, and `received_by` is who said it. A value the Message does not state is left blank. A Message that names no Lot or no Product Code is refused: the Run exits 1 and writes no record.
+
+The three Scripts must be registered before `serve` takes the writer lock:
+
+```sh
+H=/tmp/aliquot
+tools/aliquot --home $H org seed
+tools/aliquot --home $H room seed
+tools/aliquot --home $H sandbox build
+tools/aliquot --home $H sandbox register --name parse_message --owner A-bram --input-types Other --output-types SubmissionRecord
+tools/aliquot --home $H sandbox register --name log_receipt --owner A-bram --input-types SubmissionRecord,LimsDatabase --output-types ReceivingLogRow,LimsDatabase
+tools/aliquot --home $H sandbox register --name create_work_order --owner A-bram --input-types ReceivingLogRow,LimsDatabase --output-types WorkOrder,LimsDatabase
+tools/aliquot --home $H serve    # then open http://127.0.0.1:8787/#/chat
+```
+
 ## Serve
 
 `aliquot serve` is the long-running Conductor. It opens the Ledger for writing and holds the writer lock until it stops. While it runs, a command that writes exits 1 with `LedgerLocked: <home>/ledger.sqlite.lock held by pid <pid>`, and a command that only reads still works. Unless `--no-schedule` is given, it also runs the Scheduler (see below), which starts Turns on the model `turn run` uses: the Agent SDK on the subscription login, or the scripted model that `ALIQUOT_SCRIPTED_MODEL` names. With `ALIQUOT_API_KEY` set, `serve` exits 2 unless `--no-schedule` is given. On SIGINT or SIGTERM it stops the Scheduler, waits for the Turns still open, closes the Ledger, which releases the lock, and exits 0.
@@ -687,6 +716,7 @@ scheduler 2026-10-12T09:00:20.000Z A-rin finished TN-6 Completed: 0 Tool calls, 
 |---|---|
 | `GET /` | The interface, from `conductor/dist/ui/`. |
 | `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts`, `/api/turns` | The Projection as JSON. Each map is an object keyed by id. `/api/turns` holds every Turn by id and each Agent's open Turn, the data `turn list` prints. |
+| `GET /api/chat` | The Lab Room for the Chat view: `{room, messages}`, every Message of `RM-lab` in seq order as `{seq, ts, said_by, name, body, reply_to?}`, where `name` is the Agent's name from the Org, or `Operator`. |
 | `GET /api/org-tree` | The reporting tree `org tree` prints: the Operator at the root, each live Agent as `{tag: "Agent", agent, children}`, and the Specialists in one `{tag: "Pool", supervisors, children}` node. |
 | `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
 | `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
@@ -770,7 +800,7 @@ tools/serve.sh
 
 The interface is plain TypeScript in `conductor/ui/`, with no framework and no bundler. `pnpm -C conductor build` compiles it with `ui/tsconfig.build.json` to ES modules in `conductor/dist/ui/`, and copies `ui/index.html` beside them. `pnpm -C conductor lint` and `typecheck` cover `ui/`. Without a build, `aliquot serve` says so on stderr and serves the API only.
 
-The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and draws them. It fetches them again on every Event from `/api/events`, and each time that stream opens, so a page that has read no Event, and has no seq to replay from, still shows the Events appended while the stream was down. A view its ticket has not drawn yet shows the JSON as it came. In `ui/views.ts`, each view is a pure function from Projection JSON and the hash's query to markup, in a module of its own such as `ui/org.ts`, tested without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body, and its status line shows the answer to every action, a view's included.
+The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/chat`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and draws them. It fetches them again on every Event from `/api/events`, and each time that stream opens, so a page that has read no Event, and has no seq to replay from, still shows the Events appended while the stream was down. A view its ticket has not drawn yet shows the JSON as it came. In `ui/views.ts`, each view is a pure function from Projection JSON and the hash's query to markup, in a module of its own such as `ui/org.ts`, tested without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body, and its status line shows the answer to every action, a view's included.
 
 A view's action is a form whose markup names the verb in `data-action` and the fixed part of the body in `data-body`. The page sets each field the Operator fills in at its name, so `definition.supervisor_id` sets that key of the body, and an empty field leaves its key out. A field marked `data-json` holds JSON, which the page parses before it sets it, so the Revision editor sets `definition` as an object and the reason field after it sets `definition.revision_reason`. A form with `data-go` opens that route once its action succeeds. A redraw keeps the panels the Operator opened and the text they typed; a field the Operator left as drawn takes the redrawn value.
 
@@ -779,7 +809,8 @@ A view's filters live in the hash's query, as in `#/flow?lot=LOT-7`, so a filter
 | View | Shows | Actions |
 |---|---|---|
 | Org (`#/org`) | The tree `org tree` prints, from `/api/org-tree`. Each Agent has its load from `/api/vitality`, its Trust tier, and a `paused` badge when paused; no Mood, which is flat. | Under **Actions**: pause with a reason, or resume a paused Agent; reassign, a Revision of `supervisor_id` to the Operator, the Director or a Supervisor that does not report to the Agent; request retirement, which requests a `RetireAgent` Gate with a reason. The Agent's name opens `#/agent?id=<id>`. |
-| Agent (`#/agent?id=<id>`) | One Agent: its Charter and Persona; its Vitality, Mood and Policy from `/api/vitality`; its Trust tier and Merit from `/api/tiers`; one point per Review counted toward its Merit, every one in Ledger order and not only the Merit window, with the five rubric scores, the note and the Merit after it, from `/api/reviews`; its Memory notes, Coaching, and Skills with their versions, from `/api/training`. `#/agent` lists the Agents. | Open the Agent's Room: a link to the `Listed` Room whose only Agent is this one, or, when there is none, a button that opens one as the Operator, `RM-rin` for `A-rin`, and then goes to `#/rooms?id=<room>`. Give Coaching, with an optional Task. **Author a Revision**: an editor over the next version of the definition, `version` already one higher and `revised_by` the Operator, posted with a reason. A Revision that keeps the current version shows the Ledger's refusal. |
+| Agent (`#/agent?id=<id>`) | One Agent: its Charter and Persona; its Vitality from `/api/vitality`, under the heading "Vitality (Mood is flat in the first edition)"; its Trust tier and Merit from `/api/tiers`; one point per Review counted toward its Merit, every one in Ledger order and not only the Merit window, with the five rubric scores, the note and the Merit after it, from `/api/reviews`; its Memory notes, Coaching, and Skills with their versions, from `/api/training`. `#/agent` lists the Agents. | Open the Agent's Room: a link to the `Listed` Room whose only Agent is this one, or, when there is none, a button that opens one as the Operator, `RM-rin` for `A-rin`, and then goes to `#/rooms?id=<room>`. Give Coaching, with an optional Task. **Author a Revision**: an editor over the next version of the definition, `version` already one higher and `revised_by` the Operator, posted with a reason. A Revision that keeps the current version shows the Ledger's refusal. |
+| Chat (`#/chat`) | The Lab Room `RM-lab`: every Message in seq order, newest last, with the sayer's name and id, its seq, and the Message it replies to, from `/api/chat`. One line says that a Submission Form still goes through `aliquot intake` and stage 1. | Send: the box says its text in `RM-lab` as the Operator, through `room-say`. |
 | Gates (`#/gates`) | Open Gates oldest first, each with its kind, requester, age, lifetime, the Task it blocks, and its payload. A `RetireAgent` or `PromoteToMentor` Gate also shows the fields of the Agent it names that approving it would change, now and proposed. Then the decided and expired Gates, most recently closed first. | Approve or reject an open Gate, each with a reason. The form signs the payload hash the page read, so a payload hash that no longer matches shows the Ledger's refusal. |
 | Ledger (`#/ledger`) | The Events, newest first, 50 a page, each with seq, time, actor, kind, Task and cause, and its payload, which opens on click. A status line gives the verdict of `/api/ledger/verify` and when it was read. The newest page takes each new Event at its top; `#/ledger?before=<seq>` is the page of the 50 Events before that seq, and it stays put. | **Verify** reads the verdict again. A cause links to the page it heads. |
 | Flow (`#/flow`) | One swimlane per stage of `/api/stages`, and one for Tasks in no stage. A Task's lane is the stage whose Script its latest Run ran, so a Task joins its lane when its first Run starts. Each card shows the Task's id, title, state, assignee and TAT class. | Filter by Task id (`?task=T-1`) or by Lot (`?lot=<lot>`). A Task's Lots are those of the `SubmissionRecord`s in the Lineage of its Artifacts, or made from one of them. Open a Task (`?open=T-1`) to read its Events in seq order, with the cause of the first one, and an arrow from each Event to the Event its `causation_id` names. The panel reads the Ledger's first 1,000 Events. |

@@ -2,10 +2,10 @@
 # drive.sh <run dir> <feature> [--intent '<what to prove, quoted>']: drive one
 # feature of features/ through the interface, check its end state, and append
 # its section (intent, commands, evidence, verdict) to proof/proof.md.
-# Features: org, flow, agent, gates, ledger. Exits 1 when a check fails.
+# Features: org, flow, agent, gates, ledger, chat. Exits 1 when a check fails.
 . "$(dirname "$0")/lib.sh"
 load_run "${1:-}"
-feature=${2:?the second argument is a feature: org, flow, agent, gates or ledger}
+feature=${2:?the second argument is a feature: org, flow, agent, gates, ledger or chat}
 shift 2
 map="$(dirname "$SCRIPTS")/features/$feature.md"
 [ -f "$map" ] || die "features/$feature.md does not exist"
@@ -215,8 +215,32 @@ drive_ledger() {
 	chain
 }
 
+drive_chat() {
+	local said=$((base + 1)) outside=$((base + 2))
+	local report='Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, finished product, from Acme Nutrition, regular TAT'
+	browser ui goto '#/chat' mark \
+		wait '#chat-say' text 'li.message .said b' 'Odile' \
+		text '.note' 'aliquot intake' \
+		fill '#chat-body' "$report" click '#chat-say button' \
+		text '#answer' "Appended MessageSent at seq $said" \
+		text "li.message[data-seq=\"$said\"] .body" "$report" \
+		outside room-say '{"room_id":"RM-lab","body":"verify: a second client says this"}' \
+		wait "li.message[data-seq=\"$outside\"]" same-page
+	step chat.json api get chat
+	expect "/api/chat ends with the box's Message and then the second client's, both by the Operator, after Odile's from the baseline" \
+		same "$(jq -r '.messages | map("\(.name): \(.body)") | join(" | ")' "$out/chat.json")" \
+		"Odile: $(sql "select json_extract(payload, '$.body') from events where kind = 'MessageSent' and seq <= $base order by seq desc limit 1") | Operator: $report | Operator: verify: a second client says this"
+	expect "the Messages are in seq order, newest last" \
+		same "$(jq -c '[.messages[].seq] == ([.messages[].seq] | sort)' "$out/chat.json")" true
+	expect "the drive appended exactly two MessageSent rows, seq $said and $outside, by the Operator in RM-lab" \
+		same "$(sql "select group_concat(seq || ':' || actor || ':' || json_extract(payload, '$.room_id'), ' ') from (select * from events where seq > $base order by seq)")" \
+		"$said:{\"tag\":\"Operator\"}:RM-lab $outside:{\"tag\":\"Operator\"}:RM-lab"
+	rows_since
+	chain
+}
+
 case $feature in
-org | flow | agent | gates | ledger)
+org | flow | agent | gates | ledger | chat)
 	# Called in a || list, the drive runs to its end past a failing command;
 	# its checks, not errexit, decide the verdict.
 	"drive_$feature" || {
@@ -224,7 +248,7 @@ org | flow | agent | gates | ledger)
 		evidence+=("- FAIL. the drive's last command exited $?")
 	}
 	;;
-*) die "drive.sh knows org, flow, agent, gates and ledger; add a drive_$feature for features/$feature.md" ;;
+*) die "drive.sh knows org, flow, agent, gates, ledger and chat; add a drive_$feature for features/$feature.md" ;;
 esac
 
 verdict="PASS. $checked of $checked checks held."

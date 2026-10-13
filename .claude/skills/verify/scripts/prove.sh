@@ -3,7 +3,7 @@
 # one command. Launch a fresh run, run the doctor, drive the feature, clean
 # up, and confirm the proof outlived the cleanup. Exits 1 when any part fails.
 . "$(dirname "$0")/lib.sh"
-feature=${1:?usage: prove.sh <feature> [--intent '<text>'], feature one of org, flow, agent, gates, ledger}
+feature=${1:?usage: prove.sh <feature> [--intent '<text>'], feature one of org, flow, agent, gates, ledger, chat}
 shift
 
 launched=$("$SCRIPTS/launch.sh") || die "launch failed: $launched"

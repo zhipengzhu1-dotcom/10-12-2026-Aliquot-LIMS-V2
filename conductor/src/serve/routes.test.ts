@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../hash.js";
-import { AgentId, ArtifactId, Sha256 } from "../ids.js";
+import { AgentId, ArtifactId, RoomId, Sha256 } from "../ids.js";
+import { open, say } from "../room/lifecycle.js";
+import { seedRooms } from "../room/seed.js";
 import { store } from "../sandbox/lifecycle.js";
 import { fail } from "../task/lifecycle.js";
 import { scenario, scores } from "../test-support/scenario.js";
@@ -10,6 +12,59 @@ import { STAGES } from "../workflow/stages.js";
 import { PROJECTION_ROUTES } from "./routes.js";
 
 const rin = AgentId.parse("A-rin");
+
+describe("the route the Chat view reads", () => {
+	it("chat serves RM-lab's Messages in seq order with each sayer's name, and no other Room's", () => {
+		const s = scenario("2026-10-12T09:00:00.000Z");
+		seedRooms(s.ledger);
+		open(s.ledger, {
+			id: RoomId.parse("RM-side"),
+			name: "Side",
+			purpose: "Elsewhere",
+			membership: { tag: "Listed", agents: [rin] },
+			opened_by: { tag: "Operator" },
+		});
+		const lab = RoomId.parse("RM-lab");
+		const first = say(s.ledger, {
+			actor: { tag: "Operator" },
+			room_id: lab,
+			body: "Received 3 bottles",
+		});
+		say(s.ledger, {
+			actor: { tag: "Agent", id: rin },
+			room_id: RoomId.parse("RM-side"),
+			body: "Not in the Lab Room",
+		});
+		const reply = say(s.ledger, {
+			actor: { tag: "Agent", id: rin },
+			room_id: lab,
+			body: "Logged",
+			reply_to: first.seq,
+		});
+
+		expect(PROJECTION_ROUTES.chat(s.ledger.projections)).toEqual({
+			room: "RM-lab",
+			messages: [
+				{
+					seq: first.seq,
+					ts: "2026-10-12T09:00:00.000Z",
+					said_by: "Operator",
+					name: "Operator",
+					body: "Received 3 bottles",
+				},
+				{
+					seq: reply.seq,
+					ts: "2026-10-12T09:00:00.000Z",
+					said_by: "A-rin",
+					name: "Rin",
+					body: "Logged",
+					reply_to: first.seq,
+				},
+			],
+		});
+		s.close();
+	});
+});
 
 describe("the routes the Flow and Performance views read", () => {
 	it("stages serves every row of the stage table with its Script id and without its Evaluation", () => {

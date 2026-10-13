@@ -1,4 +1,5 @@
 import { agentView } from "./agent.js";
+import { chatView } from "./chat.js";
 import { FLOW_SOURCES, flowPage } from "./flow.js";
 import { gatesView } from "./gates.js";
 import { ledgerView } from "./ledger.js";
@@ -63,6 +64,7 @@ export const VIEWS: readonly View[] = [
 		(_, data, params = new URLSearchParams()) => flowPage(data, params),
 	),
 	agentView,
+	chatView,
 	view("rooms", "Rooms", ["rooms"]),
 	view("scripts", "Scripts", ["scripts", "runs", "artifacts"]),
 	gatesView,

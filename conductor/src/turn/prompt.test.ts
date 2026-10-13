@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, RoomId, Sha256 } from "../ids.js";
 import { open, say } from "../room/lifecycle.js";
 import { store } from "../sandbox/lifecycle.js";
+import { assign, propose } from "../task/lifecycle.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
+import { messageArtifactId } from "../tools/message.js";
 import { giveCoaching } from "../training/lifecycle.js";
 import type { Actor } from "../types/actor.js";
 import { finishTurn, startTurn } from "./lifecycle.js";
@@ -11,6 +13,7 @@ import { turnPrompt } from "./prompt.js";
 
 const rin = AgentId.parse("A-rin");
 const odile = AgentId.parse("A-odile");
+const bram = AgentId.parse("A-bram");
 const operator: Actor = { tag: "Operator" };
 const lab = RoomId.parse("RM-lab");
 
@@ -137,5 +140,53 @@ describe("the prompt of a Turn", () => {
 		);
 		expect(specialist).not.toContain("Submission Forms no Task");
 		expect(specialist).not.toContain(artifact.id);
+	});
+
+	it("gives the Director the Operator's Messages in RM-lab with their Artifact ids as receiving work, and names the Message in its Task's line", () => {
+		const report = say(s.ledger, {
+			actor: operator,
+			room_id: lab,
+			body: "Received 3 bottles, Lot 2403A, Product Code VC500",
+		});
+		say(s.ledger, {
+			actor: { tag: "Agent", id: rin },
+			room_id: lab,
+			body: "Rin's word",
+		});
+		const id = messageArtifactId(report);
+
+		const director = promptOf(odile);
+
+		const section = director.slice(
+			director.indexOf("## The Operator's Messages in RM-lab"),
+		);
+		expect(section).toContain(
+			"A Message in RM-lab that reports received Samples is work.",
+		);
+		expect(section).toContain("Then assign it to A-bram, who works stage 2.");
+		expect(
+			section,
+			"the goal names every Script id, which the Specialist has no Tool to look up",
+		).toMatch(/S-parse_message.*S-log_receipt.*S-create_work_order/);
+		expect(section).toContain(
+			`- seq ${report.seq}, Artifact ${id}: Received 3 bottles, Lot 2403A, Product Code VC500`,
+		);
+		expect(section, "an Agent's Message is no receiving work").not.toContain(
+			"Rin's word",
+		);
+
+		const { task } = propose(s.ledger, {
+			actor: { tag: "Agent", id: odile },
+			title: "Receive Lot 2403A",
+			goal: "Log it",
+			tat_class: "Regular",
+			priority: 1,
+			inputs: [id],
+		});
+		assign(s.ledger, { actor: operator, task_id: task.id, assignee: bram });
+
+		expect(promptOf(bram)).toContain(
+			`Inputs: ${id} (the Operator's Message seq ${report.seq} in RM-lab, not stored yet: store it with store_message).`,
+		);
 	});
 });

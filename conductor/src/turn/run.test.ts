@@ -184,7 +184,7 @@ describe("one Turn on the scripted model", () => {
 			maxBudgetUsd: 0.5,
 			cwd: join(home, "scratch"),
 		});
-		expect(seen?.tools).toHaveLength(24);
+		expect(seen?.tools).toHaveLength(25);
 	});
 
 	it("records Error with the message when the model call throws, so no Turn stays open", async () => {

@@ -204,6 +204,11 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "the key format createPublicKey reads, a JWK",
 	},
 	{ phrase: "POST", in: "../ui/actions.ts", reason: "the HTTP method" },
+	...["../ui/chat.ts", "../ui/views.ts", "serve/routes.ts"].map((file) => ({
+		phrase: "chat",
+		in: file,
+		reason: "the Chat view (a glossary term) and the `chat` route it reads",
+	})),
 	{
 		phrase: "coach",
 		in: "../ui/agent.ts",
