@@ -1,6 +1,6 @@
 import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { AgentId, Seq } from "../ids.js";
-import { liveAgent } from "../org/projection.js";
+import { activeAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
 import { actorText } from "../types/actor.js";
@@ -13,9 +13,8 @@ export const startRefusal = (
 	projections: Projections,
 	agent: AgentId,
 ): Refusal | undefined => {
-	const live = liveAgent(projections.org, agent);
-	if (live instanceof Refusal) return live;
-	if (live.paused) return new Refusal(`${agent} is paused`);
+	const active = activeAgent(projections.org, agent);
+	if (active instanceof Refusal) return active;
 	const open = projections.turns.open.get(agent);
 	return open === undefined
 		? undefined
