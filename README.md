@@ -301,19 +301,7 @@ A Script is a directory with `main.py` (or `--entrypoint`). The container runs `
 
 ## Turns
 
-A Turn is one bounded unit of Agent activity that the Conductor schedules. The Conductor records its own acts (ADR-0013): a `TurnStarted` with the Turn id (`TN-<n>`), the Agent, the model, and the Mood and Policy the Agent works under, and a `TurnFinished` with the usage the model reports (input, output, cache creation and cache read tokens, and cost in USD), the outcome (`Completed`, `MaxTurns`, `Budget`, or `Error` with its text), and the number of tool calls. A `TurnFinished` names its `TurnStarted` in `causation_id`. The Turn lifecycle, `conductor/src/turn/lifecycle.ts`, appends both. The Ledger refuses a Turn Event from an Agent or the Operator, a Turn for an Agent that is not live, is resting, is paused, or already has an open Turn, and the finish of a Turn that is unknown or already finished. After the finish, the Conductor samples the Agent's Vitality as a `VitalitySampled` naming the `TurnFinished`. No command writes a Turn Event directly.
-
-Run one Turn of one Agent. The Conductor builds the prompt from the Ledger: the Agent's Charter, Persona, reporting line, Mood and Policy in words, Skills, Memory notes and Tools, then its live Tasks with their inputs, the Messages in its Rooms and the Coaching since its previous Turn, the Help requests addressed to it, the Gates it requested, and, for the Director, the Submission Forms no Task has been proposed for. It calls the model once through the Agent SDK with the Agent's `model` and only its Tools, records the Turn, samples the Agent's Vitality, and prints the Turn, the login, the sample and the Mood. `--max-turns` (default 20) caps the model's round trips and `--max-budget-usd` its cost; a Turn that reaches one records `MaxTurns` or `Budget` with the usage it consumed. A model call that fails records `Error` with its text and exits 1. A Turn for an Agent that is resting, paused, retired or in a Turn is refused before any Event.
-
-The Turn runs on the `claude` CLI's subscription login, and the CLI gets no `ANTHROPIC_API_KEY` from the environment. `ALIQUOT_API_KEY` switches to that API key, and then `--max-budget-usd` is required. `ALIQUOT_SCRIPTED_MODEL=<file.json>` replaces the model with a scripted one that makes the listed Tool calls through the same hook, with no network: `{"calls": [{"tool": "read_tasks", "input": {}}], "usage_per_round": {<TurnUsage>}, "stop": {"tag": "Completed"}}`, or `"stop": {"tag": "Throws", "message": "..."}`. The test that runs a real Turn runs only with `ALIQUOT_LIVE_TURN=1`.
-
-```sh
-tools/aliquot --home /tmp/aliquot turn run A-rin --max-turns 3
-# TN-1 A-rin model=claude-sonnet-5-5 started=2026-10-13T04:23:09.091Z finished=2026-10-13T04:23:15.231Z input=1368 output=321 cache_creation=1471 cache_read=23005 cost_usd=0.011314699999999999 tool_calls=3 outcome=MaxTurns
-# Model: the Agent SDK, on the subscription login of the claude CLI
-# Sampled A-rin: load=0.33 fatigue=0.03 friction=0.00 confidence=1.00 morale=0.00
-# Mood: focused
-```
+A Turn is one bounded unit of Agent activity that the Conductor schedules. The Conductor records its own acts (ADR-0013): a `TurnStarted` with the Turn id (`TN-<n>`), the Agent, the model, and the Mood and Policy the Agent works under, and a `TurnFinished` with the usage the model reports (input, output, cache creation and cache read tokens, and cost in USD), the outcome (`Completed`, `MaxTurns`, `Budget`, or `Error` with its text), and the number of tool calls. A `TurnFinished` names its `TurnStarted` in `causation_id`. The Turn lifecycle, `conductor/src/turn/lifecycle.ts`, appends both. The Ledger refuses a Turn Event from an Agent or the Operator, a Turn for an Agent that is not live, is resting, is paused, or already has an open Turn, and the finish of a Turn that is unknown or already finished. No command writes a Turn Event.
 
 Print every Turn, or one Agent's, in the order they started. An open Turn prints `finished=- outcome=open`. A Ledger with no Turns prints `No Turns`.
 

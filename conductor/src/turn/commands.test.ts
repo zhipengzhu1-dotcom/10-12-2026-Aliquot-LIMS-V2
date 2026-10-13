@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,79 +69,6 @@ const withTurns = () => {
 	start("A-rin");
 	s.close();
 };
-
-describe("aliquot turn run", () => {
-	const scriptedModel = (calls: unknown[]) => {
-		const file = join(home, "model.json");
-		writeFileSync(
-			file,
-			JSON.stringify({
-				calls,
-				usage_per_round: {
-					input_tokens: 1000,
-					output_tokens: 200,
-					cache_creation_tokens: 50,
-					cache_read_tokens: 4000,
-					cost_usd: 0.01,
-				},
-				stop: { tag: "Completed" },
-			}),
-		);
-		return file;
-	};
-
-	const turnRun = (env: Record<string, string>, ...args: string[]) =>
-		spawnSync(
-			process.execPath,
-			["--import", "tsx", cli, "--home", home, "turn", "run", ...args],
-			{
-				encoding: "utf8",
-				env: { ...process.env, ALIQUOT_HOME: "", ...env },
-			},
-		);
-
-	it("runs one Turn of A-rin on the scripted model, records it, and prints the Turn, the sample and the Mood", () => {
-		ok("org", "seed");
-		const model = scriptedModel([
-			{ tool: "read_tasks", input: { assignee: "A-rin" } },
-			{ tool: "verify_ledger", input: {} },
-		]);
-
-		const r = turnRun({ ALIQUOT_SCRIPTED_MODEL: model }, "A-rin");
-
-		expect(r.stderr).toBe("");
-		expect(r.status).toBe(0);
-		const lines = r.stdout.trimEnd().split("\n");
-		expect(lines[0]).toMatch(
-			/^TN-1 A-rin model=claude-sonnet-5-5 started=\S+ finished=\S+ input=3000 output=600 cache_creation=150 cache_read=12000 cost_usd=0\.03 tool_calls=2 outcome=Completed$/,
-		);
-		expect(lines.slice(1)).toEqual([
-			`Model: the scripted model in ${model}, on the subscription login of the claude CLI`,
-			"Sampled A-rin: load=0.00 fatigue=0.03 friction=0.00 confidence=1.00 morale=0.00",
-			"Mood: fresh",
-		]);
-		expect(ok("turn", "list").trimEnd()).toBe(lines[0]);
-		expect(ok("vitality", "show", "A-rin")).toContain("(sampled)");
-		expect(ok("ledger", "verify")).toMatch(/chain intact/);
-	});
-
-	it("refuses an API key login without --max-budget-usd, before any Event", () => {
-		ok("org", "seed");
-		const before = ok("ledger", "verify");
-		const model = scriptedModel([]);
-
-		const r = turnRun(
-			{ ALIQUOT_SCRIPTED_MODEL: model, ALIQUOT_API_KEY: "not-a-key" },
-			"A-rin",
-		);
-
-		expect(r.status).toBe(2);
-		expect(r.stderr.split("\n")[0]).toBe(
-			"UsageError: a Turn on an API key from ALIQUOT_API_KEY needs --max-budget-usd",
-		);
-		expect(ok("ledger", "verify")).toBe(before);
-	});
-});
 
 describe("aliquot turn list", () => {
 	it("prints No Turns and exits 0 on a Ledger with no Turns", () => {

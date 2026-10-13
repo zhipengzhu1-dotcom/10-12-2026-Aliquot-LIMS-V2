@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, Seq, TurnId } from "./ids.js";
 import { type Scenario, scenario } from "./test-support/scenario.js";
-import { finishTurn, startTurn } from "./turn/lifecycle.js";
 import type { Actor, EventActor } from "./types/actor.js";
 import type { AgentDefinition } from "./types/agent-definition.js";
 import { policyOf } from "./vitality/policy.js";
@@ -218,82 +217,19 @@ describe("ADR rules the slice-0 review found missing", () => {
 			expect(() =>
 				s.appendNonTask({
 					actor: conductor,
-					kind: "RestOrdered",
-					payload: { agent_id: rin, action: "begin", reason: "tired" },
+					kind: "VitalitySampled",
+					payload: {
+						agent: rin,
+						load: 0,
+						fatigue: 0,
+						friction: 0,
+						confidence: 1,
+						morale: 0,
+					},
 				}),
 			).toThrow(
-				"RestOrdered refused: the Conductor authors only tier Revisions",
+				"VitalitySampled refused: the Conductor authors only tier Revisions",
 			);
-		});
-
-		describe("the end-of-Turn Vitality sample is the Conductor's act (#43)", () => {
-			const sampled =
-				(actor: EventActor, agent: AgentId, cause?: number) => () =>
-					s.appendNonTask({
-						actor,
-						...(cause === undefined ? {} : { causation_id: Seq.parse(cause) }),
-						kind: "VitalitySampled",
-						payload: {
-							agent,
-							load: 0,
-							fatigue: 0,
-							friction: 0,
-							confidence: 1,
-							morale: 0,
-						},
-					});
-			const finishedTurn = (agent: AgentId) => {
-				const { turn } = startTurn(s.ledger, {
-					agent,
-					model: "claude-sonnet-5-5",
-					energyBudgetTokens: 1_000_000,
-				});
-				const { seq } = finishTurn(s.ledger, {
-					turn_id: turn.started.turn_id,
-					usage: {
-						input_tokens: 10,
-						output_tokens: 5,
-						cache_creation_tokens: 0,
-						cache_read_tokens: 0,
-						cost_usd: 0.001,
-					},
-					outcome: { tag: "Completed" },
-					tool_calls: 0,
-				});
-				return { started: turn.seq, finished: seq };
-			};
-
-			it("accepts a Conductor sample that names a TurnFinished of the same Agent", () => {
-				const { finished } = finishedTurn(rin);
-
-				expect(sampled(conductor, rin, finished)()).toMatchObject({
-					kind: "VitalitySampled",
-					actor: conductor,
-					causation_id: finished,
-				});
-			});
-
-			it("refuses a Conductor sample that names no cause, a TurnStarted, or another Agent's TurnFinished", () => {
-				const ines = AgentId.parse("A-ines");
-				const { started, finished } = finishedTurn(ines);
-
-				expect(sampled(conductor, rin)).toThrow(
-					"VitalitySampled refused: the Conductor samples A-rin only at the end of its Turn, naming its TurnFinished; this sample names no cause",
-				);
-				expect(sampled(conductor, ines, started)).toThrow(
-					`VitalitySampled refused: the Conductor samples A-ines only at the end of its Turn, naming its TurnFinished; seq ${started} is not a TurnFinished`,
-				);
-				expect(sampled(conductor, rin, finished)).toThrow(
-					`VitalitySampled refused: the Conductor samples A-rin only at the end of its Turn, naming its TurnFinished; seq ${finished} finishes TN-1 of A-ines`,
-				);
-			});
-
-			it("still accepts a sample by the Operator with no cause", () => {
-				expect(sampled(operator, rin)()).toMatchObject({
-					kind: "VitalitySampled",
-					actor: operator,
-				});
-			});
 		});
 	});
 

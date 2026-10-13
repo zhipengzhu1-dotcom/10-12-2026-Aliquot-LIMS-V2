@@ -123,7 +123,6 @@ const CONDUCTOR_ACTS: ReadonlySet<EventKind> = new Set([
 	"TurnStarted",
 	"TurnFinished",
 	"ActionRefused",
-	"VitalitySampled",
 ]);
 
 /**
