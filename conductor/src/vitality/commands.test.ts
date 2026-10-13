@@ -86,7 +86,7 @@ describe("aliquot vitality", () => {
 		expect(storedTier(rin)).toBe("Trusted");
 	});
 
-	it("shows every live Agent, one line each", () => {
+	it("show shows every live Agent, one line each", () => {
 		const lines = ok(vitality("show")).trimEnd().split("\n");
 		expect(lines.map((l) => l.split(" ")[0])).toEqual([
 			"A-odile",
@@ -103,7 +103,7 @@ describe("aliquot vitality", () => {
 		);
 	});
 
-	it("lists each live Agent's Trust tier and standing, read-only, and has no --apply", () => {
+	it("tiers lists each live Agent's Trust tier and standing, read-only, and has no --apply", () => {
 		rmSync(home, { recursive: true, force: true });
 		const s = scenario(undefined, { home });
 		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
@@ -139,7 +139,7 @@ describe("aliquot vitality", () => {
 		});
 	});
 
-	it("appends a Vitality sample computed from the Ledger", () => {
+	it("sample appends a Vitality sample computed from the Ledger", () => {
 		expect(
 			ok(vitality("sample", "A-rin", "--tokens", "300", "--budget", "8000")),
 		).toBe(
