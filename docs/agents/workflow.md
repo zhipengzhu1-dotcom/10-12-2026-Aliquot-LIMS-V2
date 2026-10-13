@@ -15,7 +15,7 @@ A ticket has three sections: **What to build**, **Acceptance criteria** as a che
 
 ## Check the work
 
-Run `tools/check.sh` before every commit. It runs every check CI runs, for both languages, and exits non-zero at the first failure; CI and `tools/land-ticket.sh` call the same script. Under CI, a test whose prerequisite is missing fails instead of skipping: the Docker-backed vitest suites when Docker is down, and the forbidden-terms pytest when the `ALIQUOT_FORBIDDEN_TERMS` secret is unset. Biome refuses a domain's `commands.ts` that imports `openLedger` or calls `safeParse`; it uses `withLedger`, `parseOrUsage` and `parseOrThrow` from `conductor/src/cli-support.ts`. It also refuses an append call in `task/commands.ts`, which appends through the Task lifecycle.
+Run `tools/check.sh` before every commit. It runs every check CI runs, for both languages, and exits non-zero at the first failure; CI and `tools/land-ticket.sh` call the same script. Under CI, a test whose prerequisite is missing fails instead of skipping: the Docker-backed vitest suites when Docker is down, and the forbidden-terms pytest when the `ALIQUOT_FORBIDDEN_TERMS` secret is unset. Biome refuses a domain's `commands.ts` that imports `openLedger` or calls `safeParse`; it uses `withLedger`, `parseOrUsage` and `parseOrThrow` from `conductor/src/cli-support.ts`. It also refuses an append call in any non-test module except a domain's `lifecycle.ts`, `ledger.ts` and `test-support/`, so commands and other modules append through a domain's lifecycle.
 
 ## Land the ticket
 

@@ -1,0 +1,5 @@
+language js
+
+`$ledger.append` as $member where {
+	register_diagnostic(span=$member, message="Only a domain's lifecycle module appends its Events: call a verb in that domain's lifecycle.ts.", severity="error")
+}
