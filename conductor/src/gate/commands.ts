@@ -191,10 +191,9 @@ const decideCommand = async (args: string[], ctx: CommandContext) => {
 		meaning: values.approve ? "approve" : "reject",
 		reason: values.reason,
 	} as const;
-	const decided = withLedger(ctx.home, true, (ledger) => {
-		const { seq } = decideGate(ledger, decision);
-		return ledger.all().find((event) => event.seq === seq);
-	});
+	const { event: decided } = withLedger(ctx.home, true, (ledger) =>
+		decideGate(ledger, decision),
+	);
 	ctx.stdout.write(`${canonicalJson(decided)}\n`);
 	return 0;
 };

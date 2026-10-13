@@ -119,7 +119,7 @@ export const sandboxCommands: CommandTable = {
 				values.type ? [values.type] : [],
 			);
 			const bytes = readFileSync(path);
-			const artifact = withLedger(ctx.home, true, (ledger) =>
+			const { artifact } = withLedger(ctx.home, true, (ledger) =>
 				openArtifacts({ ledger, home: ctx.home }).store(
 					bytes,
 					{

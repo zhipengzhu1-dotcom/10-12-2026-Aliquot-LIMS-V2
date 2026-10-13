@@ -167,7 +167,10 @@ export const runStage1 = async (options: {
 	const ownerActor: Actor = { tag: "Agent", id: owner };
 	const filename = basename(options.formPath);
 
-	const fixture = openArtifacts({ ledger, home }).store(
+	const { artifact: fixture, seq: stored } = openArtifacts({
+		ledger,
+		home,
+	}).store(
 		readFileSync(options.formPath),
 		{
 			artifact_type: "SubmissionForm",
@@ -178,14 +181,10 @@ export const runStage1 = async (options: {
 		},
 		{ actor: OPERATOR },
 	);
-	const stored = productionOf(ledger.projections.artifacts, fixture.id, {
-		tag: "Operator",
-	});
-	if (!stored) throw new Error(`no ArtifactStored for ${fixture.id}`);
 
 	const task_id = propose(ledger, {
 		actor: OPERATOR,
-		causation_id: stored.seq,
+		causation_id: stored,
 		title: `Parse Submission Form ${filename}`,
 		goal: "Extract the submission record and pass the stage 1 Evaluation",
 		inputs: [fixture.id],

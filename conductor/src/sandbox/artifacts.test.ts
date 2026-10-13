@@ -41,18 +41,23 @@ describe("blob store", () => {
 			actor: operator,
 		});
 
-		expect(first.id).toBe(
+		expect(first.artifact.id).toBe(
 			"397ec95583578116203359d83765a9858213da59fa537356d290521a91c239ad",
 		);
-		expect(second).toEqual(first);
-		expect(storedEvents()).toHaveLength(1);
+		expect(second, "the same record and seq").toEqual(first);
+		expect(
+			storedEvents().map((e) => e.seq),
+			"one ArtifactStored, at the seq store returned",
+		).toEqual([first.seq]);
 	});
 
 	it("reads the bytes back and refuses a blob whose bytes no longer match its id", () => {
 		const artifacts = openArtifacts({ ledger, home });
-		const stored = artifacts.store(Buffer.from("lot LT-0042\n"), form, {
-			actor: operator,
-		});
+		const { artifact: stored } = artifacts.store(
+			Buffer.from("lot LT-0042\n"),
+			form,
+			{ actor: operator },
+		);
 		expect(artifacts.read(stored.id).toString()).toBe("lot LT-0042\n");
 
 		chmodSync(artifacts.path(stored.id), 0o644);
@@ -66,12 +71,12 @@ describe("blob store", () => {
 describe("artifact projection", () => {
 	it("projects ArtifactStored Events into Artifacts with their filename and Lineage", () => {
 		const artifacts = openArtifacts({ ledger, home });
-		const input = artifacts.store(
+		const { artifact: input } = artifacts.store(
 			Buffer.from("form"),
 			{ ...form, filename: "submission_form.docx" },
 			{ actor: operator },
 		);
-		const output = artifacts.store(
+		const { artifact: output } = artifacts.store(
 			Buffer.from("{}"),
 			{
 				artifact_type: "Other",

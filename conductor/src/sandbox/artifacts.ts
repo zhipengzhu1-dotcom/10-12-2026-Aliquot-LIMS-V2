@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { sha256Hex } from "../hash.js";
 import { ArtifactId, type Seq, Sha256 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import type { Recorded } from "../lifecycle-support.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type {
@@ -106,13 +107,14 @@ export type ArtifactMeta = Pick<
 export type Artifacts = {
 	/**
 	 * Write the bytes to `blobs/<sha256>` and store them through the Sandbox
-	 * lifecycle, which returns the record of these bytes for this producer.
+	 * lifecycle, which returns the record of these bytes for this producer
+	 * and the seq of its ArtifactStored.
 	 */
 	store(
 		bytes: Uint8Array,
 		meta: ArtifactMeta,
 		by: { readonly actor: Actor },
-	): StoredArtifact;
+	): Recorded<"artifact", StoredArtifact>;
 	/** The bytes, checked against the id. */
 	read(id: ArtifactId): Buffer;
 	/** Where the bytes live on disk. */
@@ -157,7 +159,7 @@ export const openArtifacts = ({
 		store: (bytes, meta, by) => {
 			const sha256 = Sha256.parse(sha256Hex(bytes));
 			writeBlob(ArtifactId.parse(sha256), bytes);
-			return store(ledger, by, { sha256, ...meta }).artifact;
+			return store(ledger, by, { sha256, ...meta });
 		},
 	};
 };

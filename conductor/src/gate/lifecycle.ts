@@ -1,5 +1,5 @@
 import { orRefuse } from "../append-guard.js";
-import type { NewEvent } from "../events.js";
+import type { Event, NewEvent } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
 import { GateId, nextId, type Seq, type Sha256, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
@@ -25,12 +25,16 @@ type Blocking = {
 
 type GateEvent = Extract<NewEvent, { kind: "GateRequested" | "GateDecided" }>;
 
-const record = (ledger: Ledger, event: GateEvent): Recorded<"gate", Gate> => {
-	const { seq } = ledger.append(event);
-	const { gate_id } = event.payload;
+/** What a Gate verb recorded, and the Event as the Ledger wrote it. */
+type Written = Recorded<"gate", Gate> & { readonly event: Event };
+
+const record = (ledger: Ledger, newEvent: GateEvent): Written => {
+	const event = ledger.append(newEvent);
+	const { gate_id } = newEvent.payload;
 	return {
 		gate: readBack(ledger.projections.gates.gates.get(gate_id), gate_id),
-		seq,
+		seq: event.seq,
+		event,
 	};
 };
 
@@ -76,7 +80,8 @@ export const requestGateForTask = (
  * The Operator's decision on `gate_id`, signed for the payload hash the
  * Operator checked, naming the Gate's request as its cause. The Ledger
  * refuses a hash that is not the stored one, writing nothing, and stamps
- * `decided_at` with the time it records the decision (ADR-0006).
+ * `decided_at` with the time it records the decision (ADR-0006), so the
+ * decision Event comes back as the Ledger wrote it.
  */
 export const decideGate = (
 	ledger: Ledger,
@@ -91,7 +96,7 @@ export const decideGate = (
 		readonly meaning: "approve" | "reject";
 		readonly reason: string;
 	},
-): Recorded<"gate", Gate> => {
+): Written => {
 	const gate = orRefuse(
 		"GateDecided",
 		requestedGate(ledger.projections.gates, gate_id),

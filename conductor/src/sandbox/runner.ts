@@ -307,7 +307,7 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 				notes.push(`skipped /outputs/${filename}: ${(error as Error).message}`);
 				continue;
 			}
-			const stored = artifacts.store(
+			const { artifact: stored } = artifacts.store(
 				bytes,
 				{
 					...produced,
@@ -331,7 +331,7 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 					filename,
 				},
 				by,
-			).id;
+			).artifact.id;
 		const stderr = Buffer.concat([
 			exit.stderr,
 			Buffer.from(notes.map((note) => `[aliquot] ${note}\n`).join("")),
