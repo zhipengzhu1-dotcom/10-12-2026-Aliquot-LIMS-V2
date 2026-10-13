@@ -39,8 +39,8 @@ const lotOf = (bytes: Buffer): string | undefined => {
 };
 
 /**
- * Every Review in Ledger order, with the Task's assignee and the assignee's
- * Merit just after it. `merit` is null for a Review that does not count
+ * Every Review in Ledger order, with its note, the Task's assignee and the
+ * assignee's Merit just after it. `merit` is null for a Review that does not count
  * toward Merit, such as the Auditor's on a Task skipped for Review.
  */
 const reviewRows = (p: Projections) => {
@@ -55,12 +55,12 @@ const reviewRows = (p: Projections) => {
 	return [...p.work.reviews.values()]
 		.flat()
 		.sort((a, b) => a.seq - b.seq)
-		.map(({ review: { reviewer, note: _, ...scores }, seq, ts }) => ({
+		.map(({ review: { reviewer, ...review }, seq, ts }) => ({
 			seq,
 			at: ts,
-			...scores,
+			...review,
 			reviewer: actorText(reviewer),
-			assignee: assigneeOf(p.tasks.tasks.get(scores.task_id)) ?? null,
+			assignee: assigneeOf(p.tasks.tasks.get(review.task_id)) ?? null,
 			merit: meritAfter.get(seq) ?? null,
 		}));
 };

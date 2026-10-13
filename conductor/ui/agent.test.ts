@@ -142,6 +142,30 @@ describe("the Agent view", () => {
 		);
 	});
 
+	it("draws a point for each of 21 reviewed Tasks, past the Merit window", async () => {
+		const first = s.reviewed(RIN, scores(0));
+		s.reviewed(AgentId.parse("A-bram"), scores(1));
+		for (let i = 0; i < 20; i++) s.reviewed(RIN, scores(3));
+
+		const merit = sectionOf(await agentPage(), "merit");
+
+		expect(merit).toContain("Merit 3.00 over 21 reviewed Tasks");
+		const rows = reviewRows(merit);
+		expect(rows, "one row per Review of Rin's").toHaveLength(21);
+		expect(rows[0], "the Review outside the window").toEqual([
+			first,
+			"0",
+			"0",
+			"0",
+			"0",
+			"0",
+			"0.00",
+			"",
+		]);
+		expect(rows.at(-1)?.[6], "Merit over the last 20 Tasks").toBe("3.00");
+		expect(merit.match(/<circle /g)).toHaveLength(21);
+	});
+
 	it("reads the Training Projection from /api/training", async () => {
 		trainedRin();
 
