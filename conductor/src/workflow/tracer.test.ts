@@ -213,6 +213,56 @@ const lastSampleWithoutTest = workOrderCopy("last_sample_without_test", [
 	"]",
 ]);
 
+/**
+ * compute_results, except that a copy runs `patch` on the Script's module,
+ * imported as `original`, before its main.
+ */
+const resultsCopy =
+	(name: string, patch: readonly string[]) => (stage: Stage) => {
+		if (stage.script !== "compute_results") return scriptOf(stage);
+		const dir = join(home, name);
+		mkdirSync(dir, { recursive: true });
+		copyFileSync(
+			join(scriptsRoot, "compute_results", "main.py"),
+			join(dir, "original.py"),
+		);
+		writeFileSync(
+			join(dir, "main.py"),
+			[
+				"import sys",
+				"",
+				"import original",
+				"",
+				...patch,
+				"sys.exit(original.main())",
+				"",
+			].join("\n"),
+		);
+		return dir;
+	};
+
+const typedFirstAverage = resultsCopy("typed_first_average", [
+	"from openpyxl import load_workbook",
+	"",
+	"write_sheet = original.write_sheet",
+	"",
+	"",
+	"def typed(path, number, samples):",
+	"    write_sheet(path, number, samples)",
+	"    wb = load_workbook(path)",
+	"    wb.active['H6'] = wb.active['F6'].value / 20",
+	"    wb.save(path)",
+	"",
+	"",
+	"original.write_sheet = typed",
+]);
+
+const resultsOneMilligramHigh = resultsCopy("results_one_milligram_high", [
+	"original.Weighing.average_g = property(",
+	"    lambda w: w.weight_of_20_g / 20 + 0.001",
+	")",
+]);
+
 const secondFixture = fileURLToPath(
 	new URL("../../../fixtures/submission-form-seed2.docx", import.meta.url),
 );
@@ -262,6 +312,25 @@ describe("the workflow tracer without Docker", () => {
 			trace({ stages: [{ ...submission, inputs: ["WorkOrder"] }] }),
 		).rejects.toThrow(
 			"stage 1 Submission refused: it takes WorkOrder as input, and the Fixture gave none",
+		);
+		expect(
+			s.events().filter((e) => e.kind === "TaskProposed"),
+			"no Task proposed",
+		).toEqual(before);
+	});
+
+	it("refuses the stage that takes the weighings before proposing its Task when none sit beside the Fixture, naming the file", async () => {
+		image = Sha256.parse("c".repeat(64));
+		const formPath = join(home, "no-weighings.docx");
+		copyFileSync(fixture, formPath);
+		const weighingsStage: Stage = {
+			...submission,
+			inputs: ["SubmissionForm", "Other"],
+		};
+		const before = s.events().filter((e) => e.kind === "TaskProposed");
+
+		await expect(trace({ stages: [weighingsStage], formPath })).rejects.toThrow(
+			`stage 1 Submission refused: it takes the weighings beside the Fixture as input, and ${join(home, "no-weighings.weighings.json")} does not exist`,
 		);
 		expect(
 			s.events().filter((e) => e.kind === "TaskProposed"),
@@ -583,7 +652,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 	}, 600_000);
 
 	it("runs stage 3 on stage 2's Receiving Log row and the database it wrote to a Done Task worked by Bram, whose Work Order lists each Sample's Test and the due date 4 business days after receipt", async () => {
-		const { stages } = await trace();
+		const { stages } = await trace({ stages: STAGES.slice(0, 3) });
 
 		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
 			[1, "Done"],
@@ -665,6 +734,125 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(s.events().at(-1)).toMatchObject({
 			kind: "TaskFailed",
 			task_id: workOrder?.task_id,
+		});
+	}, 600_000);
+
+	it("stores the weighings beside the Fixture as the Operator's Other with no Lineage, and runs stage 4 on the Work Order, the weighings and stage 3's database to a Done Task worked by Rin, whose Result Worksheet's Lineage names all three", async () => {
+		const { stages } = await trace();
+
+		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
+			[1, "Done"],
+			[2, "Done"],
+			[3, "Done"],
+			[4, "Done"],
+		]);
+		const [, , workOrder, results] = stages;
+		if (!workOrder || !results) throw new Error("a stage did not run");
+		expect(results.state).toEqual({ tag: "Done", assignee: rin });
+		expect(results.evaluation).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+		expect(results.outputs.map((o) => [o.artifact_type, o.filename])).toEqual([
+			["LimsDatabase", "lims.sqlite"],
+			["Other", "result_worksheet.json"],
+			["ResultWorksheet", "result_worksheet.xlsx"],
+		]);
+		const projection = s.ledger.projections.artifacts;
+		const weighings = ArtifactId.parse(
+			sha256Hex(readFileSync(fixture.replace(/\.docx$/, ".weighings.json"))),
+		);
+		expect(projection.artifacts.get(weighings)).toMatchObject({
+			artifact_type: "Other",
+			media_type: "application/json",
+			produced_by: { tag: "Operator" },
+			filename: "submission-form-seed1.weighings.json",
+		});
+		expect(lineageOf(projection, weighings, { tag: "Operator" })).toEqual([]);
+		const document = ofType(workOrder.outputs, "WorkOrder");
+		const version = ofType(workOrder.outputs, "LimsDatabase");
+		expect(
+			results.run.inputs,
+			"the Work Order, not stage 3's work_order.json, and the weighings",
+		).toEqual([document.id, weighings, version.id]);
+		const worksheet = ofType(results.outputs, "ResultWorksheet");
+		expect(
+			lineageOf(projection, worksheet.id, { tag: "Run", id: results.run.id }),
+		).toEqual([document.id, weighings, version.id]);
+		const events = s.events();
+		const lastOfWorkOrder = events
+			.filter((e) => e.task_id === workOrder.task_id)
+			.at(-1);
+		expect(proposed(results.task_id)?.causation_id).toBe(lastOfWorkOrder?.seq);
+		expect(
+			events.find(
+				(e) => e.kind === "ReviewRecorded" && e.task_id === results.task_id,
+			)?.actor,
+		).toEqual({ tag: "Agent", id: "A-anselm" });
+		const rows = query(
+			ofType(results.outputs, "LimsDatabase"),
+			"SELECT lab_reference, test, value, unit, source_artifact FROM results ORDER BY lab_reference, test",
+		);
+		const mean = (7.0886 / 20 + 7.2103 / 20) / 2;
+		expect(rows.map(([ref, test]) => [ref, test])).toEqual([
+			["LR-2026-0001", "Average capsule weight"],
+			["LR-2026-0001", "Average capsule weight, Work Order mean"],
+			["LR-2026-0002", "Average capsule weight"],
+			["LR-2026-0002", "Average capsule weight, Work Order mean"],
+		]);
+		expect(
+			rows.map(([, , value]) => Number(value).toFixed(9)),
+			"each container's weight of 20 capsules / 20, and their mean",
+		).toEqual([7.0886 / 20, mean, 7.2103 / 20, mean].map((v) => v.toFixed(9)));
+		expect(rows.map(([, , , unit, source]) => [unit, source])).toEqual(
+			Array(4).fill(["g", weighings]),
+		);
+	}, 600_000);
+
+	it("fails stage 4's Evaluation and Task when a copy of compute_results types an average in place of its formula", async () => {
+		const { stages } = await trace({ source: typedFirstAverage });
+
+		const results = stages[3];
+		expect(results?.evaluation).toMatchObject({
+			passed: false,
+			findings: [
+				"row 6 (container 1): Average Weight (g) is 0.35443, not the formula =F6/20",
+			],
+		});
+		expect(results?.state).toMatchObject({
+			tag: "Failed",
+			reason: expect.stringContaining("not the formula =F6/20"),
+		});
+		expect(s.events().at(-1)).toMatchObject({
+			kind: "TaskFailed",
+			task_id: results?.task_id,
+		});
+	}, 600_000);
+
+	it("fails stage 4's Evaluation and Task when a copy of compute_results writes results rows that disagree with the worksheet", async () => {
+		const { stages } = await trace({ source: resultsOneMilligramHigh });
+
+		const results = stages[3];
+		expect(results?.evaluation.passed).toBe(false);
+		expect(results?.evaluation.findings).toEqual(
+			["LR-2026-0001", "LR-2026-0002"].flatMap((ref) => [
+				expect.stringMatching(
+					new RegExp(
+						`^${ref}: results holds [0-9.]+ for Average capsule weight, not`,
+					),
+				),
+				expect.stringMatching(
+					new RegExp(
+						`^${ref}: results holds [0-9.]+ for Average capsule weight, Work Order mean, not`,
+					),
+				),
+			]),
+		);
+		expect(results?.state.tag).toBe("Failed");
+		expect(s.events().at(-1)).toMatchObject({
+			kind: "TaskFailed",
+			task_id: results?.task_id,
 		});
 	}, 600_000);
 });

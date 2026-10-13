@@ -2,6 +2,7 @@ import { AgentId, type ArtifactId } from "../ids.js";
 import type { ArtifactType } from "../types/artifact.js";
 import {
 	evaluateReceipt,
+	evaluateResults,
 	evaluateSubmissionRecord,
 	evaluateWorkOrder,
 } from "./evaluate.js";
@@ -27,7 +28,10 @@ export type Stage = {
 	readonly name: string;
 	/** The Script's name, its directory under `sandbox/scripts/`. */
 	readonly script: string;
-	/** Types taken from the previous stage's outputs; stage 1 takes the Fixture. */
+	/**
+	 * Types taken from the previous stage's outputs; stage 1 takes the
+	 * Fixture. `Other` is the weighings the Operator keeps beside the Fixture.
+	 */
 	readonly inputs: readonly ArtifactType[];
 	/** Types taken from the latest Artifact of that type a Done Task's Run wrote, when there is one. */
 	readonly carried: readonly ArtifactType[];
@@ -96,5 +100,16 @@ export const STAGES: readonly Stage[] = checkStages([
 		worked_by: AgentId.parse("A-bram"),
 		reviewed_by: AgentId.parse("A-pia"),
 		evaluate: evaluateWorkOrder,
+	},
+	{
+		number: 4,
+		name: "Results",
+		script: "compute_results",
+		inputs: ["WorkOrder", "Other"],
+		carried: ["LimsDatabase"],
+		outputs: ["ResultWorksheet", "LimsDatabase"],
+		worked_by: AgentId.parse("A-rin"),
+		reviewed_by: AgentId.parse("A-anselm"),
+		evaluate: evaluateResults,
 	},
 ]);

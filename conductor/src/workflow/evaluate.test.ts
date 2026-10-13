@@ -9,9 +9,12 @@ import type { ArtifactType } from "../types/artifact.js";
 import {
 	dueDate,
 	evaluateReceipt,
+	evaluateResults,
 	evaluateSubmission,
 	evaluateWorkOrder,
+	MEAN_AVERAGE_WEIGHT,
 	RECEIVING_LOG_COLUMNS,
+	RESULT_WORKSHEET_COLUMNS,
 	WORK_ORDER_COLUMNS,
 } from "./evaluate.js";
 import type { StageArtifact } from "./stages.js";
@@ -553,6 +556,214 @@ describe("evaluateWorkOrder", () => {
 			findings: [
 				"the Work Order's columns are Lab Reference, not Lab Reference, Test",
 			],
+		});
+	});
+});
+
+type Cell = string | number | null;
+
+const NAME = "Tallowby Milk Thistle 250 mg Capsules";
+const SEED1_WEIGHINGS = [
+	{ container: 1, weight_of_20_g: 7.0886, weight_taken_g: 0.3541 },
+	{ container: 2, weight_of_20_g: 7.2103, weight_taken_g: 0.3422 },
+];
+const SEED1_MEAN = (7.0886 / 20 + 7.2103 / 20) / 2;
+
+/** The sheet `compute_results` writes for seed 1, as its read-back holds it. */
+const seed1Sheet = (): Cell[][] => [
+	["Result Worksheet: Average Capsule Weight", ...Array(7).fill(null)],
+	["Work Order", WO, ...Array(6).fill(null)],
+	["Test", TEST, ...Array(6).fill(null)],
+	Array(8).fill(null),
+	[...RESULT_WORKSHEET_COLUMNS],
+	[1, PRODUCT_CODE, NAME, "Complete", LOT, 7.0886, 0.3541, "=F6/20"],
+	[2, PRODUCT_CODE, NAME, "Complete", LOT, 7.2103, 0.3422, "=F7/20"],
+	[...Array(6).fill(null), "Mean", "=AVERAGE(H6:H7)"],
+];
+
+/** A database version holding `samples` (Lab Reference, container), `work_orders` and `results` rows. */
+const resultsDatabase = (
+	results: readonly (readonly [string, string, number])[] = [],
+): Buffer => {
+	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
+	try {
+		const path = join(dir, "lims.sqlite");
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TABLE samples (lab_reference TEXT PRIMARY KEY, container INTEGER); CREATE TABLE work_orders (work_order TEXT, lab_reference TEXT, test TEXT); CREATE TABLE results (lab_reference TEXT, test TEXT, value REAL)",
+		);
+		["LR-2026-0001", "LR-2026-0002"].forEach((ref, i) => {
+			db.prepare("INSERT INTO samples VALUES (?, ?)").run(ref, i + 1);
+			db.prepare("INSERT INTO work_orders VALUES (?, ?, ?)").run(WO, ref, TEST);
+		});
+		for (const row of results) {
+			db.prepare("INSERT INTO results VALUES (?, ?, ?)").run(...row);
+		}
+		db.close();
+		return readFileSync(path);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+const SEED1_RESULTS = [
+	["LR-2026-0001", TEST, 7.0886 / 20],
+	["LR-2026-0001", MEAN_AVERAGE_WEIGHT, SEED1_MEAN],
+	["LR-2026-0002", TEST, 7.2103 / 20],
+	["LR-2026-0002", MEAN_AVERAGE_WEIGHT, SEED1_MEAN],
+] as const;
+
+/** Stage 4's Run on seed 1's Work Order and weighings. */
+const resultsRun = ({
+	sheet = seed1Sheet(),
+	weighings = SEED1_WEIGHINGS,
+	written = resultsDatabase(SEED1_RESULTS),
+	readBack = true,
+}: {
+	sheet?: Cell[][];
+	weighings?: typeof SEED1_WEIGHINGS;
+	written?: Buffer;
+	readBack?: boolean;
+} = {}) => ({
+	inputs: [
+		stageArtifact("WorkOrder", "work_order.xlsx", Buffer.from("the xlsx")),
+		stageArtifact(
+			"Other",
+			"submission-form-seed1.weighings.json",
+			Buffer.from(JSON.stringify(weighings)),
+		),
+		stageArtifact("LimsDatabase", "lims.sqlite", resultsDatabase()),
+	],
+	outputs: [
+		stageArtifact(
+			"ResultWorksheet",
+			"result_worksheet.xlsx",
+			Buffer.from("the xlsx"),
+		),
+		stageArtifact("LimsDatabase", "lims.sqlite", written),
+		...(readBack
+			? [
+					stageArtifact(
+						"Other",
+						"result_worksheet.json",
+						Buffer.from(
+							JSON.stringify({ schema: "result_worksheet/1", sheet }),
+						),
+					),
+				]
+			: []),
+	],
+});
+
+// 3 per row (formula, two weights), 1 per weighing, the Mean formula, the
+// Work Order's rows, and 2 per Sample (its average, the mean).
+const resultsChecks = (rows: number, weighings: number, samples: number) =>
+	3 * rows + weighings + 2 + 2 * samples;
+
+describe("evaluateResults", () => {
+	it("passes seed 1's worksheet: each average and the mean by formula, the weighings as values, and results rows that agree", () => {
+		expect(evaluateResults(resultsRun())).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+	});
+
+	it("fails a typed value in place of an average's formula or the mean's, naming the row", () => {
+		const sheet = seed1Sheet();
+		(sheet[5] as Cell[])[7] = 0.35443;
+		(sheet[7] as Cell[])[7] = 0.3574725;
+
+		const evaluation = evaluateResults(resultsRun({ sheet }));
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.score).toBeCloseTo(
+			(resultsChecks(2, 2, 2) - 2) / resultsChecks(2, 2, 2),
+		);
+		expect(evaluation.findings).toEqual([
+			"row 6 (container 1): Average Weight (g) is 0.35443, not the formula =F6/20",
+			"the Mean row's Average Weight (g) is 0.3574725, not the formula =AVERAGE(H6:H7)",
+		]);
+	});
+
+	it("fails a weight that is not its container's weighing, and a weighing with no row", () => {
+		const sheet = seed1Sheet();
+		(sheet[6] as Cell[])[5] = 7.21;
+
+		const evaluation = evaluateResults(
+			resultsRun({
+				sheet,
+				weighings: [
+					...SEED1_WEIGHINGS,
+					{ container: 3, weight_of_20_g: 7.1, weight_taken_g: 0.35 },
+				],
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"row 7 (container 2): Weight of 20 Capsules (g) 7.21 is not the weighing's 7.2103",
+			"container 3: the worksheet has no row for its weighing",
+		]);
+	});
+
+	it("fails a results row that disagrees with the worksheet by more than 0.0001 g, and passes one within it", () => {
+		const off = (by: number) =>
+			resultsDatabase(
+				SEED1_RESULTS.map(([ref, test, value]) =>
+					ref === "LR-2026-0001" && test === TEST
+						? ([ref, test, value + by] as const)
+						: ([ref, test, value] as const),
+				),
+			);
+
+		expect(evaluateResults(resultsRun({ written: off(0.00009) })).passed).toBe(
+			true,
+		);
+		expect(
+			evaluateResults(resultsRun({ written: off(0.001) })).findings,
+		).toEqual([
+			`LR-2026-0001: results holds ${7.0886 / 20 + 0.001} for ${TEST}, not ${7.0886 / 20}, container 1's Weight of 20 Capsules (g) / 20, within 0.0001 g`,
+		]);
+	});
+
+	it("fails a Sample with no results rows, and a mean that is not the mean of the averages", () => {
+		const evaluation = evaluateResults(
+			resultsRun({
+				written: resultsDatabase([
+					["LR-2026-0001", TEST, 7.0886 / 20],
+					["LR-2026-0001", MEAN_AVERAGE_WEIGHT, 7.0886 / 20],
+				]),
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			`LR-2026-0001: results holds ${7.0886 / 20} for ${MEAN_AVERAGE_WEIGHT}, not ${SEED1_MEAN}, the mean of the worksheet's averages, within 0.0001 g`,
+			`LR-2026-0002: results holds no row for ${TEST}, not ${7.2103 / 20}, container 2's Weight of 20 Capsules (g) / 20, within 0.0001 g`,
+			`LR-2026-0002: results holds no row for ${MEAN_AVERAGE_WEIGHT}, not ${SEED1_MEAN}, the mean of the worksheet's averages, within 0.0001 g`,
+		]);
+	});
+
+	it("scores 0 when the Run wrote no read-back, a sheet without the columns, or no Mean row", () => {
+		expect(evaluateResults(resultsRun({ readBack: false }))).toEqual({
+			score: 0,
+			passed: false,
+			findings: ["the Run has no result_worksheet.json read-back"],
+		});
+		expect(
+			evaluateResults(resultsRun({ sheet: seed1Sheet().slice(0, 4) })),
+		).toEqual({
+			score: 0,
+			passed: false,
+			findings: [
+				`the worksheet has no row of the Result Worksheet's columns ${RESULT_WORKSHEET_COLUMNS.join(", ")}`,
+			],
+		});
+		expect(
+			evaluateResults(resultsRun({ sheet: seed1Sheet().slice(0, 7) })),
+		).toEqual({
+			score: 0,
+			passed: false,
+			findings: ["the worksheet has no Mean row"],
 		});
 	});
 });
