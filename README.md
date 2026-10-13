@@ -165,7 +165,12 @@ pnpm -C conductor cli --home /tmp/aliquot task complete T-2 --reviewer A-pia --a
 AppendRefused: TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); A-odile may not review T-2
 ```
 
-`task assign` and `task handoff` are never refused for the new assignee's Vitality or Rest: Mood is flat (see [Vitality and Merit](#vitality-and-merit)).
+`task assign` and `task handoff` are never refused for the new assignee's Vitality or Rest: Mood is flat (see [Vitality and Merit](#vitality-and-merit)). They are refused when the new assignee is paused, Retired, or not in the Org, in the words that refuse a Turn for that Agent:
+
+```text
+AppendRefused: TaskAssigned refused: A-bram is paused
+AppendRefused: TaskHandedOff refused: A-nobody is not a live Agent in the Org
+```
 
 Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
 

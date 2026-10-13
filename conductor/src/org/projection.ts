@@ -44,6 +44,19 @@ export const liveAgent = (
 		: new Refusal(`${id} is not a live Agent in the Org`);
 };
 
+/**
+ * The Agent `id` when it is live and not paused: one that may take a Turn,
+ * an assignment, or a Hand-off.
+ */
+export const activeAgent = (
+	state: OrgState,
+	id: AgentId,
+): AgentState | Refusal => {
+	const live = liveAgent(state, id);
+	if (live instanceof Refusal) return live;
+	return live.paused ? new Refusal(`${id} is paused`) : live;
+};
+
 export const OrgProjection: Projection<OrgState> = {
 	init: { agents: new Map() },
 	reduce: (state, event) => {

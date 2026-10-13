@@ -144,6 +144,7 @@ describe("TaskProjection", () => {
 	});
 
 	it("returns a handed-off Task to Assigned with the new assignee, and the Event records the old one", () => {
+		seedOrg(ledger);
 		ledger.append(proposed());
 		ledger.append(assigned(odile));
 		ledger.append(started());
@@ -183,6 +184,7 @@ describe("TaskProjection", () => {
 
 describe("TaskProjection beyond the happy path", () => {
 	const inProgress = () => {
+		seedOrg(ledger);
 		ledger.append(proposed());
 		ledger.append(assigned());
 		ledger.append(started());
@@ -249,6 +251,7 @@ describe("the Task state machine at append", () => {
 	});
 
 	it("refuses completing a Task that is not InProgress or UnderReview, naming its state", () => {
+		seedOrg(ledger);
 		ledger.append(proposed());
 		ledger.append(assigned());
 
@@ -263,6 +266,7 @@ describe("the Task state machine at append", () => {
 	});
 
 	it("refuses a Hand-off from an Agent who does not hold the Task", () => {
+		seedOrg(ledger);
 		ledger.append(proposed());
 		ledger.append(assigned(odile));
 		ledger.append(started());
