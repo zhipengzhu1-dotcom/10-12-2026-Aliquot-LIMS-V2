@@ -1,3 +1,7 @@
+import { ledgerView } from "./ledger.js";
+import { escapeHtml } from "./markup.js";
+import { orgView } from "./org.js";
+
 /** The Projection JSON a view shows, by the API route it came from. */
 export type Sources = Readonly<Record<string, unknown>>;
 
@@ -11,19 +15,17 @@ export type View = {
 	readonly title: string;
 	readonly sources: readonly string[];
 	readonly render: (view: View, data: Sources) => string;
+	/**
+	 * What `render` reads, for a view that fetches by the hash's parameters
+	 * (`#/ledger?before=51`) rather than `sources` as they stand.
+	 */
+	readonly load?: (
+		params: URLSearchParams,
+		get: (route: string) => Promise<unknown>,
+	) => Promise<Sources>;
 };
 
-const ENTITIES: Readonly<Record<string, string>> = {
-	"&": "&amp;",
-	"<": "&lt;",
-	">": "&gt;",
-	'"': "&quot;",
-	"'": "&#39;",
-};
-
-/** Text safe to put in markup: a Message body is anyone's words. */
-export const escapeHtml = (text: string): string =>
-	text.replace(/[&<>"']/g, (ch) => ENTITIES[ch] ?? ch);
+export { escapeHtml };
 
 /** Each source's JSON as it came, until the view's ticket draws it. */
 export const jsonPage = (view: View, data: Sources): string =>
@@ -43,19 +45,23 @@ const view = (name: string, title: string, sources: string[]): View => ({
 });
 
 export const VIEWS: readonly View[] = [
-	view("org", "Org", ["org", "vitality", "tiers"]),
+	orgView,
 	view("flow", "Flow", ["tasks"]),
 	view("agent", "Agent", ["org", "vitality", "tiers"]),
 	view("rooms", "Rooms", ["rooms"]),
 	view("scripts", "Scripts", ["scripts", "runs", "artifacts"]),
 	view("gates", "Gates", ["gates"]),
 	view("performance", "Performance", ["tiers", "vitality", "tasks", "turns"]),
-	view("ledger", "Ledger", ["ledger", "ledger/verify"]),
+	ledgerView,
 ];
 
 /** The view a hash like `#/gates` names; the Org view for any other. */
 export const viewOf = (hash: string): View =>
-	VIEWS.find((v) => hash === `#/${v.name}`) ?? (VIEWS[0] as View);
+	VIEWS.find((v) => hash.split("?")[0] === `#/${v.name}`) ?? (VIEWS[0] as View);
+
+/** The parameters after `?` in a hash like `#/ledger?before=51`. */
+export const paramsOf = (hash: string): URLSearchParams =>
+	new URLSearchParams(hash.split("?")[1] ?? "");
 
 export const navigation = (current: View): string =>
 	VIEWS.map(

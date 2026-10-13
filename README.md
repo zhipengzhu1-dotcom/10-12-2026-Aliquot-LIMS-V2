@@ -466,6 +466,7 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 |---|---|
 | `GET /` | The interface, from `conductor/dist/ui/`. |
 | `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts`, `/api/turns` | The Projection as JSON. Each map is an object keyed by id. `/api/turns` holds every Turn by id and each Agent's open Turn, the data `turn list` prints. |
+| `GET /api/org-tree` | The reporting tree `org tree` prints: the Operator at the root, each live Agent as `{tag: "Agent", agent, children}`, and the Specialists in one `{tag: "Pool", supervisors, children}` node. |
 | `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
 | `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
 | `GET /api/ledger?from=<seq>&limit=<n>` | `{events, next}`: the Events from seq `from` (default 1), at most `limit` (default 100, at most 1000). `next` is the seq the next page starts from, or `null` after the last Event. |
@@ -531,4 +532,11 @@ Node's `crypto` verifies the token, so Access needs no dependency.
 
 The interface is plain TypeScript in `conductor/ui/`, with no framework and no bundler. `pnpm -C conductor build` compiles it with `ui/tsconfig.build.json` to ES modules in `conductor/dist/ui/`, and copies `ui/index.html` beside them. `pnpm -C conductor lint` and `typecheck` cover `ui/`. Without a build, `aliquot serve` says so on stderr and serves the API only.
 
-The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and shows them as JSON. It fetches them again on every Event from `/api/events`. In `ui/views.ts`, each view is a pure function from Projection JSON to markup, so its ticket replaces that function and tests it without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body.
+The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and draws them. It fetches them again on every Event from `/api/events`. A view its ticket has not drawn yet shows the JSON as it came. In `ui/views.ts`, each view is a pure function from Projection JSON to markup, in a module of its own such as `ui/org.ts`, tested without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body, and its status line shows the answer to every action, a view's included.
+
+A view's action is a form whose markup names the verb in `data-action` and the fixed part of the body in `data-body`. The page sets each field the Operator fills in at its name, so `definition.supervisor_id` sets that key of the body, and an empty field leaves its key out. A redraw keeps the panels the Operator opened and the text they typed.
+
+| View | Shows | Actions |
+|---|---|---|
+| Org (`#/org`) | The tree `org tree` prints, from `/api/org-tree`. Each Agent has its Mood and load from `/api/vitality`, its Trust tier, and a `paused` badge when paused. | Under **Actions**: pause with a reason, or resume a paused Agent; reassign, a Revision of `supervisor_id` to the Operator, the Director or a Supervisor that does not report to the Agent; request retirement, which requests a `RetireAgent` Gate with a reason. The Agent's name opens `#/agent?id=<id>`. |
+| Ledger (`#/ledger`) | The Events, newest first, 50 a page, each with seq, time, actor, kind, Task and cause, and its payload, which opens on click. A status line gives the verdict of `/api/ledger/verify` and when it was read. The newest page takes each new Event at its top; `#/ledger?before=<seq>` is the page of the 50 Events before that seq, and it stays put. | **Verify** reads the verdict again. A cause links to the page it heads. |

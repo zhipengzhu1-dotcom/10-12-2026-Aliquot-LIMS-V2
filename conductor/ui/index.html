@@ -11,6 +11,8 @@
 		--muted: #6b6b66;
 		--line: #deddd8;
 		--accent: #2f5d8a;
+		--warn: #9a6200;
+		--bad: #b3261e;
 		color-scheme: light dark;
 	}
 	@media (prefers-color-scheme: dark) {
@@ -20,6 +22,8 @@
 			--muted: #9a9993;
 			--line: #33332f;
 			--accent: #8fb6dd;
+			--warn: #e0b060;
+			--bad: #f08a80;
 		}
 	}
 	body {
@@ -59,6 +63,62 @@
 	@media (max-width: 40rem) {
 		form { grid-template-columns: 1fr; }
 	}
+	button, input, select { font: inherit; }
+	ul.org, ul.org ul { list-style: none; margin: 0; padding-left: 1.25rem; }
+	ul.org { padding-left: 0; }
+	ul.org ul { border-left: 1px solid var(--line); }
+	.operator, .pool { padding: 0.35rem 0; color: var(--muted); }
+	.agent {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem 0.6rem;
+		padding: 0.35rem 0;
+	}
+	.agent > a { color: var(--fg); font-weight: 600; }
+	.role, .load-value { color: var(--muted); font-size: 13px; }
+	.badge {
+		padding: 0 0.45rem;
+		border: 1px solid var(--line);
+		border-radius: 999px;
+		font-size: 12px;
+	}
+	.mood-fresh, .mood-focused { color: var(--accent); }
+	.mood-strained, .mood-discouraged, .paused { color: var(--warn); border-color: currentColor; }
+	.mood-overloaded { color: var(--bad); border-color: currentColor; }
+	.mood-resting { color: var(--muted); }
+	meter.load { width: 6rem; }
+	.agent details { flex-basis: 100%; }
+	.agent summary { color: var(--muted); cursor: pointer; font-size: 13px; }
+	.agent details form {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		padding: 0.25rem 0;
+	}
+	.agent details input { flex: 1 1 12rem; }
+	.verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+	.verdict.broken { color: var(--bad); font-weight: 600; }
+	main { overflow-x: auto; }
+	table.ledger { width: 100%; border-collapse: collapse; font-size: 13px; }
+	table.ledger th, table.ledger td {
+		padding: 0.3rem 0.5rem;
+		border-bottom: 1px solid var(--line);
+		text-align: left;
+		vertical-align: top;
+	}
+	table.ledger td { white-space: nowrap; }
+	table.ledger td:first-child, .cause { font-variant-numeric: tabular-nums; }
+	table.ledger td:last-child { width: 100%; max-width: 0; }
+	table.ledger summary {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		cursor: pointer;
+		font: 12px/1.4 ui-monospace, monospace;
+		color: var(--muted);
+	}
+	table.ledger pre { margin: 0.25rem 0 0; white-space: pre-wrap; }
+	nav.pages { display: flex; gap: 1rem; padding: 0.75rem 0; border: 0; }
 </style>
 </head>
 <body>

@@ -1,6 +1,6 @@
-import { act } from "./actions.js";
+import { act, answerText, bodyOf } from "./actions.js";
 import { onLedgerEvent } from "./sse.js";
-import { escapeHtml, navigation, viewOf } from "./views.js";
+import { escapeHtml, navigation, paramsOf, viewOf } from "./views.js";
 
 const element = <T extends Element>(selector: string): T => {
 	const found = document.querySelector<T>(selector);
@@ -19,16 +19,41 @@ const fetchJson = async (route: string): Promise<unknown> => {
 	return res.json();
 };
 
+/**
+ * Draw `markup` in the page, keeping what the Operator had open, typed and
+ * focused: a view is redrawn on every Event, mid-sentence or not.
+ */
+const draw = (markup: string) => {
+	const open = [...page.querySelectorAll("details[open][id]")].map((d) => d.id);
+	const typed = [
+		...page.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+			"input[id], select[id]",
+		),
+	].map((field) => [field.id, field.value] as const);
+	const focused = document.activeElement?.id;
+	page.innerHTML = markup;
+	for (const id of open) document.getElementById(id)?.setAttribute("open", "");
+	for (const [id, value] of typed) {
+		const field = document.getElementById(id);
+		if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement)
+			field.value = value;
+	}
+	if (focused) document.getElementById(focused)?.focus();
+};
+
 const render = async () => {
 	const view = viewOf(location.hash);
 	nav.innerHTML = navigation(view);
 	try {
-		const data = Object.fromEntries(
-			await Promise.all(
-				view.sources.map(async (s) => [s, await fetchJson(s)] as const),
-			),
-		);
-		page.innerHTML = view.render(view, data);
+		const data =
+			view.load === undefined
+				? Object.fromEntries(
+						await Promise.all(
+							view.sources.map(async (s) => [s, await fetchJson(s)] as const),
+						),
+					)
+				: await view.load(paramsOf(location.hash), fetchJson);
+		draw(view.render(view, data));
 	} catch (error) {
 		page.innerHTML = `<p role="alert">${escapeHtml(String(error))}</p>`;
 	}
@@ -64,10 +89,32 @@ form.addEventListener("submit", async (submitted) => {
 		answer.value = `The body is not JSON: ${String(error)}`;
 		return;
 	}
-	const result = await act(String(fields.get("verb")), body);
-	answer.value = result.ok
-		? `Appended ${result.event.kind} at seq ${result.event.seq}`
-		: `${result.status}: ${result.text}`;
+	answer.value = answerText(await act(String(fields.get("verb")), body));
+});
+
+// A view's action is a form whose markup carries its verb and fixed body.
+page.addEventListener("submit", async (submitted) => {
+	const target = submitted.target;
+	if (!(target instanceof HTMLFormElement)) return;
+	const verb = target.dataset.action;
+	if (verb === undefined) return;
+	submitted.preventDefault();
+	const fields = [...new FormData(target)].map(
+		([name, value]) => [name, String(value)] as const,
+	);
+	const result = await act(verb, bodyOf(target.dataset.body ?? "{}", fields));
+	answer.value = answerText(result);
+	// The Event may have redrawn the page already, and the form with it.
+	const drawn = document.getElementById(target.id);
+	if (result.ok && drawn instanceof HTMLFormElement) drawn.reset();
+});
+
+page.addEventListener("click", (clicked) => {
+	if (
+		clicked.target instanceof Element &&
+		clicked.target.closest("[data-reload]")
+	)
+		void refresh();
 });
 
 addEventListener("hashchange", () => void refresh());

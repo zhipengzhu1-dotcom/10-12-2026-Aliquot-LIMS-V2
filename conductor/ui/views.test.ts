@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { navigation, VIEWS, viewOf } from "./views.js";
+import { navigation, paramsOf, VIEWS, viewOf } from "./views.js";
 
 describe("the interface's views", () => {
 	it("routes each of the eight views by its hash, and any other hash to Org", () => {
@@ -18,6 +18,13 @@ describe("the interface's views", () => {
 		expect(navigation(viewOf("#/ledger"))).toContain(
 			'<a href="#/ledger" aria-current="page">Ledger</a>',
 		);
+	});
+
+	it("routes a hash with parameters to its view and hands the view the parameters", () => {
+		expect(viewOf("#/ledger?before=51").name).toBe("ledger");
+		expect(viewOf("#/agent?id=A-rin").name).toBe("agent");
+		expect(paramsOf("#/ledger?before=51").get("before")).toBe("51");
+		expect(paramsOf("#/ledger").get("before")).toBeNull();
 	});
 
 	it("shows a view's Projection JSON with every Message body as text, not markup", () => {
