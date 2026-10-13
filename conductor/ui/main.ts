@@ -43,6 +43,7 @@ const draw = (markup: string) => {
 
 const render = async () => {
 	const view = viewOf(location.hash);
+	const params = paramsOf(location.hash);
 	nav.innerHTML = navigation(view);
 	try {
 		const data =
@@ -52,8 +53,8 @@ const render = async () => {
 							view.sources.map(async (s) => [s, await fetchJson(s)] as const),
 						),
 					)
-				: await view.load(paramsOf(location.hash), fetchJson);
-		draw(view.render(view, data));
+				: await view.load(params, fetchJson);
+		draw(view.render(view, data, params));
 	} catch (error) {
 		page.innerHTML = `<p role="alert">${escapeHtml(String(error))}</p>`;
 	}
@@ -107,6 +108,23 @@ page.addEventListener("submit", async (submitted) => {
 	// The Event may have redrawn the page already, and the form with it.
 	const drawn = document.getElementById(target.id);
 	if (result.ok && drawn instanceof HTMLFormElement) drawn.reset();
+});
+
+// A view's filter form names its route in `data-route`; submitting it moves
+// the hash, so the filter lives in the URL and the view stays pure.
+page.addEventListener("submit", (submitted) => {
+	const filter = submitted.target;
+	if (!(filter instanceof HTMLFormElement) || !filter.dataset.route) return;
+	submitted.preventDefault();
+	const params = new URLSearchParams();
+	for (const [key, value] of new FormData(filter)) {
+		if (typeof value === "string" && value.trim() !== "") {
+			params.set(key, value.trim());
+		}
+	}
+	const query = params.toString();
+	location.hash =
+		query === "" ? filter.dataset.route : `${filter.dataset.route}?${query}`;
 });
 
 page.addEventListener("click", (clicked) => {

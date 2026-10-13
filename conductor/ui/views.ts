@@ -1,20 +1,27 @@
+import { FLOW_SOURCES, flowPage } from "./flow.js";
 import { ledgerView } from "./ledger.js";
 import { escapeHtml } from "./markup.js";
 import { orgView } from "./org.js";
+import { PERFORMANCE_SOURCES, performancePage } from "./performance.js";
 
 /** The Projection JSON a view shows, by the API route it came from. */
 export type Sources = Readonly<Record<string, unknown>>;
 
 /**
  * One page of the interface: its hash route, the API routes it reads, and a
- * pure function from their JSON to markup. Each view ticket replaces a
- * `render`; the shell keeps fetching `sources` again on every Ledger Event.
+ * pure function from their JSON and the hash's query, such as
+ * `#/flow?task=T-1`, to markup. Each view ticket replaces a `render`; the
+ * shell keeps fetching `sources` again on every Ledger Event.
  */
 export type View = {
 	readonly name: string;
 	readonly title: string;
 	readonly sources: readonly string[];
-	readonly render: (view: View, data: Sources) => string;
+	readonly render: (
+		view: View,
+		data: Sources,
+		params?: URLSearchParams,
+	) => string;
 	/**
 	 * What `render` reads, for a view that fetches by the hash's parameters
 	 * (`#/ledger?before=51`) rather than `sources` as they stand.
@@ -37,21 +44,28 @@ export const jsonPage = (view: View, data: Sources): string =>
 		),
 	].join("\n");
 
-const view = (name: string, title: string, sources: string[]): View => ({
-	name,
-	title,
-	sources,
-	render: jsonPage,
-});
+const view = (
+	name: string,
+	title: string,
+	sources: readonly string[],
+	render: View["render"] = jsonPage,
+): View => ({ name, title, sources, render });
 
 export const VIEWS: readonly View[] = [
 	orgView,
-	view("flow", "Flow", ["tasks"]),
+	view(
+		"flow",
+		"Flow",
+		FLOW_SOURCES,
+		(_, data, params = new URLSearchParams()) => flowPage(data, params),
+	),
 	view("agent", "Agent", ["org", "vitality", "tiers"]),
 	view("rooms", "Rooms", ["rooms"]),
 	view("scripts", "Scripts", ["scripts", "runs", "artifacts"]),
 	view("gates", "Gates", ["gates"]),
-	view("performance", "Performance", ["tiers", "vitality", "tasks", "turns"]),
+	view("performance", "Performance", PERFORMANCE_SOURCES, (_, data) =>
+		performancePage(data),
+	),
 	ledgerView,
 ];
 
