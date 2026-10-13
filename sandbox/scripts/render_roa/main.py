@@ -245,7 +245,6 @@ def build_report(
             f"no Sample of Work Order {work_order} is on the Receiving Log row"
         )
     ref, test = on_log[0]
-    db.row_factory = sqlite3.Row
     sample = db.execute(
         "SELECT * FROM samples WHERE lab_reference = ?", (ref,)
     ).fetchone()
@@ -387,6 +386,7 @@ def render_roa(inputs: Path, outputs: Path) -> Report:
         database = out / "lims.sqlite"
         shutil.copyfile(given.database, database)
         with closing(sqlite3.connect(database)) as db:
+            db.row_factory = sqlite3.Row
             (version,) = db.execute("PRAGMA user_version").fetchone()
             if version != SCHEMA_VERSION:
                 raise ReportError(
