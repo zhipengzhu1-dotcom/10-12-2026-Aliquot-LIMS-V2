@@ -15,6 +15,15 @@
 //   outside <verb> <json>       run an action from outside the page, as
 //                               another client of the Action endpoint
 //   save <selector> <file>      save the element's text under the proof dir
+//   landing                     assert the Access landing shows, not the shell
+//   enter                       press ENTER on the landing; the shell shows
+//   shell                       assert the shell shows, not the landing
+//   scheme <light|dark>         emulate prefers-color-scheme
+//   viewport <width>            emulate a window <width> CSS px wide
+//   no-hscroll                  assert the page does not scroll sideways
+// Every run starts as an Operator who already passed the Access landing this
+// session, so a drive lands in the shell; a run whose steps include `landing`
+// starts a fresh session instead, on the landing.
 // Writes <run>/proof/<name>/NN-<step>.png and steps.tsv. Exits 1 at the
 // first step that fails, after a screenshot of the failure.
 import { spawn } from "node:child_process";
@@ -45,7 +54,26 @@ mkdirSync(out, { recursive: true });
 const tsv = join(out, "steps.tsv");
 writeFileSync(tsv, "n\tstep\tresult\tscreenshot\n");
 
-const ARITY = { goto: 1, click: 1, fill: 2, choose: 2, wait: 1, gone: 1, count: 2, text: 2, mark: 0, "same-page": 0, outside: 2, save: 2 };
+const ARITY = {
+	goto: 1,
+	click: 1,
+	fill: 2,
+	choose: 2,
+	wait: 1,
+	gone: 1,
+	count: 2,
+	text: 2,
+	mark: 0,
+	"same-page": 0,
+	outside: 2,
+	save: 2,
+	landing: 0,
+	enter: 0,
+	shell: 0,
+	scheme: 1,
+	viewport: 1,
+	"no-hscroll": 0,
+};
 const steps = [];
 for (let i = 0; i < rest.length; ) {
 	const verb = rest[i];
@@ -107,6 +135,10 @@ const evaluate = async (expression) => {
 };
 
 const q = (selector) => `document.querySelector(${JSON.stringify(selector)})`;
+// conductor/ui/access.ts: the sessionStorage key that says the landing was passed.
+const ENTERED_KEY = "aliquot.access.entered";
+const frameShows = (shown, hidden) =>
+	`(() => { const on = ${q(shown)}, off = ${q(hidden)}; return on !== null && off !== null && getComputedStyle(on).display !== "none" && getComputedStyle(off).display === "none"; })()`;
 const need = async (selector) => {
 	if (!(await evaluate(`${q(selector)} !== null`))) throw new Error(`no element matches ${selector}`);
 };
@@ -177,6 +209,36 @@ const act = {
 		writeFileSync(join(out, file), await evaluate(`${q(selector)}.innerText`));
 		return file;
 	},
+	landing: async () => {
+		await until("the Access landing to show", () => evaluate(frameShows("#access", ".shell")));
+		await sleep(900);
+	},
+	enter: async () => {
+		await need("#access-enter");
+		await evaluate(`${q("#access-enter")}.click()`);
+		await until("the shell to show", () => evaluate(frameShows(".shell", "#access")));
+		await sleep(400);
+	},
+	shell: () => until("the shell to show", () => evaluate(frameShows(".shell", "#access"))),
+	scheme: async (scheme) => {
+		if (scheme !== "light" && scheme !== "dark") throw new Error(`scheme is light or dark, not ${scheme}`);
+		await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+		return `prefers-color-scheme ${await evaluate(`matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"`)}`;
+	},
+	viewport: async (width) => {
+		await send("Emulation.setDeviceMetricsOverride", {
+			width: Number(width),
+			height: 844,
+			deviceScaleFactor: 1,
+			mobile: Number(width) < 600,
+		});
+		return `innerWidth ${await evaluate("innerWidth")}`;
+	},
+	"no-hscroll": async () => {
+		const [scroll, inner] = await evaluate("[document.documentElement.scrollWidth, innerWidth]");
+		if (scroll > inner) throw new Error(`the page is ${scroll} px wide in a ${inner} px window`);
+		return `scrollWidth ${scroll} of ${inner}`;
+	},
 };
 
 let status = 0;
@@ -203,6 +265,11 @@ try {
 	};
 	await send("Page.enable");
 	await send("Runtime.enable");
+	if (!steps.some(([verb]) => verb === "landing")) {
+		await send("Page.addScriptToEvaluateOnNewDocument", {
+			source: `try { sessionStorage.setItem(${JSON.stringify(ENTERED_KEY)}, "1"); } catch {}`,
+		});
+	}
 
 	for (const [i, [verb, ...args]] of steps.entries()) {
 		const label = [verb, ...args].join(" ");

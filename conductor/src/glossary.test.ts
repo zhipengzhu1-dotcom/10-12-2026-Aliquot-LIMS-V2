@@ -204,6 +204,11 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "the key format createPublicKey reads, a JWK",
 	},
 	{ phrase: "POST", in: "../ui/actions.ts", reason: "the HTTP method" },
+	{
+		phrase: "sessionStorage",
+		in: "../ui/access.ts",
+		reason: "the browser's per-tab storage API",
+	},
 	...["../ui/chat.ts", "../ui/views.ts", "serve/routes.ts"].map((file) => ({
 		phrase: "chat",
 		in: file,

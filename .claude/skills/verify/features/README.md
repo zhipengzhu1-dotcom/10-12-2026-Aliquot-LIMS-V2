@@ -36,12 +36,14 @@ Each feature file starts with an H1 title and one paragraph describing the behav
 - [Gates](./gates.md) covers the open Gates waiting on the Operator, the proposed-change table, and approve and reject with a reason.
 - [Ledger view](./ledger.md) covers the newest-first Event table, the chain verdict and Verify, paging with `before`, cause links, and live Events.
 - [Chat view](./chat.md) covers the Lab Room's Messages newest last with the sayer's name, the box that says the Operator's text through `room-say`, and the redraw on another client's Message.
+- [Access landing](./access.md) covers the lock frame a fresh session opens on, its Session panel and clock, and ENTER into the shell.
+- [Every view in both themes and at phone width](./views.md) covers each view drawn in light and dark and at 390 px with no sideways scroll.
 
 ## Further surfaces, no feature file yet
 
 - The command line. `tools/aliquot --home <abs path> <command>` drives every domain (`org`, `task`, `gate`, `vitality`, `training`, `room`, `sandbox`, `workflow`, `intake`, `turn`, `ledger`). Drive it by command and exit code. It writes only while `serve` is stopped. README.md has a section per domain.
 - The Sandbox. `workflow run <fixture>` runs Python Scripts in Docker, stages 1 to 6. `launch.sh` runs it once, and `launch.log` holds its output. `sandbox runs` and `sandbox lineage <artifact id>` read what it did.
 - The Scheduler. `serve` without `--no-schedule` runs a Tick every `--tick` and starts Turns; `/api/scheduler` reports the last Tick. A verify run never starts it on the real model: that starts live Turns on the Operator's subscription, which only the Operator decides to spend. A proof of a scheduled Turn needs `ALIQUOT_SCRIPTED_MODEL=<json file>` (README "Turns") and a drive that does not exist yet.
-- The Rooms, Scripts and Performance views (`#/rooms`, `#/scripts`, `#/performance`). Rooms and Scripts show their JSON as it came; Performance draws Merit, the rubric means, Tasks by state, the Energy budget and `reviews.csv`.
+- The Rooms, Scripts and Performance views (`#/rooms`, `#/scripts`, `#/performance`) have no action drive; the `views` drive only proves they draw. Rooms and Scripts show their JSON as it came; Performance draws Merit, the rubric means, Tasks by state, the Energy budget and `reviews.csv`.
 - Action bar verbs no view form posts and no drive runs: `task-assign`, `task-handoff` and `task-review` (`conductor/src/serve/actions.ts`). Drive one with `scripts/api.sh "$RUN" act <verb> '<json>'` and prove it by its Ledger row.
 - API reads no drive asserts: `/api/turns`, `/api/budget`, `/api/scheduler` answering 200 (it needs the Scheduler on), and the replay of `/api/events` from `Last-Event-ID` (`conductor/src/serve/http.ts`, `sse.ts`).

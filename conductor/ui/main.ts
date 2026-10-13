@@ -1,4 +1,5 @@
-import { act, answerText, bodyOf } from "./actions.js";
+import { showAccess } from "./access.js";
+import { type ActionAnswer, act, answerText, bodyOf } from "./actions.js";
 import { onLedgerEvent } from "./sse.js";
 import { escapeHtml, navigation, paramsOf, viewOf } from "./views.js";
 
@@ -17,6 +18,13 @@ const fetchJson = async (route: string): Promise<unknown> => {
 	const res = await fetch(`/api/${route}`);
 	if (!res.ok) throw new Error(`/api/${route} answered ${res.status}`);
 	return res.json();
+};
+
+/** The status line, marked appended or refused so a refusal reads in orange. */
+const tell = (said: ActionAnswer | string) => {
+	answer.value = typeof said === "string" ? said : answerText(said);
+	answer.dataset.outcome =
+		typeof said !== "string" && said.ok ? "appended" : "refused";
 };
 
 type Field = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
@@ -103,10 +111,10 @@ form.addEventListener("submit", async (submitted) => {
 	try {
 		body = JSON.parse(String(fields.get("body")));
 	} catch (error) {
-		answer.value = `The body is not JSON: ${String(error)}`;
+		tell(`The body is not JSON: ${String(error)}`);
 		return;
 	}
-	answer.value = answerText(await act(String(fields.get("verb")), body));
+	tell(await act(String(fields.get("verb")), body));
 });
 
 // A view's action is a form whose markup carries its verb and fixed body,
@@ -129,11 +137,11 @@ page.addEventListener("submit", async (submitted) => {
 	try {
 		body = bodyOf(target.dataset.body ?? "{}", fields, json);
 	} catch (error) {
-		answer.value = error instanceof Error ? error.message : String(error);
+		tell(error instanceof Error ? error.message : String(error));
 		return;
 	}
 	const result = await act(verb, body);
-	answer.value = answerText(result);
+	tell(result);
 	// The Event may have redrawn the page already, and the form with it.
 	const drawn = document.getElementById(target.id);
 	if (result.ok && drawn instanceof HTMLFormElement) drawn.reset();
@@ -171,4 +179,5 @@ onLedgerEvent(
 	() => void refresh(),
 	() => void refresh(),
 );
+showAccess(fetchJson);
 void refresh();

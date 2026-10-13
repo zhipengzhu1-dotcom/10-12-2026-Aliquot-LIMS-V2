@@ -2,10 +2,11 @@
 # drive.sh <run dir> <feature> [--intent '<what to prove, quoted>']: drive one
 # feature of features/ through the interface, check its end state, and append
 # its section (intent, commands, evidence, verdict) to proof/proof.md.
-# Features: org, flow, agent, gates, ledger, chat. Exits 1 when a check fails.
+# Features: org, flow, agent, gates, ledger, chat, access, views. Exits 1 when
+# a check fails.
 . "$(dirname "$0")/lib.sh"
 load_run "${1:-}"
-feature=${2:?the second argument is a feature: org, flow, agent, gates, ledger or chat}
+feature=${2:?the second argument is a feature: org, flow, agent, gates, ledger, chat, access or views}
 shift 2
 map="$(dirname "$SCRIPTS")/features/$feature.md"
 [ -f "$map" ] || die "features/$feature.md does not exist"
@@ -87,6 +88,34 @@ chain() {
 	expect "\`ledger verify\` exits 0 and says chain intact after the drive ($(tr -d '\n' <"$out/ledger-verify.txt"))" has ledger-verify.txt 'chain intact'
 }
 kinds_since() { sql "select group_concat(kind, ' ') from (select kind from events where seq > $base order by seq)"; }
+
+drive_access() {
+	local host=${URL#http://}
+	browser landing goto '#/org' landing \
+		text '#access-operator' 'Operator' text '#access-terminal' "$host" \
+		text '#access-laboratory' 'Lab Room · RM-lab' text '#access-date' "$(date +%Y)" \
+		scheme dark landing scheme light \
+		viewport 390 landing no-hscroll viewport 1280 \
+		enter wait '[data-agent="A-rin"]' goto '#/gates' shell
+	expect "the drive appended no Event: the landing only reads" same "$(sql 'select max(seq) from events')" "$base"
+	chain
+}
+
+# Every view, in light and in dark at 1280 px, then at 390 px.
+VIEW_ROUTES=('#/org' '#/flow' '#/agent?id=A-rin' '#/chat' '#/rooms' '#/scripts' '#/gates' '#/performance' '#/ledger')
+drive_views() {
+	local scheme route steps=()
+	for scheme in light dark; do
+		steps+=(scheme "$scheme")
+		for route in "${VIEW_ROUTES[@]}"; do steps+=(goto "$route" wait 'main h1' gone 'main [role=alert]' no-hscroll); done
+	done
+	browser wide "${steps[@]}"
+	steps=(scheme light viewport 390)
+	for route in "${VIEW_ROUTES[@]}"; do steps+=(goto "$route" wait 'main h1' no-hscroll); done
+	browser phone "${steps[@]}"
+	expect "the drive appended no Event: every view only reads" same "$(sql 'select max(seq) from events')" "$base"
+	chain
+}
 
 drive_org() {
 	local reason="verify: pause Rin from the Org view"
@@ -245,7 +274,7 @@ drive_chat() {
 }
 
 case $feature in
-org | flow | agent | gates | ledger | chat)
+org | flow | agent | gates | ledger | chat | access | views)
 	# Called in a || list, the drive runs to its end past a failing command;
 	# its checks, not errexit, decide the verdict.
 	"drive_$feature" || {
@@ -253,7 +282,7 @@ org | flow | agent | gates | ledger | chat)
 		evidence+=("- FAIL. the drive's last command exited $?")
 	}
 	;;
-*) die "drive.sh knows org, flow, agent, gates, ledger and chat; add a drive_$feature for features/$feature.md" ;;
+*) die "drive.sh knows org, flow, agent, gates, ledger, chat, access and views; add a drive_$feature for features/$feature.md" ;;
 esac
 
 verdict="PASS. $checked of $checked checks held."
