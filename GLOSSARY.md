@@ -179,7 +179,7 @@ _Avoid_: production database, real DB, LIMS
 ### Merit
 
 **Review**:
-A score that a reviewer gives a completed Task on the five-dimension rubric: quality, traceability, boundary adherence, collaboration, and timeliness, each 0 to 3.
+A score that a reviewer gives a completed Task on the five-dimension rubric: quality, traceability, boundary adherence, collaboration, and timeliness, each 0 to 3. The role of the assignee decides the reviewer: a Supervisor reviews a Specialist, the Director reviews a Supervisor, and the Operator reviews the Director, the Steward, and the Auditor. The Auditor may review any Task, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`.
 _Avoid_: grade, rating, feedback, verification (Verification is a lab term)
 
 **Merit**:

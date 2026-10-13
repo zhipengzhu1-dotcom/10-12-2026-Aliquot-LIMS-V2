@@ -11,6 +11,7 @@ import {
 	TaskId,
 } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
+import { seedOrg } from "../org/seed.js";
 import { scenario, scores } from "../test-support/scenario.js";
 import { reviewSampled } from "../vitality/trust.js";
 
@@ -116,6 +117,8 @@ describe("TaskProjection", () => {
 	});
 
 	it("drives a Task Proposed to Done through Review, one state per Event", () => {
+		seedOrg(ledger);
+		const seeded = ledger.all().length;
 		const states = [
 			proposed(),
 			assigned(),
@@ -136,7 +139,7 @@ describe("TaskProjection", () => {
 			{ tag: "UnderReview", assignee: "A-odile", reviewer: operator },
 			{ tag: "Done", assignee: "A-odile" },
 		]);
-		expect(ledger.all()).toHaveLength(6);
+		expect(ledger.all()).toHaveLength(seeded + 6);
 		expect(tasks().get(T1)?.outputs).toEqual([output]);
 	});
 
@@ -267,6 +270,7 @@ describe("the Task state machine at append", () => {
 	});
 
 	it("refuses failing a Task that is already Done", () => {
+		seedOrg(ledger);
 		ledger.append(proposed());
 		ledger.append(assigned());
 		ledger.append(started());

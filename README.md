@@ -150,6 +150,23 @@ A Task moves through the state machine in `conductor/src/task/projection.ts`: `P
 
 `task complete <id>` decides the Review itself. The sample for the assignee's current Trust tier picks which Tasks get a Review: every Task on `Probation`, 1 in 3 at `Trusted`, and 1 in 5 at `Senior` and `Mentor`, picked from the hash of the Task id. A Task that the sample leaves out goes from `InProgress` straight to `Done`, with its Review skipped. If `--reviewer` was given, the command prints a second line that says the Review was skipped because the Task was not sampled, so the reviewer is unused. A Task that the sample picks goes to `UnderReview` with the reviewer that `--reviewer` names. Without `--reviewer`, it is refused, and the refusal says the Task was sampled for Review. `task complete` on a Task `UnderReview` completes it after Review. The Ledger refuses that until the reviewer has recorded a Review of the Task, and from anyone but that reviewer.
 
+The role of the assignee decides who may be its reviewer. Either Supervisor reviews a Specialist, the Director reviews a Supervisor, and the Operator reviews the Director, the Steward, and the Auditor. The Auditor may review any Task but its own, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`. The Ledger refuses a completion that names any other reviewer, and the refusal names the assignee, its role, and who may review it:
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot task propose --title "Read the Receiving Log" \
+  --goal "List every Sample" --tat Regular --priority 1   # prints T-2
+pnpm -C conductor cli --home /tmp/aliquot task assign T-2 A-rin
+pnpm -C conductor cli --home /tmp/aliquot task start T-2 --as A-rin
+pnpm -C conductor cli --home /tmp/aliquot task complete T-2 --reviewer A-odile --as A-rin   # refused, exits 1
+pnpm -C conductor cli --home /tmp/aliquot task complete T-2 --reviewer A-pia --as A-rin     # UnderReview
+```
+
+```text
+AppendRefused: TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); A-odile may not review T-2
+```
+
+`task assign` and `task handoff` are refused when the new assignee is `strained` or worse (`strained`, `overloaded`, `discouraged`, or `resting`), and the refusal names the Agent and its Mood, as in `TaskAssigned refused: A-rin is strained and may not accept a Task`. The Mood comes from the Agent's latest Vitality sample, its Rest, and its Tasks `InProgress`. An Agent that has no sample yet is `fresh`. A new sample or the end of Rest (see [Vitality and Merit](#vitality-and-merit)) lifts the refusal.
+
 Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
 
 ```sh
@@ -285,7 +302,7 @@ pnpm -C conductor cli --home /tmp/aliquot vitality show
 pnpm -C conductor cli --home /tmp/aliquot vitality show A-rin
 ```
 
-Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, and a Review by the Task's own assignee. The command prints the Conductor's Revisions that the Review caused. So a boundary score of 0 on a `Trusted` Agent records the Review and the Demotion together.
+Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, a Review by the Task's own assignee, and a Review by anyone the reviewer rule does not allow for the assignee's role (see [Tasks](#tasks)), in the same words as the completion that names that reviewer. The Operator may review the Director, the Steward, and the Auditor, and no other Agent. The command prints the Conductor's Revisions that the Review caused. So a boundary score of 0 on a `Trusted` Agent records the Review and the Demotion together.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 \
