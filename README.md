@@ -207,7 +207,7 @@ pnpm -C conductor cli --home /tmp/aliquot gate list
 pnpm -C conductor cli --home /tmp/aliquot gate show G-1
 ```
 
-`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The Ledger refuses the decision, and writes nothing, when that hash is not the Gate's stored `payload_hash`. Otherwise the command records the decision, naming the Gate's request as its `causation_id`, and prints the decision Event.
+`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The Ledger refuses the decision, and writes nothing, when that hash is not the Gate's stored `payload_hash`: the command exits 1 with `GateDecided refused: payload_hash <hash> does not match G-n's payload, …`. Only a `--hash` that is not a sha256 at all is a usage error, which exits 2. Otherwise the command records the decision, naming the Gate's request as its `causation_id`, and prints the decision Event.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
