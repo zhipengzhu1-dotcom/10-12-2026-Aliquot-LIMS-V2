@@ -23,7 +23,7 @@ const definitionOf = (id: AgentId): AgentDefinition => {
 const eventAt = (seq: number) => s.events().find((e) => e.seq === seq);
 
 describe("the Org lifecycle", () => {
-	it("names the Agent's previous Org Event as each Event's cause, returning the Agent and the seq it appended", () => {
+	it("names the Agent's previous Org Event as each Event's cause, and the Gate decision as a retirement's, returning the Agent and the seq it appended", () => {
 		const recruitment = s
 			.events()
 			.find((e) => e.kind === "AgentRecruited" && e.payload.id === rin);
@@ -44,7 +44,8 @@ describe("the Org lifecycle", () => {
 				revision_reason: "Fewer Tasks at once",
 			},
 		});
-		const gate_id = s.gate("RetireAgent", { agent_id: rin });
+		const gate_id = s.requested("RetireAgent", { agent_id: rin });
+		const decided = s.decided(gate_id);
 		const retired = retire(s.ledger, {
 			actor: operator,
 			agent_id: rin,
@@ -65,7 +66,7 @@ describe("the Org lifecycle", () => {
 			["AgentPaused", recruitment?.seq],
 			["AgentResumed", paused.seq],
 			["AgentDefinitionRevised", resumed.seq],
-			["AgentRetired", revised.seq],
+			["AgentRetired", decided.seq],
 		]);
 	});
 

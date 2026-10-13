@@ -70,6 +70,7 @@ describe("GateProjection", () => {
 			payload_hash: payloadHash,
 			meaning: "reject",
 			reason: "looks right",
+			seq: 2,
 		});
 	});
 });

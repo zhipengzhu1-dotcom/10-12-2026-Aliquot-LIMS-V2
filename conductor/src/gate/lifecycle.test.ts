@@ -85,6 +85,7 @@ describe("deciding a Gate", () => {
 			payload_hash: payloadHash,
 			meaning: "approve",
 			reason: "diff checked",
+			seq: decided.seq,
 		});
 		expect(eventAt(decided.seq)).toMatchObject({
 			kind: "GateDecided",

@@ -16,7 +16,8 @@ export type Gate = {
 	readonly payload: PayloadOf<"GateRequested">["payload"];
 	readonly payload_hash: Sha256;
 	readonly lifetime_s: number;
-	readonly decision?: GateDecision;
+	/** The Operator's signed decision, and the seq of its GateDecided. */
+	readonly decision?: GateDecision & { readonly seq: Seq };
 };
 
 export type Gates = {
@@ -69,7 +70,7 @@ export const GateProjection: Projection<Gates> = {
 				return {
 					gates: new Map(state.gates).set(gate.id, {
 						...gate,
-						decision: event.payload,
+						decision: { ...event.payload, seq: event.seq },
 					}),
 				};
 			}

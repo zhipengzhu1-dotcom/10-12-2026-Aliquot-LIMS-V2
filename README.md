@@ -102,7 +102,7 @@ pnpm -C conductor cli --home /tmp/aliquot ledger verify
 
 The Org Projection folds the Agent Events (`AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`) into each Agent's current definition and its reporting tree. Every change is an Event; nothing is edited in place (ADR-0005).
 
-Every Agent Event the Operator or an Agent causes is appended by the Org lifecycle, `conductor/src/org/lifecycle.ts`, and `org seed` recruits through it too. It names the cause of each Event in `causation_id`, from the Org Projection: the Agent's previous Org Event, so a Recruitment names none. Only a cause outside the Org comes from the caller. The Conductor's tier Revisions are not the lifecycle's; the Ledger appends them (see [Vitality and Merit](#vitality-and-merit)).
+Every Agent Event the Operator or an Agent causes is appended by the Org lifecycle, `conductor/src/org/lifecycle.ts`, and `org seed` recruits through it too. It names the cause of each Event in `causation_id`, from the Org Projection: the Agent's previous Org Event, so a Recruitment names none, and for a retirement the `GateDecided` that approved its `RetireAgent` Gate. Only a cause outside the Org comes from the caller. The Conductor's tier Revisions are not the lifecycle's; the Ledger appends them (see [Vitality and Merit](#vitality-and-merit)).
 
 Recruit the eight-agent starting roster, all on `Probation`. A second run appends nothing.
 

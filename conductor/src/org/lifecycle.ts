@@ -8,9 +8,8 @@ import type { AgentState } from "./projection.js";
 
 /**
  * Who appends an Org Event, and the cause it names when that cause lies
- * outside the Org, such as the Gate decision a retirement follows. Without
- * one, the Event names the Agent's previous Org Event; a Recruitment has
- * none.
+ * outside the Org. Without one, the Event names the Agent's previous Org
+ * Event; a Recruitment has none.
  */
 type Origin = {
 	readonly actor: Actor;
@@ -96,8 +95,9 @@ export const resume = (
 	});
 
 /**
- * Retire an Agent through the approved RetireAgent Gate `gate_id`. The
- * reason defaults to the one the Gate's payload gives.
+ * Retire an Agent through the approved RetireAgent Gate `gate_id`, naming
+ * the Gate's decision as the cause. The reason defaults to the one the
+ * Gate's payload gives.
  */
 export const retire = (
 	ledger: Ledger,
@@ -113,7 +113,8 @@ export const retire = (
 	},
 ): Recorded => {
 	const gate = ledger.projections.gates.gates.get(gate_id);
-	return record(ledger, origin, agent_id, {
+	const causation_id = origin.causation_id ?? gate?.decision?.seq;
+	return record(ledger, { ...origin, causation_id }, agent_id, {
 		kind: "AgentRetired",
 		payload: {
 			agent_id,
