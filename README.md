@@ -1,6 +1,6 @@
 # 10-12-2026-Aliquot-LIMS-V2
 
-Aliquot LIMS is a society of AI Agents that does the paperwork and computation of a regulated pharmaceutical contract testing lab. The Agents run on the Operator's Mac, record every action in a hash-chained Ledger, and act outside their Sandbox only through Gates the Operator signs. Slice 0, the base, is being built: the repository scaffold exists, and no Agents run yet.
+Aliquot LIMS is a society of AI Agents that does the paperwork and computation of a regulated pharmaceutical contract testing lab. The Agents run on the Operator's Mac, record every action in a hash-chained Ledger, and act outside their Sandbox only through Gates the Operator signs. Slices 0, 1 and 2 are built, on synthetic data only. The eight Agents take Turns through the Agent SDK, and the Scheduler inside `aliquot serve` decides who works. The six-stage toy workflow runs from a Submission Form to a Report of Analysis. In the Chat view, the Operator reports received Samples and then results, and the chain ends at an `ExternalMessage` Gate that the Operator decides. No live run has yet taken the chat flow to its Gate: the one live run, on 2026-10-13, stopped at stage 1. Slice 3, the same flow on the lab's real documents, comes next.
 
 - [Design overview](docs/design/overview.md) describes the data shapes, runtime, roster, toy workflow, interface, and roadmap. Read it first.
 - [Vitality and Merit](docs/design/vitality-and-merit.md) defines how Moods, Rest, Reviews, and Trust tiers work.
@@ -25,6 +25,10 @@ Install Node 24, pnpm 12, and uv first, and start Docker. Run every command from
 ```sh
 tools/check.sh
 ```
+
+### Check this README
+
+The `sh` examples below run in README order on one home: each section builds on the state the sections before it left. `tools/check-readme.sh` runs every one of them against a fresh temporary home and prints `ok`, `FAIL` or `skip` for each, then a count. A comment after a command that says `refused` or `exits 1` expects that exit, and one that says `prints T-2` expects that id. It fills each placeholder, such as `<payload hash>`, from what an earlier command printed. It uses a scripted model, so no example spends the subscription. It skips `tools/check.sh` and `tools/serve.sh`, and it needs port 8787 free. `tools/check.sh` does not run it.
 
 ### Landing a ticket
 
@@ -81,16 +85,16 @@ Off CI, a test that needs a missing prerequisite skips with a notice: the Docker
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
-No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `training`, `room`, `gate`, `sandbox`, `tools`, `vitality`, `workflow`) and the actions of `aliquot serve` (see [Serve](#serve)), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
+No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `training`, `room`, `gate`, `sandbox`, `intake`, `turn`, `tools`, `vitality`, `workflow`) and the actions of `aliquot serve` (see [Serve](#serve)), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
 The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, Turns, Training, and who proposed each Task) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
 
-Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`. It reads only the chain, so it also works on a Ledger too corrupt to open.
+Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`. It reads only the chain, so it also works on a Ledger too corrupt to open. On a home that has no Ledger yet, it exits 1 with `error: no Ledger at <home>/ledger.sqlite`; the first command that writes creates the Ledger.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot ledger verify
+pnpm -C conductor cli --home /tmp/aliquot ledger verify   # on a fresh home: exits 1, no Ledger yet
 ```
 
 ## Org
@@ -137,9 +141,9 @@ These commands write as the Operator. Add `--as A-<id>` to write as an Agent. On
 Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --reason "Replaced" --as A-mabel   # prints G-1 and its hash
-pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "Rin is replaced"
-pnpm -C conductor cli --home /tmp/aliquot org retire A-rin --gate G-1
+pnpm -C conductor cli --home /tmp/aliquot org retire A-thorne --reason "Replaced" --as A-mabel   # prints G-1 and its hash
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "Thorne is replaced"
+pnpm -C conductor cli --home /tmp/aliquot org retire A-thorne --gate G-1
 ```
 
 The Ledger refuses an `AgentRetired` that is not written by the Operator, or whose `gate_id` does not name an approved `RetireAgent` Gate with that Agent as `agent_id` in its payload.
@@ -150,19 +154,19 @@ A Task moves through the state machine in `conductor/src/task/projection.ts`: `P
 
 `task complete <id>` decides the Review itself. The sample for the assignee's current Trust tier picks which Tasks get a Review: every Task on `Probation`, 1 in 3 at `Trusted`, and 1 in 5 at `Senior` and `Mentor`, picked from the hash of the Task id. A Task that the sample leaves out goes from `InProgress` straight to `Done`, with its Review skipped. If `--reviewer` was given, the command prints a second line that says the Review was skipped because the Task was not sampled, so the reviewer is unused. A Task that the sample picks goes to `UnderReview` with the reviewer that `--reviewer` names. Without `--reviewer`, it is refused, and the refusal says the Task was sampled for Review. `task complete` on a Task `UnderReview` completes it after Review. The Ledger refuses that until the reviewer has recorded a Review of the Task, and from anyone but that reviewer.
 
-The role of the assignee decides who may be its reviewer. Either Supervisor reviews a Specialist, the Director reviews a Supervisor, and the Operator reviews the Director, the Steward, and the Auditor. The Auditor may review any Task but its own, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`. The Ledger refuses a completion that names any other reviewer, and the refusal names the assignee, its role, and who may review it:
+The role of the assignee decides who may be its reviewer. Either Supervisor reviews a Specialist, the Director reviews a Supervisor, and the Operator reviews the Director, the Steward, and the Auditor. The Auditor may review any Task but its own, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`. The Ledger refuses a completion that names any other reviewer, and the refusal names the assignee, its role, and who may review it. These examples run on the home the Org examples left, so the Auditor is retired and the refusal names none:
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot task propose --title "Read the Receiving Log" \
-  --goal "List every Sample" --tat Regular --priority 1   # prints T-2
-pnpm -C conductor cli --home /tmp/aliquot task assign T-2 A-rin
-pnpm -C conductor cli --home /tmp/aliquot task start T-2 --as A-rin
-pnpm -C conductor cli --home /tmp/aliquot task complete T-2 --reviewer A-odile --as A-rin   # refused, exits 1
-pnpm -C conductor cli --home /tmp/aliquot task complete T-2 --reviewer A-pia --as A-rin     # UnderReview
+  --goal "List every Sample" --tat Regular --priority 1   # prints T-1
+pnpm -C conductor cli --home /tmp/aliquot task assign T-1 A-rin
+pnpm -C conductor cli --home /tmp/aliquot task start T-1 --as A-rin
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewer A-odile --as A-rin   # refused, exits 1
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewer A-pia --as A-rin     # UnderReview
 ```
 
 ```text
-AppendRefused: TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); A-odile may not review T-2
+AppendRefused: TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (none) or a Senior or Mentor Agent (none); A-odile may not review T-1
 ```
 
 `task assign` and `task handoff` are never refused for the new assignee's Vitality or Rest: Mood is flat (see [Vitality and Merit](#vitality-and-merit)). They are refused when the new assignee is paused, Retired, or not in the Org, in the words that refuse a Turn for that Agent:
@@ -176,13 +180,13 @@ Each command writes one Event as the Operator, unless `--as A-<id>` names an Age
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot task propose --title "Parse the Submission Form" \
-  --goal "Extract every field" --tat Rush1to2Days --priority 2   # prints T-1
-pnpm -C conductor cli --home /tmp/aliquot task assign T-1 A-odile
-pnpm -C conductor cli --home /tmp/aliquot task start T-1 --as A-odile
-pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewer Operator --as A-odile   # UnderReview: Odile is on Probation
-pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 --boundary 3 \
+  --goal "Extract every field" --tat Rush1to2Days --priority 2   # prints T-2
+pnpm -C conductor cli --home /tmp/aliquot task assign T-2 A-odile
+pnpm -C conductor cli --home /tmp/aliquot task start T-2 --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot task complete T-2 --reviewer Operator --as A-odile   # UnderReview: Odile is on Probation
+pnpm -C conductor cli --home /tmp/aliquot vitality review T-2 --quality 3 --traceability 3 --boundary 3 \
   --collaboration 3 --timeliness 3 --note "Clean work"
-pnpm -C conductor cli --home /tmp/aliquot task complete T-1   # Done after the Operator's Review
+pnpm -C conductor cli --home /tmp/aliquot task complete T-2   # Done after the Operator's Review
 pnpm -C conductor cli --home /tmp/aliquot task list
 ```
 
@@ -191,7 +195,7 @@ pnpm -C conductor cli --home /tmp/aliquot task list
 A Help request is a `HelpRequested` Event, appended by the Task lifecycle. The assignee of a live Task requests help on it from the Operator or a live Agent, with the question on stdin. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Ledger refuses a Help request from anyone but the assignee, and on a Task that is `Proposed`, `Done`, `Failed` or `Escalated`. A reply is a Message in a Room.
 
 ```sh
-echo "Which column holds the TAT code?" | pnpm -C conductor cli --home /tmp/aliquot task help T-1 --to A-pia --as A-odile
+echo "Which column holds the Lot?" | pnpm -C conductor cli --home /tmp/aliquot task help T-1 --to A-pia --as A-rin
 ```
 
 ## Training
@@ -209,8 +213,8 @@ Training is how an Agent improves: Skills, Revisions, Memory notes, and Coaching
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot training skill publish parse-submission-form --title "Parse a Submission Form" parse-form.md
 pnpm -C conductor cli --home /tmp/aliquot org revise A-odile odile-v2.json   # grants parse-submission-form
-echo "The TAT code sits in the last column" | pnpm -C conductor cli --home /tmp/aliquot training note A-odile --task T-1 --applies-to "Submission Form"
-echo "Check the TAT code first" | pnpm -C conductor cli --home /tmp/aliquot training coach A-odile --task T-1
+echo "The TAT code sits in the last column" | pnpm -C conductor cli --home /tmp/aliquot training note A-odile --task T-2 --applies-to "Submission Form"
+echo "Check the TAT code first" | pnpm -C conductor cli --home /tmp/aliquot training coach A-odile --task T-2
 pnpm -C conductor cli --home /tmp/aliquot training notes A-odile
 ```
 
@@ -232,8 +236,8 @@ Agents talk in Rooms (ADR-0010). A Room is a Projection of `RoomOpened` and `Mes
 pnpm -C conductor cli --home /tmp/aliquot room seed
 echo '{"id":"RM-pia-rin","name":"Pia and Rin","purpose":"Intake checklist","membership":{"tag":"Listed","agents":["A-pia","A-rin"]},"opened_by":{"tag":"Agent","id":"A-pia"}}' \
   | pnpm -C conductor cli --home /tmp/aliquot room open
-echo "Row 4 has merged cells" | pnpm -C conductor cli --home /tmp/aliquot room say RM-pia-rin --as A-rin   # prints 11  A-rin in RM-pia-rin
-echo "Unmerge them" | pnpm -C conductor cli --home /tmp/aliquot room say RM-pia-rin --as A-pia --reply-to 11
+echo "Row 4 has merged cells" | pnpm -C conductor cli --home /tmp/aliquot room say RM-pia-rin --as A-rin   # prints <seq>  A-rin in RM-pia-rin
+echo "Unmerge them" | pnpm -C conductor cli --home /tmp/aliquot room say RM-pia-rin --as A-pia --reply-to <seq>
 pnpm -C conductor cli --home /tmp/aliquot room list --as A-bram
 pnpm -C conductor cli --home /tmp/aliquot room history RM-pia-rin
 ```
@@ -245,20 +249,20 @@ A Gate is a request for an Operator decision on an action outside the Sandbox (A
 Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to an `InProgress` Task, which shows as `Blocked` until the Operator decides the Gate; `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --task T-3 --as A-bram
+pnpm -C conductor cli --home /tmp/aliquot gate request --kind Deploy --payload deploy.json --as A-bram   # prints G-2 and its hash
 ```
 
 List the open Gates with their kind, requester, age, payload hash, and a one-line payload summary. `--all` lists every Gate with its state. A Gate that nobody decides within its lifetime shows as `Expired`; no Event records the expiry.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate list
-pnpm -C conductor cli --home /tmp/aliquot gate show G-1
+pnpm -C conductor cli --home /tmp/aliquot gate show G-2
 ```
 
 `gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The Ledger refuses the decision, and writes nothing, when that hash is not the Gate's stored `payload_hash`: the command exits 1 with `GateDecided refused: payload_hash <hash> does not match G-n's payload, …`. Only a `--hash` that is not a sha256 at all is a usage error, which exits 2. Otherwise the command records the decision, naming the Gate's request as its `causation_id`, and prints the decision Event.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
+pnpm -C conductor cli --home /tmp/aliquot gate decide G-2 --approve --hash <payload hash> --reason "diff checked"
 ```
 
 One module, the Gate lifecycle (`conductor/src/gate/lifecycle.ts`), appends every Gate Event, and the `gate` commands call it. Only the Task lifecycle requests a Gate that blocks a Task, so `gate request --task` blocks the Task through `task/lifecycle.ts`, and the request names the Task's previous Event as its `causation_id`. The GritQL plugin `conductor/lint/no-gate-request-for-task.grit` refuses a call to the Gate lifecycle's `requestGateForTask` anywhere else.
@@ -378,8 +382,8 @@ Call one Tool as an Agent through the hook, with its input as JSON. It prints th
 ```sh
 tools/aliquot --home /tmp/aliquot tools call A-odile run_script '{"script":"S-parse_submission","inputs":[]}'
 # run_script refused: A-odile's Charter forbids RunScript: run_script performs it
-tools/aliquot --home /tmp/aliquot tools call A-rin run_script '{"script":"S-parse_submission","inputs":["<form id>"],"task_id":"T-2"}'
-# {"run": {...}, "evaluation": {"stage": 1, "score": 1, "passed": true, ...}, "seq": ...}
+tools/aliquot --home /tmp/aliquot tools call A-rin read_tasks '{"assignee":"A-rin"}'
+# [{"id": "T-1", "title": "Read the Receiving Log", ...}]
 ```
 
 ## Vitality and Merit
@@ -402,7 +406,7 @@ pnpm -C conductor cli --home /tmp/aliquot vitality show A-rin
 Record a Review of a completed Task. Each score is 0 to 3. The reviewer is the Operator, or the Agent named with `--as`. The Ledger refuses a Review of a Task that is not `UnderReview` or `Done`, a Review by the Task's own assignee, and a Review by anyone the reviewer rule does not allow for the assignee's role (see [Tasks](#tasks)), in the same words as the completion that names that reviewer. The Operator may review the Director, the Steward, and the Auditor, and no other Agent. The command prints the Conductor's Revisions that the Review caused. So a boundary score of 0 on a `Trusted` Agent records the Review and the Demotion together.
 
 ```sh
-pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 \
+pnpm -C conductor cli --home /tmp/aliquot vitality review T-2 --quality 3 --traceability 3 \
   --boundary 3 --collaboration 2 --timeliness 3 --note "IDs agree across Artifacts"
 ```
 
@@ -609,8 +613,8 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot task propose --title "Stage 5 Verification: submission-form-seed1.docx" \
-  --goal "Verify the worksheet again" --tat Regular --priority 1 --input <worksheet id>   # prints T-7
-pnpm -C conductor cli --home /tmp/aliquot task assign T-7 A-rin   # refused, exits 1
+  --goal "Verify the worksheet again" --tat Regular --priority 1 --input <worksheet id>   # prints its id, T-7 on a fresh home
+pnpm -C conductor cli --home /tmp/aliquot task assign <task id> A-rin   # refused, exits 1
 ```
 
 ```text
@@ -809,13 +813,13 @@ The first admitted request for an email prints one line to stdout, `Admitted <em
 
 ### Tunnel
 
-`tools/serve.sh` serves the interface at `https://agents.nitrolims-demo.com`. It starts `aliquot serve --no-schedule` on `127.0.0.1:8787`, so no Turn starts until #41 turns the Scheduler on, with the Access flags from `.aliquot/serve.json`, which git ignores (`tools/tunnel/serve.example.json` shows its shape), and `cloudflared` running the Cloudflare Tunnel `aliquot` from `tools/tunnel/config.yml`. Ctrl-C stops both. `--no-tunnel` starts the Conductor alone.
+`tools/serve.sh` serves the interface at `https://agents.nitrolims-demo.com`. It starts `aliquot serve --no-schedule` on `127.0.0.1:8787`, so no Turn starts behind the Tunnel, with the Access flags from `.aliquot/serve.json`, which git ignores (`tools/tunnel/serve.example.json` shows its shape), and `cloudflared` running the Cloudflare Tunnel `aliquot` from `tools/tunnel/config.yml`. Ctrl-C stops both. `--no-tunnel` starts the Conductor alone.
 
 ```sh
 tools/serve.sh
 ```
 
-[docs/ops/tunnel.md](docs/ops/tunnel.md) has the one-time setup on the Cloudflare account, the free-tier limits, the checks, how to undo each part, and how to rotate the Operator's email.
+[docs/ops/tunnel.md](docs/ops/tunnel.md) has the one-time setup on the Cloudflare account, the free-tier limits, the checks, how to undo each part, and how to rotate the Operator's email. The owner has not applied that setup yet (gate G2), so the Tunnel, its DNS route and the Access application do not exist.
 
 ### Interface
 
@@ -834,6 +838,8 @@ A view's filters live in the hash's query, as in `#/flow?lot=LOT-7`, so a filter
 | Org (`#/org`) | The tree `org tree` prints, from `/api/org-tree`. Each Agent has its load from `/api/vitality`, its Trust tier, and a `paused` badge when paused; no Mood, which is flat. | Under **Actions**: pause with a reason, or resume a paused Agent; reassign, a Revision of `supervisor_id` to the Operator, the Director or a Supervisor that does not report to the Agent; request retirement, which requests a `RetireAgent` Gate with a reason. The Agent's name opens `#/agent?id=<id>`. |
 | Agent (`#/agent?id=<id>`) | One Agent: its Charter and Persona; its Vitality from `/api/vitality`, under the heading "Vitality (Mood is flat in the first edition)"; its Trust tier and Merit from `/api/tiers`; one point per Review counted toward its Merit, every one in Ledger order and not only the Merit window, with the five rubric scores, the note and the Merit after it, from `/api/reviews`; its Memory notes, Coaching, and Skills with their versions, from `/api/training`. `#/agent` lists the Agents. | Open the Agent's Room: a link to the `Listed` Room whose only Agent is this one, or, when there is none, a button that opens one as the Operator, `RM-rin` for `A-rin`, and then goes to `#/rooms?id=<room>`. Give Coaching, with an optional Task. **Author a Revision**: an editor over the next version of the definition, `version` already one higher and `revised_by` the Operator, posted with a reason. A Revision that keeps the current version shows the Ledger's refusal. |
 | Chat (`#/chat`) | The Lab Room `RM-lab`: every Message in seq order, newest last, with the sayer's name and id, its seq, and the Message it replies to, from `/api/chat`. One line says that a Submission Form still goes through `aliquot intake` and stage 1. | Send: the box says its text in `RM-lab` as the Operator, through `room-say`. |
+| Rooms (`#/rooms`) | Not drawn yet: the JSON of `/api/rooms` as it came. | None of its own; the form above the page runs `room-say` and `room-open`. |
+| Scripts (`#/scripts`) | Not drawn yet: the JSON of `/api/scripts`, `/api/runs` and `/api/artifacts` as it came. | None. |
 | Gates (`#/gates`) | Open Gates oldest first, each with its kind, requester, age, lifetime, the Task it blocks, and its payload. A `RetireAgent` or `PromoteToMentor` Gate also shows the fields of the Agent it names that approving it would change, now and proposed. Then the decided and expired Gates, most recently closed first. | Approve or reject an open Gate, each with a reason. The form signs the payload hash the page read, so a payload hash that no longer matches shows the Ledger's refusal. |
 | Ledger (`#/ledger`) | The Events, newest first, 50 a page, each with seq, time, actor, kind, Task and cause, and its payload, which opens on click. A status line gives the verdict of `/api/ledger/verify` and when it was read. The newest page takes each new Event at its top; `#/ledger?before=<seq>` is the page of the 50 Events before that seq, and it stays put. | **Verify** reads the verdict again. A cause links to the page it heads. |
 | Flow (`#/flow`) | One swimlane per stage of `/api/stages`, and one for Tasks in no stage. A Task's lane is the stage whose Script its latest Run ran, so a Task joins its lane when its first Run starts. Each card shows the Task's id, title, state, assignee and TAT class. | Filter by Task id (`?task=T-1`) or by Lot (`?lot=<lot>`). A Task's Lots are those of the `SubmissionRecord`s in the Lineage of its Artifacts, or made from one of them. Open a Task (`?open=T-1`) to read its Events in seq order, with the cause of the first one, and an arrow from each Event to the Event its `causation_id` names. The panel reads the Ledger's first 1,000 Events. |

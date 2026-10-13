@@ -222,7 +222,7 @@ export const trainingCommands: CommandTable = {
 		},
 	},
 	skill: {
-		args: "publish <skill id> --title <t> [file] | show <skill id> [--version <n>]",
+		args: "publish <skill id> --title <t> [file] [--as <agent>] | show <skill id> [--version <n>]",
 		describe:
 			"Publish the next version of a Skill, the body from the file or stdin, or print the latest or named version",
 		run: async ([verb, ...args], ctx) => {

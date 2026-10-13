@@ -55,11 +55,11 @@ An Agent that does hands-on work in one area, such as office documents, PDFs, or
 _Avoid_: worker, expert, individual contributor
 
 **Developer**:
-An Agent that builds web applications for Lab staff. Developers join in slice 2.
+An Agent that builds web applications for Lab staff. Developers join after the first edition.
 _Avoid_: engineer, coder
 
 **Tester**:
-An Agent that uses a Developer's application as Lab staff would and records Evaluations of it. Testers join in slice 2.
+An Agent that uses a Developer's application as Lab staff would and records Evaluations of it. Testers join after the first edition.
 _Avoid_: QA
 
 **Recruitment**:
