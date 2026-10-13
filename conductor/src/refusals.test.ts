@@ -96,7 +96,7 @@ const ROWS: Row[] = [
 				},
 			};
 		},
-		"TaskCompleted refused: A-rin is on Probation; every Task is reviewed",
+		"TaskCompleted refused: T-1 is sampled for Review, as every Task of A-rin on Probation is; its completion names a reviewer",
 	],
 	[
 		"the RoomOpened guard",

@@ -26,9 +26,11 @@ const reviewRefusal = (
 			task.id,
 		);
 		if (!sampled) return undefined;
-		return tier === "Probation"
-			? `${state.assignee} is on Probation; every Task is reviewed`
-			: `${state.assignee} is ${tier}, and ${task.id} is one of the 1 in ${REVIEW_ONE_IN[tier]} Tasks sampled for Review`;
+		const share =
+			tier === "Probation"
+				? `every Task of ${state.assignee} on Probation is`
+				: `1 in ${REVIEW_ONE_IN[tier]} Tasks of ${state.assignee} at ${tier} are`;
+		return `${task.id} is sampled for Review, as ${share}; its completion names a reviewer`;
 	}
 	if (review.tag === "Reviewed" && state.tag === "UnderReview") {
 		const reviewer = canonicalJson(state.reviewer);

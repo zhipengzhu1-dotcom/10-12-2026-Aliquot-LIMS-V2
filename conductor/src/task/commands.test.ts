@@ -144,7 +144,7 @@ describe("aliquot task", () => {
 		);
 		expect(skip.status).toBe(1);
 		expect(skip.stderr).toBe(
-			"AppendRefused: TaskCompleted refused: A-odile is on Probation; every Task is reviewed\n",
+			"AppendRefused: TaskCompleted refused: T-3 is sampled for Review, as every Task of A-odile on Probation is; its completion names a reviewer\n",
 		);
 		ok(
 			"task",

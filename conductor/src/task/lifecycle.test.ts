@@ -1,0 +1,302 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AgentId, ArtifactId, type Seq, type TaskId } from "../ids.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
+import { seedOrg } from "../org/seed.js";
+import type { Actor } from "../types/actor.js";
+import {
+	assign,
+	block,
+	complete,
+	escalate,
+	fail,
+	handOff,
+	propose,
+	review,
+	start,
+} from "./lifecycle.js";
+
+const operator: Actor = { tag: "Operator" };
+const odile = AgentId.parse("A-odile");
+const rin = AgentId.parse("A-rin");
+const asRin: Actor = { tag: "Agent", id: rin };
+const asOdile: Actor = { tag: "Agent", id: odile };
+const pia: Actor = { tag: "Agent", id: AgentId.parse("A-pia") };
+const output = ArtifactId.parse("c".repeat(64));
+const threes = {
+	quality: 3,
+	traceability: 3,
+	boundary_adherence: 3,
+	collaboration: 3,
+	timeliness: 3,
+} as const;
+
+let ledger: Ledger;
+beforeEach(() => {
+	ledger = openMemoryLedger();
+	seedOrg(ledger);
+});
+afterEach(() => ledger.close());
+
+const proposal = {
+	actor: operator,
+	title: "Parse the Submission Form",
+	goal: "Extract every field",
+	tat_class: "Regular",
+	priority: 1,
+} as const;
+
+describe("the Task lifecycle", () => {
+	it("chains causation_id from proposal to Review, returning each new Task and the seq it appended", () => {
+		const cause = ledger.all().at(-1)?.seq as Seq;
+
+		const proposed = propose(ledger, { ...proposal, causation_id: cause });
+		const task_id = proposed.task.id;
+		const assigned = assign(ledger, {
+			actor: operator,
+			task_id,
+			assignee: odile,
+			causation_id: proposed.seq,
+		});
+		const started = start(ledger, {
+			actor: asOdile,
+			task_id,
+			causation_id: assigned.seq,
+		});
+		const submitted = complete(ledger, {
+			actor: asOdile,
+			task_id,
+			outputs: [output],
+			reviewer: operator,
+			causation_id: started.seq,
+		});
+		const reviewed = review(ledger, {
+			task_id,
+			reviewer: operator,
+			...threes,
+			note: "Clean work",
+			causation_id: submitted.seq,
+		});
+		const closed = complete(ledger, {
+			actor: operator,
+			task_id,
+			causation_id: reviewed.seq,
+		});
+
+		expect(task_id).toBe("T-1");
+		expect(proposed.task).toMatchObject({
+			state: { tag: "Proposed" },
+			rubric_id: "default",
+		});
+		expect(submitted.task.state).toEqual({
+			tag: "UnderReview",
+			assignee: odile,
+			reviewer: operator,
+		});
+		expect(closed.task).toMatchObject({
+			state: { tag: "Done", assignee: odile },
+			outputs: [output],
+		});
+		const steps = [proposed, assigned, started, submitted, reviewed, closed];
+		const bySeq = new Map(ledger.all().map((e) => [e.seq, e]));
+		expect(
+			steps.map(({ seq }) => {
+				const e = bySeq.get(seq);
+				return [e?.kind, e?.task_id, e?.causation_id];
+			}),
+		).toEqual([
+			["TaskProposed", "T-1", cause],
+			["TaskAssigned", "T-1", proposed.seq],
+			["TaskStarted", "T-1", assigned.seq],
+			["TaskCompleted", "T-1", started.seq],
+			["ReviewRecorded", "T-1", submitted.seq],
+			["TaskCompleted", "T-1", reviewed.seq],
+		]);
+		expect(
+			propose(ledger, proposal).task.id,
+			"the next proposal mints the next id",
+		).toBe("T-2");
+	});
+});
+
+/** A Task `agent` starts, so it is InProgress. */
+const started = (agent: AgentId): TaskId => {
+	const { task } = propose(ledger, proposal);
+	assign(ledger, { actor: operator, task_id: task.id, assignee: agent });
+	start(ledger, { actor: { tag: "Agent", id: agent }, task_id: task.id });
+	return task.id;
+};
+
+/** A Task `agent` completes and the Operator reviews with 3 on every dimension. */
+const reviewed = (agent: AgentId) => {
+	const task_id = started(agent);
+	complete(ledger, {
+		actor: { tag: "Agent", id: agent },
+		task_id,
+		reviewer: operator,
+		reviewUnsampled: true,
+	});
+	review(ledger, { task_id, reviewer: operator, ...threes, note: "" });
+	complete(ledger, { actor: operator, task_id });
+};
+
+describe("completing a Task decides its own Review", () => {
+	it("refuses a Task sampled for Review that names no reviewer, saying it was sampled", () => {
+		const t = started(rin);
+
+		expect(() => complete(ledger, { actor: asRin, task_id: t })).toThrow(
+			"TaskCompleted refused: T-1 is sampled for Review, as every Task of A-rin on Probation is; its completion names a reviewer",
+		);
+		expect(ledger.projections.tasks.tasks.get(t)?.state.tag).toBe("InProgress");
+	});
+
+	it("skips Review for a Task the Trust tier leaves out, even with a reviewer named, and requires it for a sampled one", () => {
+		for (let i = 0; i < 10; i++) reviewed(rin);
+		const unsampled = started(rin); // T-11: not 1 in 3
+		for (let i = 0; i < 3; i++) propose(ledger, proposal);
+		const sampled = started(rin); // T-15: 1 in 3
+
+		const skipped = complete(ledger, {
+			actor: asRin,
+			task_id: unsampled,
+			reviewer: operator,
+		});
+		expect(() => complete(ledger, { actor: asRin, task_id: sampled })).toThrow(
+			"TaskCompleted refused: T-15 is sampled for Review, as 1 in 3 Tasks of A-rin at Trusted are; its completion names a reviewer",
+		);
+		const submitted = complete(ledger, {
+			actor: asRin,
+			task_id: sampled,
+			reviewer: operator,
+		});
+
+		expect([unsampled, sampled]).toEqual(["T-11", "T-15"]);
+		expect(skipped.task.state).toEqual({ tag: "Done", assignee: rin });
+		expect(
+			ledger.all().find((e) => e.seq === skipped.seq)?.payload,
+		).toMatchObject({
+			review: {
+				tag: "Skipped",
+				reason: "not sampled for Review at tier Trusted",
+			},
+		});
+		expect(submitted.task.state).toEqual({
+			tag: "UnderReview",
+			assignee: rin,
+			reviewer: operator,
+		});
+	});
+});
+
+describe("completing a Task after Review", () => {
+	it("needs a Review by the named reviewer, completed by that reviewer", () => {
+		const task_id = started(rin);
+		complete(ledger, { actor: asRin, task_id, reviewer: pia });
+		const close = (actor: Actor) => () =>
+			complete(ledger, { actor, task_id, reviewer: operator });
+		const reviewBy = (reviewer: Actor) =>
+			review(ledger, { task_id, reviewer, ...threes, note: "" });
+
+		expect(close(pia)).toThrow(
+			"TaskCompleted refused: T-1 has no Review by A-pia, its reviewer",
+		);
+		reviewBy(operator);
+		expect(close(pia)).toThrow(/T-1 has no Review by A-pia/);
+		reviewBy(pia);
+		expect(close(operator)).toThrow(
+			"TaskCompleted refused: only A-pia, the reviewer of T-1, completes it after Review; the actor is Operator",
+		);
+
+		expect(close(pia)().task.state).toEqual({ tag: "Done", assignee: rin });
+	});
+
+	it("refuses completing a Task that is neither InProgress nor UnderReview, naming its state", () => {
+		const { task } = propose(ledger, proposal);
+
+		expect(() =>
+			complete(ledger, { actor: operator, task_id: task.id }),
+		).toThrow("TaskCompleted refused: T-1 is Proposed, expected InProgress");
+	});
+});
+
+describe("the other Task verbs", () => {
+	it("hands an InProgress Task off from its assignee, back to Assigned", () => {
+		const task_id = started(rin);
+
+		const { task, seq } = handOff(ledger, {
+			actor: asRin,
+			task_id,
+			to: odile,
+			reason: "needs a second pair of eyes",
+		});
+
+		expect(task.state).toEqual({ tag: "Assigned", assignee: odile });
+		expect(ledger.all().find((e) => e.seq === seq)?.payload).toEqual({
+			task_id,
+			from: rin,
+			to: odile,
+			reason: "needs a second pair of eyes",
+		});
+	});
+
+	it("refuses a Hand-off of a Task that is not InProgress, naming its state", () => {
+		const { task } = propose(ledger, proposal);
+
+		expect(() =>
+			handOff(ledger, {
+				actor: operator,
+				task_id: task.id,
+				to: odile,
+				reason: "busy",
+			}),
+		).toThrow("TaskHandedOff refused: T-1 is Proposed, expected InProgress");
+	});
+
+	it("escalates and fails live Tasks", () => {
+		const first = propose(ledger, proposal).task.id;
+		const second = propose(ledger, proposal).task.id;
+
+		const escalated = escalate(ledger, {
+			actor: operator,
+			task_id: first,
+			to: operator,
+			reason: "no balance",
+		});
+		const failed = fail(ledger, {
+			actor: operator,
+			task_id: second,
+			reason: "form unreadable",
+		});
+
+		expect(escalated.task.state).toEqual({ tag: "Escalated", to: operator });
+		expect(failed.task.state).toEqual({
+			tag: "Failed",
+			reason: "form unreadable",
+		});
+	});
+
+	it("blocks an InProgress Task on a Gate it requests under the next free gate id, caused by the Event the caller names", () => {
+		const task_id = started(rin);
+		const cause = ledger.all().at(-1)?.seq as Seq;
+
+		const blocked = block(ledger, {
+			actor: asRin,
+			task_id,
+			kind: "Deploy",
+			payload: { target: "staging" },
+			causation_id: cause,
+		});
+
+		expect(blocked.gate_id).toBe("G-1");
+		expect(blocked.task.state).toEqual({
+			tag: "Blocked",
+			assignee: rin,
+			gate: "G-1",
+		});
+		expect(ledger.all().find((e) => e.seq === blocked.seq)).toMatchObject({
+			kind: "GateRequested",
+			task_id,
+			causation_id: cause,
+			payload: { gate_id: "G-1", kind: "Deploy" },
+		});
+	});
+});
