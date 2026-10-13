@@ -1,0 +1,5 @@
+seq,at,agent,load,fatigue,friction,confidence,morale,mood,causation_id
+21,2026-10-13T06:29:58.207Z,A-mabel,0,0.063776,0,1,0,fresh,20
+24,2026-10-13T06:30:01.242Z,A-odile,0,0.08188,0,1,0,fresh,23
+27,2026-10-13T06:30:11.148Z,A-thorne,0,0.029208,0,1,0,fresh,26
+33,2026-10-13T06:30:31.572Z,A-ines,0,0.050256,0,1,0,fresh,32
