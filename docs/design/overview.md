@@ -502,7 +502,7 @@ The workflow lifecycle (`workflow/lifecycle.ts`) appends every `EvaluationRecord
 
 ## The Operator's interface
 
-Every view is a Projection of the Ledger and updates live over SSE. No view stores its own state. Each view has a hash route (`#/org`, `#/flow`, `#/agent`, `#/chat`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance`, `#/ledger`). It fetches its Projections from `/api/` and fetches them again on every Event the stream delivers. A view's markup is a pure function of that JSON. Until its own ticket draws it, a view shows the JSON as it came.
+Every view is a Projection of the Ledger and updates live over SSE. No view stores its own state. Each view has a hash route (`#/org`, `#/flow`, `#/agent`, `#/chat`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance`, `#/ledger`). It fetches its Projections from `/api/` and fetches them again on every Event the stream delivers. A view's markup is a pure function of that JSON. Until its own ticket draws it, a view shows the JSON as it came. A new browser tab first shows the Access landing, a lock frame with the Operator, the laboratory, the terminal and a clock; ENTER opens the shell. It asks for no password, because Cloudflare Access already decided who may load the page. The look follows the owner's Aliquot LIMS design: bone paper, black slab panels with a lime edge, orange for refused and rejected states, and a dark theme.
 
 | View | Shows | Operator actions |
 |---|---|---|

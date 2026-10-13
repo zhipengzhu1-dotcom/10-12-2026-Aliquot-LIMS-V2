@@ -16,7 +16,7 @@ cd "$(git rev-parse --show-toplevel)/.claude/skills/verify"
 scripts/prove.sh org --intent 'Pause and resume from the Org view, and Rest from the Action bar'
 ```
 
-`prove.sh <feature> [--intent '<text>']` runs Launch, Doctor, Drive and Cleanup below in order, and exits 0 only when the proof's verdict is PASS and the proof outlived the cleanup. Its last line is `proof: <run>/proof/proof.md`. Features with a drive: `org`, `flow`, `agent`, `gates`, `ledger`, `chat`. Run the parts by hand when you drive something the recipes do not cover.
+`prove.sh <feature> [--intent '<text>']` runs Launch, Doctor, Drive and Cleanup below in order, and exits 0 only when the proof's verdict is PASS and the proof outlived the cleanup. Its last line is `proof: <run>/proof/proof.md`. Features with a drive: `org`, `flow`, `agent`, `gates`, `ledger`, `chat`, `access`, `views`. Run the parts by hand when you drive something the recipes do not cover.
 
 ## Launch
 
@@ -49,7 +49,7 @@ scripts/drive.sh "$RUN" org [--intent '<the acceptance box, quoted>']
 
 `drive.sh` runs the feature's `drive_<feature>` function, checks its end state, and appends the feature's section to `proof/proof.md`. The functions use two helpers you also call directly:
 
-- `scripts/browser.mjs "$RUN" <name> <step>...` drives headless system Chrome over CDP and saves a screenshot after every step to `proof/<name>/NN-<step>.png`, with `steps.tsv`. The steps are `goto <hash>`, `click <selector>`, `fill <selector> <text>` (typed as key input), `choose <selector> <value>`, `wait <selector>`, `gone <selector>`, `count <selector> <n>`, `text <selector> <text>`, `mark` and `same-page` (no reload between them), `outside <verb> <json>` (an action from a second client, for redraws over the Event stream), and `save <selector> <file>`. It exits 1 at the first failing step, after a `FAILED` screenshot. Set `CHROME` to use another Chrome binary.
+- `scripts/browser.mjs "$RUN" <name> <step>...` drives headless system Chrome over CDP and saves a screenshot after every step to `proof/<name>/NN-<step>.png`, with `steps.tsv`. The steps are `goto <hash>`, `click <selector>`, `fill <selector> <text>` (typed as key input), `choose <selector> <value>`, `wait <selector>`, `gone <selector>`, `count <selector> <n>`, `text <selector> <text>`, `mark` and `same-page` (no reload between them), `outside <verb> <json>` (an action from a second client, for redraws over the Event stream), `save <selector> <file>`, `landing`, `enter` and `shell` (the Access landing shows, ENTER is pressed, the shell shows), `scheme <light|dark>` (emulated `prefers-color-scheme`), `viewport <width>`, and `no-hscroll` (the page is no wider than the window). A run starts in the shell, as an Operator who passed the landing this session; a run whose steps include `landing` starts a fresh session on the landing instead. It exits 1 at the first failing step, after a `FAILED` screenshot. Set `CHROME` to use another Chrome binary.
 - `scripts/api.sh "$RUN" get <route>` reads `/api/<route>`; `scripts/api.sh "$RUN" act <verb> '<json>' [--expect <code>]` posts `/api/actions/<verb>`, the route every view form and the Action bar post to. It exits 0 only on the expected status (200 by default), so `--expect 409` proves a refusal.
 
 Address elements by the handles the views draw (`id`, `data-agent`, `data-task`, `data-lane`, `data-gate`, `data-action`, `data-route`) and by hash route. Each feature file lists its handles.
