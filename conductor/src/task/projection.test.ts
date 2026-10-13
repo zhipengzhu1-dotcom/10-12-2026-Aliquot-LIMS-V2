@@ -228,6 +228,11 @@ describe("TaskProjection beyond the happy path", () => {
 			reason: "inputs missing",
 		});
 		expect(tasks().get(T2)?.state).toEqual({ tag: "Escalated", to: operator });
+		expect(ledger.projections.tasks.escalations).toEqual(
+			new Map([
+				[T2, { seq: 4, from: operator, to: operator, reason: "stuck" }],
+			]),
+		);
 	});
 });
 

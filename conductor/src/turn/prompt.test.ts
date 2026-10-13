@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, RoomId, Sha256 } from "../ids.js";
 import { open, say } from "../room/lifecycle.js";
 import { store } from "../sandbox/lifecycle.js";
-import { assign, propose } from "../task/lifecycle.js";
+import { assign, escalate, propose } from "../task/lifecycle.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import { messageArtifactId } from "../tools/message.js";
 import { giveCoaching } from "../training/lifecycle.js";
@@ -99,6 +99,40 @@ describe("the prompt of a Turn", () => {
 		expect(prompt).toContain("- New.");
 		expect(prompt).not.toContain("First word.");
 		expect(prompt).not.toContain("- Old.");
+	});
+
+	it("shows a Task escalated to the Agent, who escalated it and why, until the Agent's next Turn", () => {
+		const ines = AgentId.parse("A-ines");
+		const pia = AgentId.parse("A-pia");
+		const task_id = s.task(ines);
+		escalate(s.ledger, {
+			actor: { tag: "Agent", id: ines },
+			task_id,
+			to: { tag: "Agent", id: pia },
+			reason: "The input is a .docx, outside my PDF Charter.",
+		});
+		const heading = "## Tasks escalated to you since your last Turn\n\n";
+
+		const turn = start(pia);
+		const first = turnPrompt(s.ledger.projections, turn, s.now()).work;
+
+		expect(first).toContain(
+			`${heading}An escalated Task stays Escalated. To take one on, propose a new Task with the same inputs with propose_task and assign it with assign_task, or say why not in a Room with send_message.\n\n- ${task_id} Task 1: Do the work\n  Inputs: none. Priority 1, TAT Regular.\n  Escalated by A-ines: The input is a .docx, outside my PDF Charter.`,
+		);
+		expect(promptOf(rin), "another Agent's prompt").toContain(
+			`${heading}None.`,
+		);
+
+		finishTurn(s.ledger, {
+			turn_id: turn.started.turn_id,
+			usage: NO_USAGE,
+			outcome: { tag: "Completed" },
+			tool_calls: 0,
+		});
+		const second = promptOf(pia);
+
+		expect(second).toContain(`${heading}None.`);
+		expect(second).not.toContain("Escalated by A-ines");
 	});
 
 	it("carries no Mood or Policy line, even for a resting Agent with a Task InProgress", () => {

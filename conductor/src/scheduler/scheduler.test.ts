@@ -8,7 +8,7 @@ import { AgentId, RoomId, TaskId } from "../ids.js";
 import { intake } from "../intake/command.js";
 import { pause } from "../org/lifecycle.js";
 import { open, say } from "../room/lifecycle.js";
-import { assign, propose } from "../task/lifecycle.js";
+import { assign, escalate, propose, start } from "../task/lifecycle.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import {
@@ -31,6 +31,7 @@ const ines = id("A-ines");
 const bram = id("A-bram");
 const mabel = id("A-mabel");
 const thorne = id("A-thorne");
+const pia = id("A-pia");
 const operator = { tag: "Operator" } as const;
 const lab = RoomId.parse("RM-lab");
 
@@ -547,6 +548,50 @@ describe("the plan", () => {
 			agent: rin,
 			why: "1 new Message in its Rooms",
 		});
+	});
+
+	it("wakes the target of an escalation once, as A-pia after A-ines escalated T-1 in the live run", () => {
+		fresh();
+		spent(s, mabel, 10);
+		spent(s, thorne, 10);
+		const t1 = task(s);
+		assign(s.ledger, { actor: operator, task_id: t1, assignee: ines });
+		const asInes = { tag: "Agent", id: ines } as const;
+		const { turn } = startTurn(s.ledger, {
+			agent: ines,
+			model: "claude-sonnet-5-5",
+			energyBudgetTokens: OPTIONS.energyBudgetTokens,
+		});
+		start(s.ledger, { actor: asInes, task_id: t1 });
+		escalate(s.ledger, {
+			actor: asInes,
+			task_id: t1,
+			to: { tag: "Agent", id: pia },
+			reason: "The input is a .docx, outside my PDF Charter.",
+		});
+		finishTurn(s.ledger, {
+			turn_id: turn.started.turn_id,
+			usage: usage(10),
+			outcome: { tag: "Completed" },
+			tool_calls: 0,
+		});
+		const decide = () =>
+			plan(
+				s.ledger.projections,
+				s.now(),
+				{ ...OPTIONS, concurrency: 8 },
+				new Map(),
+			);
+
+		expect(decide(), "the Tick after the escalation").toEqual([
+			{ tag: "Start", agent: pia, why: "escalated T-1 from A-ines" },
+		]);
+
+		spent(s, pia, 10);
+
+		expect(decide(), "the Tick after A-pia's Turn").toEqual([
+			{ tag: "Idle", why: "no Agent has anything to do" },
+		]);
 	});
 
 	it("is reproducible: the same Ledger gives the same assignee twice", () => {
