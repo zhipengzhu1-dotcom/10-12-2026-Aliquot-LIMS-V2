@@ -609,6 +609,16 @@ With `--access-team`, `--access-aud` and `--operator-email`, every request must 
 
 Node's `crypto` verifies the token, so Access needs no dependency.
 
+### Tunnel
+
+`tools/serve.sh` serves the interface at `https://agents.nitrolims-demo.com`. It starts `aliquot serve` on `127.0.0.1:8787` with the Access flags from `.aliquot/serve.json`, which git ignores (`tools/tunnel/serve.example.json` shows its shape), and `cloudflared` running the Cloudflare Tunnel `aliquot` from `tools/tunnel/config.yml`. Ctrl-C stops both. `--no-tunnel` starts the Conductor alone.
+
+```sh
+tools/serve.sh
+```
+
+[docs/ops/tunnel.md](docs/ops/tunnel.md) has the one-time setup on the Cloudflare account, the free-tier limits, the checks, how to undo each part, and how to rotate the Operator's email.
+
 ### Interface
 
 The interface is plain TypeScript in `conductor/ui/`, with no framework and no bundler. `pnpm -C conductor build` compiles it with `ui/tsconfig.build.json` to ES modules in `conductor/dist/ui/`, and copies `ui/index.html` beside them. `pnpm -C conductor lint` and `typecheck` cover `ui/`. Without a build, `aliquot serve` says so on stderr and serves the API only.

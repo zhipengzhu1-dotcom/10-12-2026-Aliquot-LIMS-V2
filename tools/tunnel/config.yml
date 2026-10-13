@@ -1,0 +1,8 @@
+# Cloudflare Tunnel `aliquot`: agents.nitrolims-demo.com to the Conductor. See docs/ops/tunnel.md.
+# The credentials stay in ~/.cloudflared/, written there by `cloudflared tunnel create`.
+tunnel: aliquot
+credentials-file: ~/.cloudflared/aliquot.json
+ingress:
+  - hostname: agents.nitrolims-demo.com
+    service: http://127.0.0.1:8787
+  - service: http_status:404
