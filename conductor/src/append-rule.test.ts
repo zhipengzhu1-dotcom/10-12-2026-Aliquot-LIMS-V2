@@ -29,6 +29,7 @@ const REFUSED = [
 	"src/room/commands.ts",
 	"src/sandbox/runner.ts",
 	"src/task/commands.ts",
+	"src/turn/commands.ts",
 	"src/workflow/tracer.ts",
 ];
 const ALLOWED = [
@@ -36,6 +37,7 @@ const ALLOWED = [
 	"src/task/commands.test.ts",
 	"src/task/lifecycle.ts",
 	"src/test-support/scenario.ts",
+	"src/turn/lifecycle.ts",
 	"src/workflow/lifecycle.ts",
 ];
 

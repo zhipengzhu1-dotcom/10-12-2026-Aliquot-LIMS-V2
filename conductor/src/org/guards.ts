@@ -1,5 +1,5 @@
 import { type AppendGuard, reasonOf } from "../append-guard.js";
-import type { Event } from "../events.js";
+import type { Event, EventKind } from "../events.js";
 import {
 	agentNamedBy,
 	approvedGatesFor,
@@ -84,14 +84,25 @@ const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 ] satisfies (keyof AgentDefinition)[]);
 
 /**
- * The Conductor authors only the tier Revisions that Merit and Gates require
- * (ADR-0011): each changes the tier and nothing else, and names the Event
- * where the projected tier last changed to the tier it records. The rules
- * every Revision follows, including that the tier is the projected one, run
- * after this in `orgGuard`.
+ * The Events the Conductor records of its own acts (ADR-0013). Their own
+ * domain's guards hold their rules, including that no one else records them.
+ */
+const CONDUCTOR_ACTS: ReadonlySet<EventKind> = new Set([
+	"TurnStarted",
+	"TurnFinished",
+]);
+
+/**
+ * Apart from its own acts, the Conductor authors only the tier Revisions that
+ * Merit and Gates require (ADR-0011): each changes the tier and nothing else,
+ * and names the Event where the projected tier last changed to the tier it
+ * records. The rules every Revision follows, including that the tier is the
+ * projected one, run after this in `orgGuard`.
  */
 const conductorGuard: AppendGuard = (projections, event) => {
-	if (event.actor.tag !== "Conductor") return undefined;
+	if (event.actor.tag !== "Conductor" || CONDUCTOR_ACTS.has(event.kind)) {
+		return undefined;
+	}
 	if (event.kind !== "AgentDefinitionRevised") {
 		return "the Conductor authors only tier Revisions";
 	}

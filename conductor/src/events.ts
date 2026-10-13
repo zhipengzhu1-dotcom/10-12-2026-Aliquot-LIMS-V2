@@ -11,6 +11,7 @@ import {
 	Seq,
 	Sha256,
 	TaskId,
+	TurnId,
 } from "./ids.js";
 import { Actor, EventActor } from "./types/actor.js";
 import { AgentDefinition } from "./types/agent-definition.js";
@@ -21,7 +22,8 @@ import { Room } from "./types/room.js";
 import { Run, Script, ScriptRef } from "./types/script.js";
 import { MemoryNote, Skill } from "./types/skill.js";
 import { TatClass } from "./types/task.js";
-import { Vitality } from "./types/vitality.js";
+import { TurnOutcome, TurnUsage } from "./types/turn.js";
+import { Mood, Policy, Vitality } from "./types/vitality.js";
 
 // One line per Event kind. A ticket that owns a kind may tighten its payload
 // here; adding a kind is a new line, never a change to an existing one.
@@ -154,6 +156,25 @@ const BODIES = [
 	body("HumanCoached", z.strictObject({ agent_id: AgentId, note: z.string() })),
 	body("MemoryNoted", MemoryNote),
 	body("SkillPublished", Skill),
+	body(
+		"TurnStarted",
+		z.strictObject({
+			turn_id: TurnId,
+			agent: AgentId,
+			model: z.string().min(1),
+			mood: Mood,
+			policy: Policy,
+		}),
+	),
+	body(
+		"TurnFinished",
+		z.strictObject({
+			turn_id: TurnId,
+			usage: TurnUsage,
+			outcome: TurnOutcome,
+			tool_calls: z.number().int().nonnegative(),
+		}),
+	),
 ] as const;
 
 export const EventBody = z.discriminatedUnion("kind", [

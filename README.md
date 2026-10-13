@@ -85,7 +85,7 @@ No command appends a raw Event. The Operator writes to the Ledger only through t
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
-The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, and Artifacts) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
+The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, and Turns) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
 
 Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`. It reads only the chain, so it also works on a Ledger too corrupt to open.
 
@@ -256,15 +256,27 @@ A Script is a directory with `main.py` (or `--entrypoint`). The container runs `
 - stdout and stderr are stored as `Other` Artifacts (`text/plain`). The Run records the exit code.
 - A Script cannot import `synth` or anything else from the repository: only its own directory is mounted.
 
+## Turns
+
+A Turn is one bounded unit of Agent activity that the Conductor schedules. The Conductor records its own acts (ADR-0013): a `TurnStarted` with the Turn id (`TN-<n>`), the Agent, the model, and the Mood and Policy the Agent works under, and a `TurnFinished` with the usage the model reports (input, output, cache creation and cache read tokens, and cost in USD), the outcome (`Completed`, `MaxTurns`, `Budget`, or `Error` with its text), and the number of tool calls. A `TurnFinished` names its `TurnStarted` in `causation_id`. The Turn lifecycle, `conductor/src/turn/lifecycle.ts`, appends both. The Ledger refuses a Turn Event from an Agent or the Operator, a Turn for an Agent that is not live, is resting, is paused, or already has an open Turn, and the finish of a Turn that is unknown or already finished. No command writes a Turn Event.
+
+Print every Turn, or one Agent's, in the order they started. An open Turn prints `finished=- outcome=open`. A Ledger with no Turns prints `No Turns`.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot turn list
+pnpm -C conductor cli --home /tmp/aliquot turn list --agent A-rin
+# TN-1 A-rin model=claude-opus-5-5 started=2026-10-12T09:00:00.000Z finished=2026-10-12T09:02:00.000Z input=1200 output=300 cache_creation=40 cache_read=9000 cost_usd=0.021 tool_calls=3 outcome=Completed
+```
+
 ## Vitality and Merit
 
 Vitality, Mood, Policy, Merit, and the Trust tier are Projections over the Ledger (ADR-0004, ADR-0007), with the thresholds of `docs/design/vitality-and-merit.md`. The code is in `conductor/src/vitality/`.
 
-- Vitality is computed from Events: `load` from open Tasks against `capacity`, `friction` and `confidence` from the Agent's last 10 Tasks, and `morale` from the slope of Review means over the last 7 days. No Event records token use yet, so `fatigue` comes from `--tokens`, and is 0 without it. From slice 1 the Conductor supplies it from each Turn's `modelUsage`.
+- Vitality is computed from Events: `load` from open Tasks against `capacity`, `friction` and `confidence` from the Agent's last 10 Tasks, and `morale` from the slope of Review means over the last 7 days. `fatigue` is the input, output and cache creation tokens of the Agent's `TurnFinished` Events in the trailing 5 hours, divided by its share of the Energy budget: the budget divided by the live Agents not resting. Cache reads are recorded but not counted. An Agent with no Turns in the window has `fatigue` 0.
 - Mood follows the first matching rule of the Mood table, and Policy follows from Mood. A resting Agent is unschedulable.
 - Merit is the mean of every dimension score over the Agent's last 20 reviewed Tasks. Tasks skipped for Review do not count.
 - The Trust tier starts at `Probation` and rises when Merit and tenure meet a tier's bar with no boundary score below 2 in the window. A boundary score of 0 demotes one tier at once, and the Agent cannot regain that tier until the 0 leaves its window. `Mentor` also needs an approved `PromoteToMentor` Gate whose payload has the Agent as its `agent_id`. Each Promotion to `Mentor` uses the oldest such Gate that no Promotion has used, so a return after a Demotion needs a new one. An unused approval does not lapse.
-- The definition's `trust_tier` always equals the projected tier. After every append, in the same transaction, the Ledger appends an `AgentDefinitionRevised` for each live Agent whose `trust_tier` differs from its projected tier (ADR-0011). The actor `Conductor` authors these Revisions and is their `revised_by`. Each names the Event that caused it in `causation_id`, such as the Review or the `GateDecided`, and its `revision_reason` names the Merit or Gate change. The Ledger refuses any other Event by the `Conductor`, and any definition, from anyone, that records a tier other than the projected one. A Ledger written before this rule catches up when it is opened for writing, before any command appends, in its own transaction, Retired Agents included. Each catch-up Revision names in `causation_id` the Review or `GateDecided` where the projected tier last changed, or the Agent's Recruitment when no Review or Gate ever changed it, and its `revision_reason` says that it is recorded late. The Ledger refuses a Conductor Revision that names any other cause. A command that only reads, such as `org tree`, appends nothing, so it shows the caught-up tier after the next command that writes.
+- The definition's `trust_tier` always equals the projected tier. After every append, in the same transaction, the Ledger appends an `AgentDefinitionRevised` for each live Agent whose `trust_tier` differs from its projected tier (ADR-0011). The actor `Conductor` authors these Revisions and is their `revised_by`. Each names the Event that caused it in `causation_id`, such as the Review or the `GateDecided`, and its `revision_reason` names the Merit or Gate change. Apart from these and the Turns it records of its own acts (see [Turns](#turns)), the Ledger refuses every Event by the `Conductor`. It also refuses any definition, from anyone, that records a tier other than the projected one. A Ledger written before this rule catches up when it is opened for writing, before any command appends, in its own transaction, Retired Agents included. Each catch-up Revision names in `causation_id` the Review or `GateDecided` where the projected tier last changed, or the Agent's Recruitment when no Review or Gate ever changed it, and its `revision_reason` says that it is recorded late. The Ledger refuses a Conductor Revision that names any other cause. A command that only reads, such as `org tree`, appends nothing, so it shows the caught-up tier after the next command that writes.
 
 Show every live Agent, or one:
 
@@ -287,12 +299,12 @@ pnpm -C conductor cli --home /tmp/aliquot vitality tiers
 # A-rin Rin merit=3.00 reviewed=10 tier=Trusted unused_mentor_gates=-
 ```
 
-Order Rest or end it, and append a `VitalitySampled` computed from the Ledger. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000). Sampling an Agent that is Retired or not in the Org appends nothing and exits 1 with `VitalitySampled refused: <A-id> is not a live Agent in the Org`.
+Order Rest or end it, and append a `VitalitySampled` computed from the Ledger, with `fatigue` from the Agent's Turns. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000, which `vitality show` also uses). A sample from the command line names no cause; a sample the Conductor takes at the end of a Turn names that Turn's `TurnFinished`. Sampling an Agent that is Retired or not in the Org appends nothing and exits 1 with `VitalitySampled refused: <A-id> is not a live Agent in the Org`.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --begin --reason "fatigue 0.92" --as A-mabel
 pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --end --reason "fatigue 0.41" --as A-mabel
-pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --tokens 120000 --budget 1000000
+pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --budget 1000000
 ```
 
 ## Workflow tracer
