@@ -1,12 +1,12 @@
 # Agent page
 
-The Agent view at `#/agent?id=<id>` shows one Agent's Charter, Persona, Vitality with Mood and Policy, Merit after each Review counted toward it, Memory notes, Coaching and Skills, and lets the Operator open the Agent's Room, give Coaching, and author a Revision of its definition.
+The Agent view at `#/agent?id=<id>` shows one Agent's Charter, Persona, Vitality and Policy (no Mood badge: Mood is flat since #62), Merit after each Review counted toward it, Memory notes, Coaching and Skills, and lets the Operator open the Agent's Room, give Coaching, and author a Revision of its definition.
 
 ## Sub-features
 
 - `agent-index` lists the Agents at `#/agent` with links to each page.
 - `agent-sections` draws `#charter`, `#persona`, `#vitality`, `#merit`, `#notes`, `#coaching` and `#skills`.
-- `agent-vitality` shows the Agent's latest `VitalitySampled`, which the Conductor writes at the end of a Turn; with no Turn yet (every baseline run, since `serve` runs with `--no-schedule`) it shows one computed now and says `sample computed now`.
+- `agent-vitality` shows the Agent's latest `VitalitySampled`, which the Conductor writes at the end of a Turn; with no Turn yet (every baseline run, since `serve` runs with `--no-schedule`) it shows one computed now and says `sample computed now`. The section's heading reads `Vitality (Mood is flat in the first edition)`.
 - `agent-merit` draws one row and one chart point per Review counted toward Merit: Task, Reviewer, the five rubric scores, the Merit after it (the mean over the Agent's last 20 reviewed Tasks at that point, not the Review's own score) and the note; with no counted Review it prints `No Reviews yet.` and no table.
 - `agent-coach` gives Coaching with an optional Task (`form#coach-<id>`, verb `coach`); it appears under `#coaching`.
 - `agent-revise` authors a Revision in `#revise-<id>-panel`: a JSON editor over the next version (version one higher, `revised_by` the Operator) and a reason that becomes `revision_reason`.
@@ -24,7 +24,7 @@ Preconditions:
 - The baseline of [README.md](./README.md): Rin at version 1, reviewed on T-1 and T-4 by the workflow run.
 
 - **Whole drive.** Run `scripts/drive.sh "$RUN" agent`.
-- **Sections and Merit.** `scripts/browser.mjs "$RUN" agent/ui goto '#/agent?id=A-rin' wait '#charter' text '#vitality' 'sample computed now' count '#merit tbody tr' 2 save '#merit' merit.txt`. `merit.txt` lists T-1 and T-4, Rin's two counted Reviews.
+- **Sections and Merit.** `scripts/browser.mjs "$RUN" agent/ui goto '#/agent?id=A-rin' wait '#charter' text '#vitality' 'Mood is flat in the first edition' text '#vitality' 'sample computed now' count '#merit tbody tr' 2 save '#merit' merit.txt`. `merit.txt` lists T-1 and T-4, Rin's two counted Reviews.
 - **Coaching.** `fill '#coach-A-rin-note' 'verify: name the Lot in every Artifact' click '#coach-A-rin button' text '#answer' 'Appended HumanCoached' text '#coaching' 'verify: name the Lot in every Artifact'`.
 - **Revision.** `click '#revise-A-rin-panel > summary' fill '#revise-A-rin-reason' 'verify: a Revision from the Agent view' click '#revise-A-rin button' text '#answer' 'Appended AgentDefinitionRevised'`.
 - **Proof.** `scripts/api.sh "$RUN" get org` has Rin at `definition.version` 2 with the typed `revision_reason`; `scripts/api.sh "$RUN" get training` has the note under `.coaching["A-rin"]`; the `HumanCoached` and `AgentDefinitionRevised` rows are in `home/ledger.sqlite`.

@@ -312,7 +312,7 @@ const index = (agents: readonly AgentState[]) =>
 	)}`;
 
 /**
- * One Agent: its Charter, Persona, Vitality with Mood and Policy, Merit after
+ * One Agent: its Charter, Persona, Vitality and Policy, Merit after
  * each Review, Memory notes, Coaching and Skills, and the Operator's actions
  * on it. Without an Agent id, the list of Agents to choose from.
  */
