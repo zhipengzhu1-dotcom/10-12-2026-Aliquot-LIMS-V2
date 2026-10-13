@@ -3,16 +3,21 @@ import type { AgentId, ArtifactId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import { type Message, roomsOf } from "../room/projection.js";
 import { LAB_ROOM } from "../room/seed.js";
+import { walkLineage } from "../sandbox/artifacts.js";
 import { LIVE_TAGS } from "../task/projection.js";
-import { ACTIONS, charterActions } from "../tools/actions.js";
-import { messagesById, PARSE_MESSAGE } from "../tools/message.js";
+import { ACTIONS, charterActions, stageOfInputs } from "../tools/actions.js";
+import {
+	messagesById,
+	PARSE_MESSAGE,
+	PARSE_RESULTS_MESSAGE,
+} from "../tools/message.js";
 import { TOOLS } from "../tools/table.js";
-import { actorText } from "../types/actor.js";
+import { type Actor, actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Task } from "../types/task.js";
-import { reviewerOf } from "../vitality/reviewers.js";
+import { reviewerOf, reviewerRefusal } from "../vitality/reviewers.js";
 import { reviewSampleOf } from "../vitality/trust.js";
-import { STAGES } from "../workflow/stages.js";
+import { STAGES, type Stage } from "../workflow/stages.js";
 import type { TurnRecord } from "./projection.js";
 
 /**
@@ -25,17 +30,50 @@ export type TurnPrompt = {
 	readonly work: string;
 };
 
-const [, RECEIPT, WORK_ORDER] = STAGES;
-if (RECEIPT === undefined || WORK_ORDER === undefined) {
-	throw new Error("the stage table has no stage 2 or 3");
+const [, RECEIPT, WORK_ORDER, RESULTS, VERIFICATION, REPORT] = STAGES;
+if (
+	RECEIPT === undefined ||
+	WORK_ORDER === undefined ||
+	RESULTS === undefined ||
+	VERIFICATION === undefined ||
+	REPORT === undefined
+) {
+	throw new Error("the stage table has no stages 2 to 6");
 }
 
 /**
  * The Director's judgement on a Message in the Lab Room: received Samples
  * are work for the Specialist who works stage 2, and an unreadable report
- * gets a reply naming what is missing.
+ * gets a reply naming what is missing. The labels are the ones
+ * `parse_message` reads the values the Report of Analysis needs by, so the
+ * Director requests what the Script would refuse.
  */
-const RECEIVING_WORK = `A Message in ${LAB_ROOM.id} that reports received Samples is work. When it names the Client, the product, the Lot, the Product Code, the quantity, the Sample Type and the TAT, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_MESSAGE} on it, run S-${RECEIPT.script} (stage ${RECEIPT.number} ${RECEIPT.name}) on its Submission Record and S-${WORK_ORDER.script} (stage ${WORK_ORDER.number} ${WORK_ORDER.name}) on the Receiving Log row and toy LIMS database that writes, all with the Task's id, then reply to the Message in ${LAB_ROOM.id} with each Lab Reference and the Work Order's due date. Then assign it to ${RECEIPT.worked_by}, who works stage ${RECEIPT.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, naming what is missing, and propose no Task.`;
+const RECEIVING_WORK = `A Message in ${LAB_ROOM.id} that reports received Samples is work. When it names the Client, the product, the Lot, the Product Code, the quantity, the Sample Type, the TAT, the Product Type after "Product Type", and the Report To party after "Report to" with its company, Contact, Address and City, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_MESSAGE} on it, run S-${RECEIPT.script} (stage ${RECEIPT.number} ${RECEIPT.name}) on its Submission Record and S-${WORK_ORDER.script} (stage ${WORK_ORDER.number} ${WORK_ORDER.name}) on the Receiving Log row and toy LIMS database that writes, all with the Task's id, then reply to the Message in ${LAB_ROOM.id} with each Lab Reference and the Work Order's due date. Then assign it to ${RECEIPT.worked_by}, who works stage ${RECEIPT.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, naming each of those values it lacks, and propose no Task.`;
+
+/** `run S-<script> (stage <n> <name>)`, as a goal names a stage's Script. */
+const runs = (stage: Stage) =>
+	`run S-${stage.script} (stage ${stage.number} ${stage.name})`;
+
+/**
+ * A stage's Task, as a goal names it: titled as the workflow tracer
+ * titles one, so the Verification rule knows stage 5's, and assigned to the
+ * Agent who works the stage.
+ */
+const handOn = (stage: Stage, inputs: string, goal: string) =>
+	`propose a Task titled "Stage ${stage.number} ${stage.name}: <the Work Order>" whose inputs are ${inputs}, with the goal "${goal}", and assign it to ${stage.worked_by}, who works stage ${stage.number}`;
+
+const REPORT_GOAL = `${runs(REPORT)} on them with the Task's id`;
+
+const VERIFICATION_GOAL = `${runs(VERIFICATION)} on them with the Task's id, then ${handOn(REPORT, "the Verification Record, the Receiving Log row, the weighings and the latest toy LIMS database", REPORT_GOAL)}`;
+
+/**
+ * The Director's judgement on a results Message in the Lab Room: stage 4's
+ * Specialist reads it into the weighings and works stage 4, and each stage
+ * hands on to the Agent who works the next one through its goal, since no
+ * Agent can look a Script up (#64). An unreadable one gets a reply naming
+ * what is missing.
+ */
+const RESULTS_WORK = `A Message in ${LAB_ROOM.id} that reports results is work too. When it names a Lab Reference or a Lot, the notebook reference, and for each container the weight of 20 capsules and the weight taken, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_RESULTS_MESSAGE} on it and the Work Order of that Lab Reference or Lot, then ${runs(RESULTS)} on the Work Order, the weighings that writes and the latest toy LIMS database, all with the Task's id, then ${handOn(VERIFICATION, "the Result Worksheet and the weighings", VERIFICATION_GOAL)}. Then assign it to ${RESULTS.worked_by}, who works stage ${RESULTS.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, asking for the Lab Reference, the notebook reference and the weighings it lacks, and propose no Task.`;
 
 /** Escalated has no way out, so a Task escalated to an Agent is taken on as a new Task. */
 const ESCALATED_WORK =
@@ -124,15 +162,53 @@ const taskLine = (
 			? `${a} (${said}, not stored yet: store it with store_message)`
 			: `${a} (${type}, ${said})`;
 	});
-	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.${reviewNote(task, projections)}`;
+	const stage = stageOfInputs(STAGES, projections, task.inputs);
+	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.${reportNote(task, stage, projections, messages)}${reviewNote(task, stage, projections)}`;
+};
+
+/**
+ * What the holder of stage 6's Task does once the report is rendered: the
+ * report goes out only through an ExternalMessage Gate the Operator
+ * decides (ADR-0006), and the Lab Room hears which Gate and which report.
+ * The reply answers the latest Operator's Message the Task's inputs were
+ * read from, when they were: the results, not the receiving report the
+ * database versions also trace back to.
+ */
+const reportNote = (
+	task: Task,
+	stage: Stage | undefined,
+	projections: Projections,
+	messages: ReadonlyMap<ArtifactId, Message>,
+): string => {
+	const { state } = task;
+	if (stage !== REPORT) return "";
+	if (state.tag !== "Assigned" && state.tag !== "InProgress") return "";
+	const from = task.inputs
+		.flatMap((id) => walkLineage(projections.artifacts, id))
+		.flatMap(({ production }) => messages.get(production.record.id) ?? [])
+		.reduce<Message | undefined>(
+			(latest, m) => (latest === undefined || m.seq > latest.seq ? m : latest),
+			undefined,
+		);
+	const answer =
+		from === undefined
+			? `say in ${LAB_ROOM.id}`
+			: `reply to the Operator's Message seq ${from.seq} in ${from.room_id}`;
+	return `\n  After ${runs(REPORT)}, request an ExternalMessage Gate with request_gate, naming no Task, whose payload is {"artifact_id": <the PDF Report of Analysis>, "lab_reference": <its Lab Reference>}; then ${answer} with send_message, naming the Gate id and the two Report of Analysis Artifact ids.`;
 };
 
 /**
  * What completing one's own Task takes when the Trust tier samples it for
- * Review: complete_task must name a reviewer, and the reviewer rule names
- * the first it allows.
+ * Review: complete_task must name a reviewer, and the note names the
+ * stage's reviewer when the reviewer rule allows it, since only a reviewer
+ * whose Charter lets it touch the stage's work can complete it after
+ * Review; else the first reviewer the rule allows.
  */
-const reviewNote = (task: Task, projections: Projections): string => {
+const reviewNote = (
+	task: Task,
+	stage: Stage | undefined,
+	projections: Projections,
+): string => {
 	const { state } = task;
 	if (state.tag !== "Assigned" && state.tag !== "InProgress") return "";
 	const { tier, sampled } = reviewSampleOf(
@@ -141,7 +217,15 @@ const reviewNote = (task: Task, projections: Projections): string => {
 		task.id,
 	);
 	if (!sampled) return "";
-	const reviewer = reviewerOf(projections, state.assignee);
+	const ofStage: Actor | undefined = stage && {
+		tag: "Agent",
+		id: stage.reviewed_by,
+	};
+	const reviewer =
+		ofStage &&
+		reviewerRefusal(projections, task.id, state.assignee, ofStage) === undefined
+			? ofStage
+			: reviewerOf(projections, state.assignee);
 	return `\n  Sampled for Review at ${tier}: complete it with complete_task naming a reviewer${reviewer === undefined ? "" : `, such as ${actorText(reviewer)}`}.`;
 };
 
@@ -241,7 +325,7 @@ const work = (
 			section("Submission Forms no Task has been proposed for", list(forms)),
 			section(
 				`The Operator's Messages in ${LAB_ROOM.id} since your last Turn`,
-				`${RECEIVING_WORK}\n\n${list(
+				`${RECEIVING_WORK}\n\n${RESULTS_WORK}\n\n${list(
 					[...messagesById(projections)]
 						.filter(([, m]) => m.seq > since && m.room_id === LAB_ROOM.id)
 						.map(([id, m]) => `seq ${m.seq}, Artifact ${id}: ${m.body}`),

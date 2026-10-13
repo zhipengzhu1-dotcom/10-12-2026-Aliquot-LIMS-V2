@@ -17,6 +17,7 @@
  *
  * Stage 4: the Result Worksheet that `sandbox/scripts/compute_results/main.py`
  * writes computes every average and the mean by formula from the weighings,
+ * its header holds the weighings' notebook reference when they name one,
  * and the `results` rows agree with it.
  *
  * Stage 5: the Verification Record that `sandbox/scripts/verify_results/main.py`
@@ -26,8 +27,9 @@
  * Stage 6: the Report of Analysis that `sandbox/scripts/render_roa/main.py`
  * writes holds the Receiving Log row's and the carried database's values in
  * every metadata cell and the Verification Record's mean as its result, its
- * PDF shows the same, the record's verdict was pass, and the `reports` row
- * names the Sample and the PDF.
+ * PDF shows the same, its signature area holds the weighings' notebook
+ * reference when they name one, the record's verdict was pass, and the
+ * `reports` row names the Sample and the PDF.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -537,14 +539,39 @@ const WorksheetReadBack = z.object({
 	sheet: z.array(z.array(Cell)),
 });
 
-/** The weighings file: one entry per container, as `synth` writes `weighings.json`. */
+/**
+ * The weighings file: one entry per container, as `synth` writes
+ * `weighings.json`. Weighings read from the Operator's results Message
+ * (`parse_results_message`) also give each entry the notebook reference.
+ */
 const Weighings = z.array(
 	z.object({
 		container: z.int(),
 		weight_of_20_g: z.number(),
 		weight_taken_g: z.number(),
+		notebook_reference: z.string().min(1).optional(),
 	}),
 );
+
+/** The label of the notebook reference in the worksheet's header and the report's signature area. */
+export const NOTEBOOK_LABEL = "Notebook Reference";
+
+/** The one notebook reference the weighings name, or none; weighings naming two are unreadable. */
+const notebookOf = (
+	weighings: z.infer<typeof Weighings>,
+): string | undefined => {
+	const named = new Set(weighings.map((w) => w.notebook_reference));
+	if (named.size > 1) {
+		throw new Unreadable(
+			`the weighings do not all name one notebook reference: ${[...named].map(String).join(", ")}`,
+		);
+	}
+	return [...named][0];
+};
+
+/** The column B value of the first row whose column A holds `label`. */
+const labelled = (sheet: readonly (readonly Cell[])[], label: string) =>
+	sheet.find((row) => row[0] === label)?.[1];
 
 const shown = (cell: Cell | undefined) =>
 	cell === undefined || cell === null ? "empty" : String(cell);
@@ -589,8 +616,10 @@ const readResults = (artifact: StageArtifact): Results =>
 /**
  * Stage 4's Evaluation of its Run. On the worksheet: every container row's
  * average is the formula `=F<row>/20`, its two weights equal the weighing
- * of its container, every weighing has a row, and the Mean row averages
- * the rows by formula. In the database version the Run wrote: for every
+ * of its container, every weighing has a row, the Mean row averages the
+ * rows by formula, and the header's Notebook Reference is the weighings'
+ * notebook reference, or absent when they name none. In the database
+ * version the Run wrote: for every
  * Sample of the Work Order, as the carried version lists them, the
  * `results` row for "Average capsule weight" equals its container row's
  * weight of 20 capsules divided by 20, and its Work Order mean row equals
@@ -679,6 +708,12 @@ export const evaluateResults = ({ inputs, outputs }: RunArtifacts): Scored => {
 		check(
 			meanRow[AVERAGE] === meanFormula,
 			`the Mean row's Average Weight (g) is ${shown(meanRow[AVERAGE])}, not the formula ${meanFormula}`,
+		);
+		const notebook = notebookOf(weighings);
+		const headed = labelled(sheet.slice(0, header), NOTEBOOK_LABEL);
+		check(
+			headed === notebook,
+			`the header's ${NOTEBOOK_LABEL} is ${shown(headed)}, not the weighings' ${notebook ?? "(none)"}`,
 		);
 
 		const refs = before.workOrders
@@ -957,9 +992,12 @@ const readReported = (
  * verdict pass. Every Client and metadata cell of the report equals the
  * value `REPORT_METADATA` names in the Sample's Receiving Log row and in
  * the database version the Run carried, and the Sample is on the record's
- * Work Order. The result equals the record's recomputed mean within
- * `RESULTS_TOLERANCE_G`. The PDF's text shows the report's Lab Reference,
- * Lot, Product Code and result to 4 places. The `reports` row of the
+ * Work Order. The result equals
+ * the record's recomputed mean within `RESULTS_TOLERANCE_G`. The PDF's text
+ * shows the report's Lab Reference, Lot, Product Code and result to 4
+ * places. The signature area's Notebook Reference, in the sheet and in the
+ * PDF's text, is the notebook reference of the weighings the Run took, and
+ * absent from the sheet when they name none. The `reports` row of the
  * version the Run wrote names the Sample, the report's Document Revision
  * and the PDF's Artifact id, and the carried version had none for the
  * Sample. The sheet and the Receiving Log row come from
@@ -972,6 +1010,9 @@ export const evaluateReport = ({ inputs, outputs }: RunArtifacts): Scored => {
 			ofType(inputs, "VerificationRecord"),
 			"Verification Record",
 			VerifiedMean,
+		);
+		const notebook = notebookOf(
+			readJson(ofType(inputs, "Other"), "weighings file", Weighings),
 		);
 		const { receiving_log_row: logged, sheet } = readJson(
 			outputs.find((a) => a.filename === "report_of_analysis.json"),
@@ -1059,6 +1100,17 @@ export const evaluateReport = ({ inputs, outputs }: RunArtifacts): Scored => {
 			check(
 				value !== undefined && text.split("\n").includes(value),
 				`the PDF's text does not show the ${what} ${value ?? "(none)"}`,
+			);
+		}
+		const signed = labelled(sheet.slice(header + 2), NOTEBOOK_LABEL);
+		check(
+			signed === notebook,
+			`the signature area's ${NOTEBOOK_LABEL} is ${shown(signed)}, not the weighings' ${notebook ?? "(none)"}`,
+		);
+		if (notebook !== undefined) {
+			check(
+				text.split("\n").includes(notebook),
+				`the PDF's text does not show the notebook reference ${notebook}`,
 			);
 		}
 

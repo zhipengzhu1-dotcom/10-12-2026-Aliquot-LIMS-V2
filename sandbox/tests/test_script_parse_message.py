@@ -10,9 +10,19 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "sandbox" / "scripts" / "parse_message" / "main.py"
 MESSAGE_ID = "d" * 64
+REPORT_TO = (
+    "Report to: Acme Nutrition; Contact: Dana Reyes; Address: 12 Harbor Road;"
+    " City: Portland, OR 97201"
+)
 READABLE = (
     "Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500,"
-    " finished product, from Acme Nutrition, regular TAT"
+    " Product Type 60 ct HDPE bottle, finished product, from Acme Nutrition,"
+    f" regular TAT. {REPORT_TO}"
+)
+# Every value the Report of Analysis needs, and no Sample Type or TAT.
+SPARE = (
+    "Got 2 jars of Zinc 30 mg, Lot 77B, Product Code ZN10, Product Type 90 ct jar,"
+    f" from Acme, rush please. {REPORT_TO}"
 )
 
 
@@ -69,7 +79,13 @@ def test_reads_every_value_the_message_states(tmp_path):
         "date_submitted": "",
         "submitted_by": {**blank, "company": "Acme Nutrition"},
         "bill_to": blank,
-        "report_to": blank,
+        "report_to": {
+            **blank,
+            "company": "Acme Nutrition",
+            "contact": "Dana Reyes",
+            "address": "12 Harbor Road",
+            "city": "Portland, OR 97201",
+        },
         "sample": {
             "no": "1",
             "sample_description": "Vitamin C 500 mg capsules",
@@ -78,7 +94,7 @@ def test_reads_every_value_the_message_states(tmp_path):
             "tat_class": "Regular",
             "lot": "2403A",
             "product_code": "VC500",
-            "product_type": "",
+            "product_type": "60 ct HDPE bottle",
             "no_of_containers": "3",
         },
         "receipt": {
@@ -119,15 +135,90 @@ def test_refuses_a_message_without_one_lot_and_one_product_code(tmp_path, body, 
     assert list(outputs.iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    ("stated", "instead", "missing"),
+    [
+        ("Product Type 60 ct HDPE bottle, ", "", "Product Type"),
+        ("Report to: Acme Nutrition;", "Report to:", "Report To company"),
+        ("Contact: Dana Reyes; ", "", "Report To contact"),
+        ("Address: 12 Harbor Road; ", "", "Report To address"),
+        ("; City: Portland, OR 97201", "", "Report To city"),
+        (REPORT_TO, "", "Report To company and no Report To contact"),
+        ("from Acme Nutrition, ", "", "Client"),
+        ("3 bottles of Vitamin C 500 mg capsules", "", "product"),
+    ],
+)
+def test_refuses_a_message_without_a_value_the_report_needs(
+    tmp_path, stated, instead, missing
+):
+    body = READABLE.replace(stated, instead)
+    assert body != READABLE
+
+    result, outputs = run(tmp_path, body)
+
+    assert result.returncode == 1
+    assert f"names no {missing}" in result.stderr
+    assert list(outputs.iterdir()) == []
+
+
+def test_names_every_value_it_lacks(tmp_path):
+    body = READABLE.replace("Product Type 60 ct HDPE bottle, ", "").replace(
+        f" {REPORT_TO}", ""
+    )
+
+    result, outputs = run(tmp_path, body)
+
+    assert result.returncode == 1
+    assert (
+        "the Message names no Product Type and no Report To company and no"
+        " Report To contact and no Report To address and no Report To city"
+    ) in result.stderr
+    assert list(outputs.iterdir()) == []
+
+
+def test_reads_the_report_to_partys_phone_and_email_and_ignores_its_labels_elsewhere(
+    tmp_path,
+):
+    body = (
+        "Received 3 bottles of Contact Lens Solution, Lot 2403A, Product Code VC500,"
+        " Product Type 60 ct HDPE bottle, from Acme Nutrition. Report to Acme Co.,"
+        " Contact Dana Reyes, Address 12 City Road, City Tarrowfield, PA 19999,"
+        " Phone (201) 555-0142, Email dana.reyes@acme.example"
+    )
+
+    result, outputs = run(tmp_path, body)
+
+    assert result.returncode == 0, result.stderr
+    record = json.loads((outputs / "submission_record.json").read_text())
+    assert record["report_to"] == {
+        "company": "Acme Co.",
+        "contact": "Dana Reyes",
+        "address": "12 City Road",
+        "city": "Tarrowfield, PA 19999",
+        "phone": "(201) 555-0142",
+        "email": "dana.reyes@acme.example",
+    }
+    assert record["sample"]["sample_description"] == "Contact Lens Solution"
+
+
+def test_refuses_a_report_to_value_stated_twice(tmp_path):
+    result, outputs = run(tmp_path, f"{READABLE}; City: Salem")
+
+    assert result.returncode == 1
+    assert "names 2 Report To city values: Portland, OR 97201, Salem" in result.stderr
+    assert list(outputs.iterdir()) == []
+
+
 def test_leaves_a_value_the_message_does_not_state_blank(tmp_path):
-    result, outputs = run(tmp_path, "Got Lot 77B, Product Code ZN10, rush please")
+    result, outputs = run(tmp_path, SPARE)
 
     assert result.returncode == 0, result.stderr
     record = json.loads((outputs / "submission_record.json").read_text())
     assert record["sample"]["tat_code"] == "", "a bare 'rush' names no TAT code"
     assert record["sample"]["sample_type"] == ""
-    assert record["sample"]["no_of_containers"] == ""
-    assert record["submitted_by"]["company"] == ""
+    assert record["report_to"]["phone"] == ""
+    assert record["report_to"]["email"] == ""
+    assert record["submitted_by"]["contact"] == ""
 
 
 @pytest.mark.parametrize(
@@ -139,7 +230,9 @@ def test_leaves_a_value_the_message_does_not_state_blank(tmp_path):
     ],
 )
 def test_reads_the_rush_tat_codes(tmp_path, phrase, code, tat_class):
-    result, outputs = run(tmp_path, f"Lot 9Z, Product Code P1, raw material, {phrase}")
+    result, outputs = run(
+        tmp_path, SPARE.replace("rush please", f"raw material, {phrase}")
+    )
 
     assert result.returncode == 0, result.stderr
     sample = json.loads((outputs / "submission_record.json").read_text())["sample"]

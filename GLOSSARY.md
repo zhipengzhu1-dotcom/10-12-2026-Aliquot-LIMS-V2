@@ -320,6 +320,10 @@ _Avoid_: assay, analysis
 The spreadsheet in which an analyst records weighings and readings and computes results by formula.
 _Avoid_: bench sheet, calc sheet
 
+**Notebook reference**:
+Where the analyst's laboratory notebook records a set of weighings, as the notebook and page, such as `NB-07 p.31`. The Operator gives it in a results Message. In the toy workflow, `parse_results_message` writes it on each weighing, the Result Worksheet holds it in row 4 of its header block, and the Report of Analysis holds it below the signature area. Weighings with no notebook reference, as the Fixtures' are, leave both out.
+_Avoid_: notebook page, NB ref, lab book reference
+
 **Verification**:
 An independent recomputation and check of a Result Worksheet by someone other than its author. The output is a Verification Record. In the toy workflow, stage 5 is the Verification, and its Task's title starts `Stage 5 Verification`. Its Script, `verify_results`, evaluates each average on the worksheet's own cells and compares it with the weighings within 0.0001 g. It writes a Verification Record with a `pass` or `fail` verdict.
 _Avoid_: second check, double check, QC check, review (Review is a society term)
@@ -329,7 +333,7 @@ The person or Agent who performs a Verification. A Verifier is never the author 
 _Avoid_: checker, reviewer
 
 **Report of Analysis**:
-The signed document that the lab issues to a Client with the results for one Sample. In the toy workflow, stage 6 renders it as xlsx and PDF from one structure, both typed `ReportOfAnalysis`, from a Verification Record whose verdict is pass. Every metadata value is read from the Sample's Receiving Log row or its `samples` row, never typed by hand, and the `reports` row names the PDF. `aliquot sandbox lineage <report id>` walks its Lineage back to the Submission Form.
+The signed document that the lab issues to a Client with the results for one Sample. In the toy workflow, stage 6 renders it as xlsx and PDF from one structure, both typed `ReportOfAnalysis`, from a Verification Record whose verdict is pass. Every metadata value is read from the Sample's Receiving Log row or its `samples` row, never typed by hand, and the `reports` row names the PDF. It leaves the lab only through an `ExternalMessage` Gate. `aliquot sandbox lineage <report id>` walks its Lineage back to the Submission Form.
 _Avoid_: CoA, Certificate of Analysis, ROA, final report. Clients may say CoA. A certificate that a supplier ships with a raw material is a different document.
 
 **TAT**:

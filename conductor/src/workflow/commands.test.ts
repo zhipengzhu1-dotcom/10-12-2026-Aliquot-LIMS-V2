@@ -83,7 +83,7 @@ describe("aliquot workflow", () => {
 				"3 Work Order  script create_work_order  inputs ReceivingLogRow  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia",
 				"4 Results  script compute_results  inputs WorkOrder,Other  carried LimsDatabase  outputs ResultWorksheet,LimsDatabase  worked by A-rin  reviewed by A-anselm",
 				"5 Verification  script verify_results  inputs ResultWorksheet,Other  carried none  outputs VerificationRecord  worked by A-bram  reviewed by A-anselm",
-				"6 Report  script render_roa  inputs VerificationRecord,ReceivingLogRow  carried LimsDatabase  outputs ReportOfAnalysis,ReportOfAnalysis,LimsDatabase  worked by A-ines  reviewed by A-anselm",
+				"6 Report  script render_roa  inputs VerificationRecord,ReceivingLogRow,Other  carried LimsDatabase  outputs ReportOfAnalysis,ReportOfAnalysis,LimsDatabase  worked by A-ines  reviewed by A-anselm",
 				"",
 			].join("\n"),
 		);
@@ -306,7 +306,12 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(at(14)?.payload).toMatchObject({
 			id: "S-render_roa",
 			owner_agent: "A-ines",
-			input_types: ["VerificationRecord", "ReceivingLogRow", "LimsDatabase"],
+			input_types: [
+				"VerificationRecord",
+				"ReceivingLogRow",
+				"Other",
+				"LimsDatabase",
+			],
 			output_types: ["ReportOfAnalysis", "ReportOfAnalysis", "LimsDatabase"],
 		});
 		expect(at(15)?.payload).toMatchObject({ id: fixtureId, lineage: [] });
@@ -510,13 +515,15 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const [, , , version4] = outputsOf("LimsDatabase");
 		expect(
 			at(83)?.payload,
-			"stage 6 takes the Verification Record and stage 2's Receiving Log row, and carries stage 4's database",
-		).toMatchObject({ inputs: [recordOfVerification, rowId, version3] });
-		const lineage6 = [recordOfVerification, rowId, version3];
+			"stage 6 takes the Verification Record, stage 2's Receiving Log row and the weighings, and carries stage 4's database",
+		).toMatchObject({
+			inputs: [recordOfVerification, rowId, weighingsId, version3],
+		});
+		const lineage6 = [recordOfVerification, rowId, weighingsId, version3];
 		const [pdfId, xlsxId] = outputsOf("ReportOfAnalysis");
 		expect(
 			[87, 88, 89, 90, 91, 92].map((seq) => at(seq)?.payload),
-			"each with a Lineage of the record, the Receiving Log row and stage 4's database",
+			"each with a Lineage of the record, the Receiving Log row, the weighings and stage 4's database",
 		).toMatchObject([
 			{
 				id: version4,
@@ -656,12 +663,13 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const stage6Inputs = [
 			...verificationTree,
 			...rowTree,
+			`${weighingsId} Other <- none`,
 			`${version3} LimsDatabase <- R-4 S-compute_results v1`,
 			...under(stage4Inputs),
 		];
 		expect(
 			lineageOf(pdf),
-			"the Report of Analysis names the record, the Receiving Log row and stage 4's database, and every path ends at the Fixture or the weighings",
+			"the Report of Analysis names the record, the Receiving Log row, the weighings and stage 4's database, and every path ends at the Fixture or the weighings",
 		).toBe(
 			printed([
 				`${pdf} ReportOfAnalysis <- R-6 S-render_roa v1`,

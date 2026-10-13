@@ -10,6 +10,9 @@ import { type ToolContext, ToolRefused } from "./tool.js";
 /** The Script that reads a stored Message into a Submission Record. */
 export const PARSE_MESSAGE = "parse_message";
 
+/** The Script that reads a stored results Message and its Work Order into the weighings stage 4 reads. */
+export const PARSE_RESULTS_MESSAGE = "parse_results_message";
+
 /**
  * A Message as an Artifact holds it: `{"seq","room","said_by","ts","body"}`
  * in that order, with no spaces. The bytes are fixed by the Message, so its

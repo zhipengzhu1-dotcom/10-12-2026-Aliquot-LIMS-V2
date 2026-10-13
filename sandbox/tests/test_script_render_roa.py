@@ -13,6 +13,7 @@ from pathlib import Path
 import pdfplumber
 import pytest
 from openpyxl import load_workbook
+from test_script_compute_results import WEIGHINGS, WEIGHINGS_ID, noted
 from test_script_create_work_order import DATABASE_ID, ROW_ID, XLSX, put, query, run
 from test_script_verify_results import verification, worksheet
 
@@ -20,7 +21,7 @@ RECORD_ID = "9" * 64
 
 
 def chain(tmp_path: Path) -> dict[str, Path]:
-    """Stages 2 to 5 on seed 1's expected record: the three inputs stage 6 takes."""
+    """Stages 2 to 5 on seed 1's expected record: the four inputs stage 6 takes."""
     stage5 = tmp_path / "stage5"
     stage5.mkdir()
     made, outputs = verification(stage5, worksheet(stage5))
@@ -28,6 +29,7 @@ def chain(tmp_path: Path) -> dict[str, Path]:
     return {
         "record": outputs / "verification_record.json",
         "row": stage5 / "stage4" / "receipt-outputs" / "receiving_log_row.xlsx",
+        "weighings": WEIGHINGS,
         "database": stage5 / "stage4" / "outputs" / "lims.sqlite",
     }
 
@@ -36,6 +38,7 @@ def render(tmp_path: Path, given: dict[str, Path]):
     inputs, outputs = tmp_path / "inputs", tmp_path / "outputs"
     put(inputs, RECORD_ID, given["record"], "verification_record.json")
     put(inputs, ROW_ID, given["row"], "receiving_log_row.xlsx")
+    put(inputs, WEIGHINGS_ID, given["weighings"], "weighings.json")
     put(inputs, DATABASE_ID, given["database"], "lims.sqlite")
     result = run(
         "render_roa",
@@ -53,6 +56,12 @@ def render(tmp_path: Path, given: dict[str, Path]):
                 "filename": "receiving_log_row.xlsx",
                 "artifact_type": "ReceivingLogRow",
                 "media_type": XLSX,
+            },
+            {
+                "artifact_id": WEIGHINGS_ID,
+                "filename": "weighings.json",
+                "artifact_type": "Other",
+                "media_type": "application/json",
             },
             {
                 "artifact_id": DATABASE_ID,
@@ -292,6 +301,35 @@ def test_it_refuses_a_missing_metadata_value_and_writes_nothing(
     assert result.returncode == 1
     assert reason in result.stderr
     assert list(outputs.iterdir()) == []
+
+
+def test_the_signature_area_carries_the_weighings_notebook_reference(tmp_path):
+    given = chain(tmp_path)
+    given["weighings"] = noted(tmp_path, *["NB-07 p.31"] * 2)
+
+    result, outputs = render(tmp_path, given)
+
+    assert result.returncode == 0, result.stderr
+    ws = load_workbook(outputs / "report_of_analysis.xlsx").active
+    assert [ws.cell(31, c).value for c in (1, 2)] == [
+        "Notebook Reference",
+        "NB-07 p.31",
+    ]
+    sheet = json.loads((outputs / "report_of_analysis.json").read_text())["sheet"]
+    assert sheet[30][:2] == ["Notebook Reference", "NB-07 p.31"]
+    with pdfplumber.open(outputs / "report_of_analysis.pdf") as pdf:
+        text = pdf.pages[0].extract_text()
+    assert "Notebook Reference NB-07 p.31" in text
+    assert text.index("Date: ______________") < text.index("NB-07 p.31")
+
+
+def test_a_fixtures_weighings_put_no_notebook_reference_in_the_report(rendered):
+    _, outputs = rendered
+    ws = load_workbook(outputs / "report_of_analysis.xlsx").active
+
+    assert ws.max_row == 29
+    with pdfplumber.open(outputs / "report_of_analysis.pdf") as pdf:
+        assert "Notebook" not in pdf.pages[0].extract_text()
 
 
 def test_it_refuses_a_record_whose_work_order_has_no_sample_on_the_receiving_log_row(
