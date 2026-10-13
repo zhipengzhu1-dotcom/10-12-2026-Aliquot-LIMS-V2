@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Event } from "../events.js";
-import type { ArtifactId } from "../ids.js";
+import type { AgentId, ArtifactId } from "../ids.js";
 import { tree } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { assigneeOf } from "../task/projection.js";
@@ -39,17 +39,23 @@ const lotOf = (bytes: Buffer): string | undefined => {
 };
 
 /**
- * Every Review in Ledger order, with its note, the Task's assignee and the
- * assignee's Merit just after it. `merit` is null for a Review that does not count
- * toward Merit, such as the Auditor's on a Task skipped for Review.
+ * Every Review in Ledger order, with its note, the assignee and the
+ * assignee's Merit just after it. The assignee of a Review that counts
+ * toward Merit is the Agent it counted toward, which a Task that later
+ * fails or is escalated no longer names. `merit` is null for a Review that
+ * does not count toward Merit, such as the Auditor's on a Task skipped for
+ * Review, whose assignee is the Task's.
  */
 const reviewRows = (p: Projections) => {
-	const meritAfter = new Map<number, number | undefined>();
-	for (const { reviews } of p.work.agents.values()) {
+	const countedFor = new Map<
+		number,
+		{ readonly agent: AgentId; readonly merit: number | undefined }
+	>();
+	for (const [agent, { reviews }] of p.work.agents) {
 		const counted: Review[] = [];
 		for (const { review, seq } of reviews) {
 			counted.push(review);
-			meritAfter.set(seq, standingOf(counted).merit);
+			countedFor.set(seq, { agent, merit: standingOf(counted).merit });
 		}
 	}
 	return [...p.work.reviews.values()]
@@ -60,8 +66,11 @@ const reviewRows = (p: Projections) => {
 			at: ts,
 			...review,
 			reviewer: actorText(reviewer),
-			assignee: assigneeOf(p.tasks.tasks.get(review.task_id)) ?? null,
-			merit: meritAfter.get(seq) ?? null,
+			assignee:
+				countedFor.get(seq)?.agent ??
+				assigneeOf(p.tasks.tasks.get(review.task_id)) ??
+				null,
+			merit: countedFor.get(seq)?.merit ?? null,
 		}));
 };
 

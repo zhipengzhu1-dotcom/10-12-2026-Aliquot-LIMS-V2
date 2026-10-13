@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../hash.js";
 import { AgentId, ArtifactId, Sha256 } from "../ids.js";
 import { store } from "../sandbox/lifecycle.js";
+import { fail } from "../task/lifecycle.js";
 import { scenario, scores } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import type { ArtifactType } from "../types/artifact.js";
@@ -100,6 +101,23 @@ describe("the routes the Flow and Performance views read", () => {
 			.filter((e) => e.kind === "ReviewRecorded")
 			.map((e) => [e.seq, e.ts]);
 		expect(rows.map((r) => [r.seq, r.at])).toEqual(reviewSeqs);
+	});
+
+	it("reviews names the Agent a Review counted toward after its Task fails", () => {
+		const s = scenario();
+		const task_id = s.submitted(rin);
+		s.review(task_id, scores(2));
+		fail(s.ledger, {
+			actor: { tag: "Operator" },
+			task_id,
+			reason: "Sample spoiled",
+		});
+
+		const rows = PROJECTION_ROUTES.reviews(s.ledger.projections);
+
+		expect(rows).toEqual([
+			expect.objectContaining({ task_id, assignee: "A-rin", merit: 2 }),
+		]);
 	});
 
 	it("reviews serves an Agent's counted Reviews past the 20-Task Merit window", () => {
