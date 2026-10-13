@@ -37,8 +37,8 @@ export const runProjection: Projection<RunProjection> = {
 		}
 		if (event.kind === "RunFinished") {
 			const run = event.payload;
-			const record = state.runs.get(run.id);
-			if (!record) return new Refusal(`${run.id} has no RunStarted`);
+			const record = startedRun(state, run.id);
+			if (record instanceof Refusal) return record;
 			if (record.finished) {
 				return new Refusal(`${run.id} has already finished`);
 			}
@@ -51,4 +51,22 @@ export const runProjection: Projection<RunProjection> = {
 		}
 		return state;
 	},
+};
+
+/** The Run `run_id` once its RunStarted is in the Ledger. */
+export const startedRun = (
+	state: RunProjection,
+	run_id: RunId,
+): RunRecord | Refusal =>
+	state.runs.get(run_id) ?? new Refusal(`${run_id} has no RunStarted`);
+
+/** The Run `run_id` while it runs: started, and not yet finished. */
+export const runningRun = (
+	state: RunProjection,
+	run_id: RunId,
+): RunRecord | Refusal => {
+	const run = state.runs.get(run_id);
+	if (run === undefined) return new Refusal(`${run_id} has not started`);
+	if (run.finished) return new Refusal(`${run_id} has already finished`);
+	return run;
 };

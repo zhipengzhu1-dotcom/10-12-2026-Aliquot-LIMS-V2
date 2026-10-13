@@ -33,6 +33,17 @@ const withAgent = (
 
 export const notInOrg = (id: AgentId) => `${id} is not in the Org`;
 
+/** The Agent `id` when it is in the Org and not Retired. */
+export const liveAgent = (
+	state: OrgState,
+	id: AgentId,
+): AgentState | Refusal => {
+	const agent = state.agents.get(id);
+	return agent?.retired === false
+		? agent
+		: new Refusal(`${id} is not a live Agent in the Org`);
+};
+
 export const OrgProjection: Projection<OrgState> = {
 	init: { agents: new Map() },
 	reduce: (state, event) => {

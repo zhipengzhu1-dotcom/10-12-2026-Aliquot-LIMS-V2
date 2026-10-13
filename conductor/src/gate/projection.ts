@@ -20,6 +20,11 @@ export type Gate = {
 	readonly decision?: GateDecision & { readonly seq: Seq };
 };
 
+/** A Gate the Operator has decided. */
+export type DecidedGate = Gate & {
+	readonly decision: NonNullable<Gate["decision"]>;
+};
+
 export type Gates = {
 	readonly gates: ReadonlyMap<GateId, Gate>;
 };
@@ -123,9 +128,9 @@ export const approvedGatesFor = (
 	gates: Gates,
 	kind: GateKind,
 	agentId: AgentId,
-): readonly Gate[] =>
+): readonly DecidedGate[] =>
 	[...gates.gates.values()].filter(
-		(gate) =>
+		(gate): gate is DecidedGate =>
 			gate.kind === kind &&
 			gate.decision?.meaning === "approve" &&
 			agentNamedBy(gate) === agentId,

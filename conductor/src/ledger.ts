@@ -43,6 +43,8 @@ export type Ledger = {
 	 * `AppendRefused`, worded `<Kind> refused: <reason>`.
 	 */
 	append(newEvent: NewEvent): Event;
+	/** The time an Event appended now would be stamped with. */
+	now(): Date;
 	/** Every Event in seq order. */
 	events(): IterableIterator<Event>;
 	all(): Event[];
@@ -213,6 +215,7 @@ const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 			return projections;
 		},
 		append,
+		now: clock,
 		events,
 		all: () => [...events()],
 		verify: () => verifyRows(storage.rows()),

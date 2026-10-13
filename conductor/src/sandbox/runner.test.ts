@@ -60,7 +60,7 @@ const storeInput = (text: string, filename: string) =>
 			filename,
 		},
 		{ actor: operator },
-	);
+	).artifact;
 
 describe.skipIf(!requireDocker())(suite, () => {
 	beforeAll(async () => {

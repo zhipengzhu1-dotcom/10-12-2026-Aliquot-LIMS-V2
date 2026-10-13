@@ -1,16 +1,19 @@
-import type { AppendGuard } from "../append-guard.js";
+import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { Event } from "../events.js";
 import {
 	agentNamedBy,
 	approvedGatesFor,
+	type DecidedGate,
 	gateState,
 } from "../gate/projection.js";
 import { canonicalJson } from "../hash.js";
-import type { AgentId } from "../ids.js";
+import type { AgentId, GateId } from "../ids.js";
 import type { Projections } from "../projections.js";
-import { actorText } from "../types/actor.js";
+import { Refusal } from "../reduce.js";
+import { actorText, type EventActor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { tierCauseRefusal, tierRefusal } from "../vitality/trust.js";
+import { notInOrg } from "./projection.js";
 
 /**
  * Why a Retired Agent's status may not change. An Agent not in the Org is
@@ -22,31 +25,49 @@ const retiredRefusal = (projections: Projections, id: AgentId) =>
 		: undefined;
 
 /**
- * Retirement is a Gate action (ADR-0006): the Operator retires an Agent
- * through an approved RetireAgent Gate whose payload names it.
+ * Retirement is a Gate action (ADR-0006): the Operator retires a live Agent
+ * through an approved RetireAgent Gate whose payload names it. The Gate, or
+ * why the retirement is refused at `at`.
  */
-const retirementRefusal = (
+export const retirementGate = (
 	projections: Projections,
-	event: Extract<Event, { kind: "AgentRetired" }>,
-): string | undefined => {
-	const { agent_id, gate_id } = event.payload;
-	if (event.actor.tag !== "Operator") {
-		return `only the Operator retires an Agent; ${actorText(event.actor)} tried to retire ${agent_id}`;
+	{
+		actor,
+		agent_id,
+		gate_id,
+	}: {
+		readonly actor: EventActor;
+		readonly agent_id: AgentId;
+		readonly gate_id?: GateId | undefined;
+	},
+	at: Date,
+): DecidedGate | Refusal => {
+	if (!projections.org.agents.has(agent_id)) {
+		return new Refusal(notInOrg(agent_id));
+	}
+	const retired = retiredRefusal(projections, agent_id);
+	if (retired !== undefined) return new Refusal(retired);
+	if (actor.tag !== "Operator") {
+		return new Refusal(
+			`only the Operator retires an Agent; ${actorText(actor)} tried to retire ${agent_id}`,
+		);
 	}
 	if (gate_id === undefined) {
-		return `retiring ${agent_id} needs an approved RetireAgent Gate naming it; none was given`;
+		return new Refusal(
+			`retiring ${agent_id} needs an approved RetireAgent Gate naming it; none was given`,
+		);
 	}
 	const { gates } = projections;
-	if (
-		approvedGatesFor(gates, "RetireAgent", agent_id).some(
-			(g) => g.id === gate_id,
-		)
-	) {
-		return undefined;
-	}
+	const approved = approvedGatesFor(gates, "RetireAgent", agent_id).find(
+		(g) => g.id === gate_id,
+	);
+	if (approved !== undefined) return approved;
 	const gate = gates.gates.get(gate_id);
-	if (gate === undefined) return `no Gate ${gate_id} was requested`;
-	return `${gate_id} is a ${gate.kind} Gate, ${gateState(gate, new Date(event.ts))}, naming ${agentNamedBy(gate) ?? "no Agent"}; retiring ${agent_id} needs an approved RetireAgent Gate naming it`;
+	if (gate === undefined)
+		return new Refusal(`no Gate ${gate_id} was requested`);
+	return new Refusal(
+		`${gate_id} is a ${gate.kind} Gate, ${gateState(gate, at)}, naming ${agentNamedBy(gate) ?? "no Agent"}; retiring ${agent_id} needs an approved RetireAgent Gate naming it`,
+	);
 };
 
 /** A definition's author is the actor that writes it (ADR-0005). */
@@ -140,9 +161,12 @@ const orgGuard: AppendGuard = (projections, event) => {
 		case "AgentPaused":
 			return retiredRefusal(projections, event.payload.agent_id);
 		case "AgentRetired":
-			return (
-				retiredRefusal(projections, event.payload.agent_id) ??
-				retirementRefusal(projections, event)
+			return reasonOf(
+				retirementGate(
+					projections,
+					{ actor: event.actor, ...event.payload },
+					new Date(event.ts),
+				),
 			);
 		case "AgentResumed": {
 			const { agent_id } = event.payload;

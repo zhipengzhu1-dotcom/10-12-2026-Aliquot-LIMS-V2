@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AppendRefused } from "../append-guard.js";
 import { AgentId } from "../ids.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
@@ -72,25 +73,25 @@ describe("the Org lifecycle", () => {
 
 	it("recruits with no cause unless the caller names one outside the Org", () => {
 		const seeded = s.events().filter((e) => e.kind === "AgentRecruited");
-		const gate_id = s.requested("RetireAgent", { agent_id: rin });
-		const decided = s.decided(gate_id);
+		const decided = s.decided(
+			s.requested("PromoteToMentor", { agent_id: rin }),
+		);
 
 		const nova = recruit(s.ledger, {
 			actor: operator,
 			definition: { ...definitionOf(rin), id: AgentId.parse("A-nova") },
 		});
-		const retired = retire(s.ledger, {
+		const joined = recruit(s.ledger, {
 			actor: operator,
-			agent_id: rin,
-			gate_id,
 			causation_id: decided.seq,
+			definition: { ...definitionOf(rin), id: AgentId.parse("A-june") },
 		});
 
 		expect(seeded).toHaveLength(8);
 		expect(seeded.map((e) => e.causation_id)).toEqual(Array(8).fill(undefined));
 		expect(nova.agent.definition.id).toBe("A-nova");
 		expect(eventAt(nova.seq)?.causation_id).toBeUndefined();
-		expect(eventAt(retired.seq)?.causation_id).toBe(decided.seq);
+		expect(eventAt(joined.seq)?.causation_id).toBe(decided.seq);
 	});
 
 	it("retires with the reason the Gate payload gives when the caller gives none", () => {
@@ -108,5 +109,19 @@ describe("the Org lifecycle", () => {
 			reason: "Merged cells no more",
 			gate_id,
 		});
+	});
+
+	it("refuses a retirement when neither the caller nor the Gate gives a reason, and appends nothing", () => {
+		const gate_id = s.gate("RetireAgent", { agent_id: rin });
+		const before = s.events().length;
+
+		expect(() =>
+			retire(s.ledger, { actor: operator, agent_id: rin, gate_id }),
+		).toThrow(
+			new AppendRefused(
+				`AgentRetired refused: ${gate_id} gives no reason to retire A-rin, and none was given`,
+			),
+		);
+		expect(s.events()).toHaveLength(before);
 	});
 });

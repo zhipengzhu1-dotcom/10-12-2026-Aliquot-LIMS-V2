@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
 	copyFileSync,
 	mkdirSync,
@@ -9,7 +10,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vitest";
 import type { Event } from "../events.js";
 import { sha256Hex } from "../hash.js";
 import { AgentId, ArtifactId, type Sha256 } from "../ids.js";
@@ -18,6 +27,11 @@ import { buildImage, scriptsRoot } from "../sandbox/image.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import { ensureScript, reviewerOf, runStage1 } from "./tracer.js";
+
+// Each build gives its tag a new image id and Docker drops the image the tag
+// held, so this process's tag is its own: other suites and checkouts build at
+// the same time.
+const IMAGE = `aliquot-sandbox:tracer-${process.pid}`;
 
 const rin = AgentId.parse("A-rin");
 const pia = { tag: "Agent", id: "A-pia" } as const;
@@ -119,8 +133,12 @@ const scriptWithoutLot = () => {
 
 describe.skipIf(!requireDocker())(suite, () => {
 	beforeAll(async () => {
-		({ id: image } = await buildImage({ tag: "aliquot-sandbox:test" }));
+		({ id: image } = await buildImage({ tag: IMAGE }));
 	}, 600_000);
+
+	afterAll(() => {
+		spawnSync("docker", ["rmi", IMAGE], { stdio: "ignore" });
+	});
 
 	it("completes the Fixture's Task through Review, each Event from TaskProposed on naming the one before it", async () => {
 		const result = await trace();

@@ -13,6 +13,7 @@ import {
 	openLedger,
 	openMemoryLedger,
 } from "../ledger.js";
+import type { Recorded } from "../lifecycle-support.js";
 import { retire as retireAgent } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
 import { finishRun, register, startRun, store } from "../sandbox/lifecycle.js";
@@ -22,7 +23,6 @@ import {
 	assign,
 	complete,
 	propose,
-	type Recorded,
 	review as reviewTask,
 	start,
 	type TaskEventKind,
@@ -31,6 +31,7 @@ import {
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
+import type { Task } from "../types/task.js";
 
 export type Scores = Pick<
 	Review,
@@ -149,7 +150,8 @@ export const scenario = (
 		task_id: TaskId,
 		s: Scores,
 		reviewer: Actor = operator,
-	): Recorded => reviewTask(ledger, { task_id, reviewer, ...s, note: "" });
+	): Recorded<"task", Task> =>
+		reviewTask(ledger, { task_id, reviewer, ...s, note: "" });
 
 	/** The Operator reviews a Task UnderReview with `s` and completes it. */
 	const close = (task_id: TaskId, s: Scores) => {

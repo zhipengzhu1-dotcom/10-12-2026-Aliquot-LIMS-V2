@@ -1,7 +1,9 @@
-import { AppendRefused, refusalText } from "../append-guard.js";
+import { orRefuse } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
-import type { AgentId, Seq } from "../ids.js";
+import type { AgentId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import type { Recorded } from "../lifecycle-support.js";
+import { liveAgent } from "../org/projection.js";
 import type { Actor } from "../types/actor.js";
 import type { Vitality } from "../types/vitality.js";
 import { restRefusal } from "./guards.js";
@@ -19,11 +21,9 @@ export const sample = (
 		agent,
 		...options
 	}: SampleOptions & { readonly actor: Actor; readonly agent: AgentId },
-): { readonly vitality: Vitality; readonly seq: Seq } => {
+): Recorded<"vitality", Vitality> => {
 	const { projections } = ledger;
-	if (projections.org.agents.get(agent)?.retired !== false) {
-		throw new Error(`${agent} is not a live Agent in the Org`);
-	}
+	orRefuse("VitalitySampled", liveAgent(projections.org, agent));
 	const vitality = sampleVitality(projections, agent, options);
 	const { seq } = ledger.append({
 		actor,
@@ -39,19 +39,16 @@ export const sample = (
  */
 export const orderRest = (
 	ledger: Ledger,
-	{ actor, ...payload }: PayloadOf<"RestOrdered"> & { readonly actor: Actor },
-): { readonly seq: Seq } => {
+	{ actor, ...order }: PayloadOf<"RestOrdered"> & { readonly actor: Actor },
+): Recorded<"order", PayloadOf<"RestOrdered">> => {
 	const { projections } = ledger;
-	const refusal = restRefusal(projections, payload);
-	if (refusal !== undefined) {
-		throw new AppendRefused(refusalText("RestOrdered", refusal));
-	}
-	const cause = projections.work.lastVitalitySeq.get(payload.agent_id);
+	orRefuse("RestOrdered", restRefusal(projections, order));
+	const cause = projections.work.lastVitalitySeq.get(order.agent_id);
 	const { seq } = ledger.append({
 		actor,
 		kind: "RestOrdered",
-		payload,
+		payload: order,
 		...(cause === undefined ? {} : { causation_id: cause }),
 	});
-	return { seq };
+	return { order, seq };
 };

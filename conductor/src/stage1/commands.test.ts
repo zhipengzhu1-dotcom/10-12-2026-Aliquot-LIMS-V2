@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
 	copyFileSync,
 	mkdirSync,
@@ -8,15 +9,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { CommandContext } from "../command.js";
 import { sha256Hex } from "../hash.js";
 import { ArtifactId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
-import { stage1Commands } from "./commands.js";
 
 const suite = dockerAvailable
 	? "aliquot stage1 (Docker)"
@@ -40,21 +38,17 @@ afterEach(() => {
 	rmSync(scratch, { recursive: true, force: true });
 });
 
-const run = async (name: "run" | "run-all", args: string[]) => {
-	const stdout = new PassThrough();
-	const stderr = new PassThrough();
-	const out: Buffer[] = [];
-	stdout.on("data", (chunk: Buffer) => out.push(chunk));
-	stderr.resume();
-	const ctx: CommandContext = {
-		home,
-		stdin: Readable.from([]),
-		stdout,
-		stderr,
-	};
-	const code = await stage1Commands[name]?.run(args, ctx);
-	return { code, stdout: Buffer.concat(out).toString("utf8") };
-};
+const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
+
+const aliquot = (...args: string[]) =>
+	spawnSync(
+		process.execPath,
+		["--import", "tsx", cli, "--home", home, ...args],
+		{
+			encoding: "utf8",
+			env: { ...process.env, ALIQUOT_HOME: "" },
+		},
+	);
 
 const readLedger = () => {
 	const ledger = openLedger({ home, writer: false });
@@ -71,10 +65,10 @@ const readLedger = () => {
 };
 
 describe.skipIf(!requireDocker())(suite, () => {
-	it("runs the Fixture through parse_submission, prints the Task, Run, record and Evaluation, and exits 0 with the Task Done", async () => {
-		const result = await run("run", [fixture]);
+	it("run runs the Fixture through parse_submission, prints the Task, Run, record and Evaluation, and exits 0 with the Task Done", () => {
+		const result = aliquot("stage1", "run", fixture);
 
-		expect(result.code).toBe(0);
+		expect(result.status, result.stderr).toBe(0);
 		expect(result.stdout).toMatch(
 			new RegExp(
 				[
@@ -91,16 +85,17 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(taskState("T-1")).toEqual({ tag: "Done", assignee: "A-rin" });
 	}, 600_000);
 
-	it("run-all runs every docx in a directory and exits 1 when any Evaluation fails", async () => {
+	it("run-all runs every docx in a directory and exits 1 when any Evaluation fails", () => {
 		const dir = join(scratch, "fixtures");
 		mkdirSync(dir);
 		copyFileSync(fixture, join(dir, "a-good.docx"));
 		writeFileSync(join(dir, "b-not-a-docx.docx"), "not a zip archive\n");
 		writeFileSync(join(dir, "notes.txt"), "ignored\n");
 
-		const result = await run("run-all", [dir]);
+		const result = aliquot("stage1", "run-all", dir);
 
-		expect(result.code).toBe(1);
+		expect(result.status, result.stderr).toBe(1);
+		expect(result.stdout).toMatch(/^2 Fixtures: 1 Done, 1 Failed\n$/m);
 		const { events, verify, taskState } = readLedger();
 		expect(verify.ok).toBe(true);
 		expect(taskState("T-1")).toEqual({ tag: "Done", assignee: "A-rin" });

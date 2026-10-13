@@ -1,8 +1,9 @@
-import type { AppendGuard } from "../append-guard.js";
+import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import { notInOrg } from "../org/projection.js";
 import type { Projections } from "../projections.js";
+import { Refusal } from "../reduce.js";
 import { assigneeOf } from "../task/projection.js";
 import { actorText } from "../types/actor.js";
 import { restInEffect } from "./vitality.js";
@@ -33,17 +34,23 @@ const reviewRules: AppendGuard = (projections, event) => {
 export const restRefusal = (
 	projections: Projections,
 	{ agent_id, action }: PayloadOf<"RestOrdered">,
-): string | undefined => {
-	if (!projections.org.agents.has(agent_id)) return notInOrg(agent_id);
+): Refusal | undefined => {
+	if (!projections.org.agents.has(agent_id)) {
+		return new Refusal(notInOrg(agent_id));
+	}
 	const resting = restInEffect(projections.work, agent_id);
-	if (action === "begin" && resting) return `${agent_id} is already resting`;
-	if (action === "end" && !resting) return `${agent_id} is not resting`;
+	if (action === "begin" && resting) {
+		return new Refusal(`${agent_id} is already resting`);
+	}
+	if (action === "end" && !resting) {
+		return new Refusal(`${agent_id} is not resting`);
+	}
 	return undefined;
 };
 
 const restRules: AppendGuard = (projections, event) =>
 	event.kind === "RestOrdered"
-		? restRefusal(projections, event.payload)
+		? reasonOf(restRefusal(projections, event.payload))
 		: undefined;
 
 export const vitalityGuards: readonly AppendGuard[] = [reviewRules, restRules];

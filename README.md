@@ -42,7 +42,7 @@ tools/check.sh
 | Build to `conductor/dist/` | `pnpm -C conductor build` |
 | Run the `aliquot` command line | `pnpm -C conductor cli <args>`, or `tools/aliquot <args>` from any directory |
 
-A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either. The GritQL plugin `conductor/lint/no-append-outside-lifecycle.grit` refuses an append call in any non-test module except a domain's `lifecycle.ts`, `ledger.ts` and the test scenario in `test-support/`, so only a lifecycle module appends Events; `conductor/src/append-rule.test.ts` checks which files it refuses.
+A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either. The GritQL plugin `conductor/lint/no-append-outside-lifecycle.grit` refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a domain's `lifecycle.ts`, `ledger.ts` and the test scenario in `test-support/`, so only a lifecycle module appends Events; `conductor/src/append-rule.test.ts` checks which files it refuses.
 
 ### Sandbox (Python)
 
@@ -207,7 +207,7 @@ pnpm -C conductor cli --home /tmp/aliquot gate list
 pnpm -C conductor cli --home /tmp/aliquot gate show G-1
 ```
 
-`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The Ledger refuses the decision, and writes nothing, when that hash is not the Gate's stored `payload_hash`. Otherwise the command records the decision, naming the Gate's request as its `causation_id`, and prints the decision Event.
+`gate show` prints the full payload and its `payload_hash`. Decide a Gate as the Operator, passing with `--hash` the payload hash of the payload you checked. The Ledger refuses the decision, and writes nothing, when that hash is not the Gate's stored `payload_hash`: the command exits 1 with `GateDecided refused: payload_hash <hash> does not match G-n's payload, …`. Only a `--hash` that is not a sha256 at all is a usage error, which exits 2. Otherwise the command records the decision, naming the Gate's request as its `causation_id`, and prints the decision Event.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot gate decide G-1 --approve --hash <payload hash> --reason "diff checked"
@@ -236,7 +236,7 @@ pnpm -C conductor cli --home $H sandbox cat <artifact id>
 
 `register` records `ScriptRegistered` for a new name and `ScriptRevised` with the next version for a known one. It copies `sandbox/scripts/<name>/` (or `--script-dir`) to `<home>/scripts/S-<name>/<version>/`, so a version never changes, and records the image `Id` as `image_digest`; a local build has no registry digest. A Run uses the image its Script version names.
 
-Every Sandbox Event is appended by the Sandbox lifecycle, `conductor/src/sandbox/lifecycle.ts`. The Script registry, the runner and the Artifact store do their work on disk and in Docker, then call it. It mints Script versions and Run ids. It also names the cause of each Event in `causation_id`, from the Projections. A `ScriptRevised` names the version before it. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. Only a cause outside the Sandbox, such as the `TaskStarted` that the stage 1 tracer runs a Script on, comes from the caller.
+Every Sandbox Event is appended by the Sandbox lifecycle, `conductor/src/sandbox/lifecycle.ts`. The Script registry, the runner and the Artifact store do their work on disk and in Docker, then call it. It mints Script versions and Run ids. It also names the cause of each Event in `causation_id`, from the Projections. A `ScriptRevised` names the version before it. An `ArtifactStored` that a Run produces, and the Run's `RunFinished`, name the Run's `RunStarted` and carry its Task. Only a cause outside the Sandbox, such as the `TaskStarted` that the stage 1 tracer runs a Script on, comes from the caller, and only when it starts a Run.
 
 ### Script convention
 
@@ -279,7 +279,7 @@ pnpm -C conductor cli --home /tmp/aliquot vitality tiers
 # A-rin Rin merit=3.00 reviewed=10 tier=Trusted unused_mentor_gates=-
 ```
 
-Order Rest or end it, and append a `VitalitySampled` computed from the Ledger. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000).
+Order Rest or end it, and append a `VitalitySampled` computed from the Ledger. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000). Sampling an Agent that is Retired or not in the Org appends nothing and exits 1 with `VitalitySampled refused: <A-id> is not a live Agent in the Org`.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --begin --reason "fatigue 0.92" --as A-mabel

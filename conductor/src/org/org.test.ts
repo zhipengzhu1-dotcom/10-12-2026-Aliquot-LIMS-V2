@@ -335,8 +335,13 @@ describe("org guards", () => {
 		const forInes = s.gate("RetireAgent", { agent_id: "A-ines" });
 		const rejected = s.gate("RetireAgent", { agent_id: "A-bram" }, "reject");
 		const wrongKind = s.gate("PromoteToMentor", { agent_id: "A-bram" });
+		const undecided = s.requested("RetireAgent", { agent_id: "A-bram" });
 		const approved = s.gate("RetireAgent", { agent_id: "A-bram" });
 		const before = s.events().length;
+
+		expect(() => retireWith(undecided)).toThrow(
+			/AgentRetired refused: G-4 is a RetireAgent Gate, Open, naming A-bram/,
+		);
 
 		expect(() => retireWith(forInes)).toThrow(
 			/G-1 is a RetireAgent Gate, Approved, naming A-ines/,
@@ -352,6 +357,17 @@ describe("org guards", () => {
 		);
 		expect(() => retireWith(approved, odile)).toThrow(
 			/AgentRetired refused: only the Operator retires an Agent; A-odile tried to retire A-bram/,
+		);
+		expect(() =>
+			s.appendNonTask({
+				actor: operator,
+				kind: "AgentRetired",
+				payload: { agent_id: bram, reason: "Replaced" },
+			}),
+		).toThrow(
+			new AppendRefused(
+				"AgentRetired refused: retiring A-bram needs an approved RetireAgent Gate naming it; none was given",
+			),
 		);
 		expect(s.events()).toHaveLength(before);
 

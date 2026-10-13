@@ -1,4 +1,4 @@
-import { AppendRefused, refusalText } from "../append-guard.js";
+import { orRefuse } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
 import {
 	ArtifactId,
@@ -10,20 +10,12 @@ import {
 	type TaskId,
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import type { Origin, Recorded } from "../lifecycle-support.js";
 import type { Actor } from "../types/actor.js";
 import type { ArtifactType, StoredArtifact } from "../types/artifact.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import { type ArtifactMeta, productionOf } from "./artifacts.js";
-
-/**
- * Who appends a Sandbox Event, and the cause it names when that cause lies
- * outside the Sandbox, such as the TaskStarted a Run works on.
- */
-export type Origin = {
-	readonly actor: Actor;
-	readonly task_id?: TaskId | undefined;
-	readonly causation_id?: Seq | undefined;
-};
+import { runningRun, startedRun } from "./runs.js";
 
 /**
  * Record a Script version: ScriptRegistered at version 1 for a new name, else
@@ -35,18 +27,16 @@ export const register = (
 	ledger: Ledger,
 	{
 		actor,
-		causation_id,
 		...fields
-	}: Omit<Origin, "task_id"> &
-		Omit<
-			Script,
-			"id" | "version" | "fixtures" | "input_types" | "output_types"
-		> & {
+	}: { readonly actor: Actor } & Omit<
+		Script,
+		"id" | "version" | "fixtures" | "input_types" | "output_types"
+	> & {
 			readonly input_types: readonly ArtifactType[];
 			readonly output_types: readonly ArtifactType[];
 		},
 	place?: (script: Script) => void,
-): { readonly script: Script; readonly seq: Seq } => {
+): Recorded<"script", Script> => {
 	const { scripts } = ledger.projections;
 	const id = ScriptId.parse(`S-${fields.name}`);
 	const latest = scripts.scripts.get(id)?.at(-1);
@@ -61,7 +51,7 @@ export const register = (
 	place?.(script);
 	const { seq } = ledger.append({
 		actor,
-		causation_id: causation_id ?? scripts.lastSeq.get(id),
+		causation_id: scripts.lastSeq.get(id),
 		kind: latest ? "ScriptRevised" : "ScriptRegistered",
 		payload: script,
 	});
@@ -77,9 +67,9 @@ export const register = (
  */
 export const store = (
 	ledger: Ledger,
-	origin: Origin,
+	{ actor }: { readonly actor: Actor },
 	facts: ArtifactMeta & { readonly sha256: Sha256 },
-): { readonly artifact: StoredArtifact; readonly seq: Seq } => {
+): Recorded<"artifact", StoredArtifact> => {
 	const { artifacts, runs } = ledger.projections;
 	const id = ArtifactId.parse(facts.sha256);
 	const { produced_by } = facts;
@@ -92,28 +82,30 @@ export const store = (
 		return { artifact: existing.record, seq: existing.seq };
 	}
 	const run =
-		produced_by.tag === "Run" ? runs.runs.get(produced_by.id) : undefined;
-	if (produced_by.tag === "Run" && run === undefined) {
-		throw new AppendRefused(
-			refusalText("ArtifactStored", `${produced_by.id} has not started`),
-		);
-	}
+		produced_by.tag === "Run"
+			? orRefuse("ArtifactStored", runningRun(runs, produced_by.id))
+			: undefined;
 	const artifact: StoredArtifact = {
 		id,
 		...facts,
 		lineage: [...facts.lineage],
 	};
 	const { seq } = ledger.append({
-		actor: origin.actor,
-		task_id: origin.task_id ?? run?.task_id,
-		causation_id: origin.causation_id ?? run?.seq,
+		actor,
+		task_id: run?.task_id,
+		causation_id: run?.seq,
 		kind: "ArtifactStored",
 		payload: artifact,
 	});
 	return { artifact, seq };
 };
 
-/** Start a Run of a registered Script version under the next free Run id. */
+/**
+ * Start a Run of a registered Script version under the next free Run id, for
+ * the Task and on the cause the caller names: the TaskStarted a Run works on
+ * lies outside the Sandbox. It returns the RunStarted payload with its seq,
+ * not a Run, which exists only once the Run finishes.
+ */
 export const startRun = (
 	ledger: Ledger,
 	{
@@ -121,6 +113,7 @@ export const startRun = (
 		inputs,
 		...origin
 	}: Origin & {
+		readonly task_id?: TaskId | undefined;
 		readonly script: ScriptRef;
 		readonly inputs: readonly ArtifactId[];
 	},
@@ -141,18 +134,16 @@ export const startRun = (
 /** Finish a started Run, naming its RunStarted as the cause and its Task. */
 export const finishRun = (
 	ledger: Ledger,
-	{ actor, causation_id, run }: Omit<Origin, "task_id"> & { readonly run: Run },
-): { readonly run: Run; readonly seq: Seq } => {
-	const started = ledger.projections.runs.runs.get(run.id);
-	if (started === undefined) {
-		throw new AppendRefused(
-			refusalText("RunFinished", `${run.id} has no RunStarted`),
-		);
-	}
+	{ actor, run }: { readonly actor: Actor; readonly run: Run },
+): Recorded<"run", Run> => {
+	const started = orRefuse(
+		"RunFinished",
+		startedRun(ledger.projections.runs, run.id),
+	);
 	const { seq } = ledger.append({
 		actor,
 		task_id: started.task_id,
-		causation_id: causation_id ?? started.seq,
+		causation_id: started.seq,
 		kind: "RunFinished",
 		payload: run,
 	});

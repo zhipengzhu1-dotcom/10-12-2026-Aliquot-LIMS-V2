@@ -55,12 +55,18 @@ describe("the Vitality lifecycle", () => {
 		expect(stored(seq)).not.toHaveProperty("causation_id");
 	});
 
-	it("names the Agent's previous Vitality Event as the cause of each Rest order, but none for a sample, and returns the seq it appended", () => {
+	it("names the Agent's previous Vitality Event as the cause of each Rest order, but none for a sample, and returns the order and the seq it appended", () => {
 		const first = rest(rin, "begin");
 		const ended = rest(rin, "end");
 		const sampled = sampleOf(rin);
 		sampleOf(ines);
 		const again = rest(rin, "begin");
+
+		expect(again.order, "the order as the Event recorded it").toEqual({
+			agent_id: rin,
+			action: "begin",
+			reason: "fatigue",
+		});
 
 		expect(
 			[first, ended, sampled, again].map(({ seq }) => {
@@ -111,10 +117,14 @@ describe("the Vitality lifecycle", () => {
 		const before = s.events().length;
 
 		expect(() => sampleOf(anselm)).toThrow(
-			"A-anselm is not a live Agent in the Org",
+			new AppendRefused(
+				"VitalitySampled refused: A-anselm is not a live Agent in the Org",
+			),
 		);
 		expect(() => sampleOf(AgentId.parse("A-nobody"))).toThrow(
-			"A-nobody is not a live Agent in the Org",
+			new AppendRefused(
+				"VitalitySampled refused: A-nobody is not a live Agent in the Org",
+			),
 		);
 		expect(s.events()).toHaveLength(before);
 	});

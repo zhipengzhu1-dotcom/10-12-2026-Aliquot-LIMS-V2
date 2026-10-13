@@ -1,7 +1,9 @@
 import { AgentId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import type { Recorded } from "../lifecycle-support.js";
 import type { AgentDefinition, Role } from "../types/agent-definition.js";
-import { type Recorded, recruit } from "./lifecycle.js";
+import { recruit } from "./lifecycle.js";
+import type { AgentState } from "./projection.js";
 
 type RosterEntry = {
 	slug: string;
@@ -207,7 +209,7 @@ export const rosterDefinitions = (): AgentDefinition[] =>
  * the Operator, through the Org lifecycle. Returns what it recruited; a
  * second run recruits none.
  */
-export const seedOrg = (ledger: Ledger): Recorded[] => {
+export const seedOrg = (ledger: Ledger): Recorded<"agent", AgentState>[] => {
 	const { agents } = ledger.projections.org;
 	return rosterDefinitions()
 		.filter((d) => !agents.has(d.id))

@@ -1,16 +1,14 @@
 import { orRefuse } from "../append-guard.js";
-import type { NewEvent } from "../events.js";
+import type { Event, NewEvent } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
 import { GateId, nextId, type Seq, type Sha256, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
+import { type Recorded, readBack } from "../lifecycle-support.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import { type Gate, requestedGate } from "./projection.js";
 
 export const DEFAULT_LIFETIME_S = 86400;
-
-/** The Gate as the Event left it, and the Event's seq. */
-export type Recorded = { readonly gate: Gate; readonly seq: Seq };
 
 export type GateRequest = {
 	readonly actor: Actor;
@@ -27,18 +25,24 @@ type Blocking = {
 
 type GateEvent = Extract<NewEvent, { kind: "GateRequested" | "GateDecided" }>;
 
-const record = (ledger: Ledger, event: GateEvent): Recorded => {
-	const { seq } = ledger.append(event);
-	const gate = ledger.projections.gates.gates.get(event.payload.gate_id);
-	if (gate === undefined) throw new Error(`${event.payload.gate_id} vanished`);
-	return { gate, seq };
+/** What a Gate verb recorded, and the Event as the Ledger wrote it. */
+type Written = Recorded<"gate", Gate> & { readonly event: Event };
+
+const record = (ledger: Ledger, newEvent: GateEvent): Written => {
+	const event = ledger.append(newEvent);
+	const { gate_id } = newEvent.payload;
+	return {
+		gate: readBack(ledger.projections.gates.gates.get(gate_id), gate_id),
+		seq: event.seq,
+		event,
+	};
 };
 
 const requested = (
 	ledger: Ledger,
 	{ actor, kind, payload, lifetime_s = DEFAULT_LIFETIME_S }: GateRequest,
 	blocking?: Blocking,
-): Recorded =>
+): Recorded<"gate", Gate> =>
 	record(ledger, {
 		actor,
 		...(blocking?.task_id === undefined ? {} : { task_id: blocking.task_id }),
@@ -56,8 +60,10 @@ const requested = (
 	});
 
 /** Request a Gate that blocks no Task, under the next free gate id. */
-export const requestGate = (ledger: Ledger, request: GateRequest): Recorded =>
-	requested(ledger, request);
+export const requestGate = (
+	ledger: Ledger,
+	request: GateRequest,
+): Recorded<"gate", Gate> => requested(ledger, request);
 
 /**
  * Request a Gate that blocks `task_id`, naming the cause the Task lifecycle
@@ -67,13 +73,15 @@ export const requestGate = (ledger: Ledger, request: GateRequest): Recorded =>
 export const requestGateForTask = (
 	ledger: Ledger,
 	{ task_id, causation_id, ...request }: GateRequest & Blocking,
-): Recorded => requested(ledger, request, { task_id, causation_id });
+): Recorded<"gate", Gate> =>
+	requested(ledger, request, { task_id, causation_id });
 
 /**
  * The Operator's decision on `gate_id`, signed for the payload hash the
  * Operator checked, naming the Gate's request as its cause. The Ledger
  * refuses a hash that is not the stored one, writing nothing, and stamps
- * `decided_at` with the time it records the decision (ADR-0006).
+ * `decided_at` with the time it records the decision (ADR-0006), so the
+ * decision Event comes back as the Ledger wrote it.
  */
 export const decideGate = (
 	ledger: Ledger,
@@ -88,7 +96,7 @@ export const decideGate = (
 		readonly meaning: "approve" | "reject";
 		readonly reason: string;
 	},
-): Recorded => {
+): Written => {
 	const gate = orRefuse(
 		"GateDecided",
 		requestedGate(ledger.projections.gates, gate_id),
