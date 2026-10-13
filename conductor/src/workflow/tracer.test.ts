@@ -249,8 +249,8 @@ const typedFirstAverage = resultsCopy("typed_first_average", [
 	"write_sheet = original.write_sheet",
 	"",
 	"",
-	"def typed(path, number, samples):",
-	"    write_sheet(path, number, samples)",
+	"def typed(path, *rest):",
+	"    write_sheet(path, *rest)",
 	"    wb = load_workbook(path)",
 	"    wb.active['H6'] = wb.active['F6'].value / 20",
 	"    wb.save(path)",
@@ -988,7 +988,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		});
 	}, 600_000);
 
-	it("runs stage 6 on stage 5's Verification Record, stage 2's Receiving Log row and stage 4's database to a Done Task worked by Ines, whose PDF shows the Sample, names it in the reports row and traces back to the Fixture", async () => {
+	it("runs stage 6 on stage 5's Verification Record, stage 2's Receiving Log row, the weighings and stage 4's database to a Done Task worked by Ines, whose PDF shows the Sample, names it in the reports row and traces back to the Fixture", async () => {
 		const { stages } = await trace();
 
 		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
@@ -1008,10 +1008,13 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const record = ofType(verification.outputs, "VerificationRecord");
 		const row = ofType(receipt.outputs, "ReceivingLogRow");
 		const carried = ofType(results.outputs, "LimsDatabase");
+		const weighings = ArtifactId.parse(
+			sha256Hex(readFileSync(fixture.replace(/\.docx$/, ".weighings.json"))),
+		);
 		expect(
 			report.run.inputs,
-			"the record from stage 5, the Receiving Log row from stage 2, and stage 4's database",
-		).toEqual([record.id, row.id, carried.id]);
+			"the record from stage 5, the Receiving Log row from stage 2, the weighings, and stage 4's database",
+		).toEqual([record.id, row.id, weighings, carried.id]);
 		const reports = report.outputs.filter(
 			(o) => o.artifact_type === "ReportOfAnalysis",
 		);
@@ -1035,9 +1038,6 @@ describe.skipIf(!requireDocker())(suite, () => {
 				"SELECT lab_reference, document_revision, source_artifact FROM reports",
 			),
 		).toEqual([["LR-2026-0001", "Rev. 03", pdf.id]]);
-		const weighings = ArtifactId.parse(
-			sha256Hex(readFileSync(fixture.replace(/\.docx$/, ".weighings.json"))),
-		);
 		const origins = walkLineage(s.ledger.projections.artifacts, pdf.id)
 			.filter(({ production }) => production.record.lineage.length === 0)
 			.map(({ production }) => production.record.id);

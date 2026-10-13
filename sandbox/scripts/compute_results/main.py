@@ -11,13 +11,17 @@ container number and Lot.
 
 The weighings are one JSON array of `{"container": n, "weight_of_20_g": g,
 "weight_taken_g": g}`, one entry per container of the Work Order's Lot, as
-the synthetic generator writes them in `weighings.json`.
+the synthetic generator writes them in `weighings.json`. Weighings read
+from the Operator's results Message (`parse_results_message`) also give
+each entry the same `"notebook_reference"`; the Fixture's give none.
 
 Outputs, typed in `/outputs/manifest.json`:
 
 - `result_worksheet.xlsx` (`ResultWorksheet`): the layout of
   `sandbox/synth/result_worksheet.py`. Rows 1 to 3 are the header block
-  (title, Work Order, Test); row 5 holds `COLUMNS`; then one row per
+  (title, Work Order, Test), and row 4 holds "Notebook Reference" and the
+  weighings' notebook reference when they name one; row 5 holds `COLUMNS`;
+  then one row per
   container in container order, the weighings typed in columns F and G and
   the average weight in column H as the formula `=F<row>/20`; then a Mean
   row with "Mean" in column G and `=AVERAGE(H<first>:H<last>)` in column H.
@@ -65,6 +69,7 @@ COLUMNS = (
     "Weight Taken (g)",
     "Average Weight (g)",
 )
+NOTEBOOK_LABEL = "Notebook Reference"
 HEADER_ROW = 5
 STATUS = "Complete"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -145,8 +150,21 @@ def read_work_order(path: Path) -> tuple[str, list[str]]:
     return str(number), refs
 
 
-def read_weighings(path: Path) -> dict[int, Weighing]:
-    """Each container's weighing, by container number."""
+def notebook_reference(entries: list) -> str | None:
+    """The notebook reference every weighing names, or None when none names one."""
+    named = {entry.get("notebook_reference") for entry in entries}
+    if named <= {None}:
+        return None
+    if len(named) > 1 or not all(isinstance(n, str) and n for n in named):
+        raise ResultsError(
+            "the weighings do not all name one notebook reference:"
+            f" {sorted(map(str, named))}"
+        )
+    return named.pop()
+
+
+def read_weighings(path: Path) -> tuple[dict[int, Weighing], str | None]:
+    """Each container's weighing, by container number, and their notebook reference."""
     try:
         entries = json.loads(path.read_text())
     except json.JSONDecodeError as error:
@@ -172,7 +190,7 @@ def read_weighings(path: Path) -> dict[int, Weighing]:
         if weighing.container in weighings:
             raise ResultsError(f"container {weighing.container} is weighed twice")
         weighings[weighing.container] = weighing
-    return weighings
+    return weighings, notebook_reference(entries)
 
 
 def samples_of(
@@ -199,13 +217,17 @@ def samples_of(
     return sorted(samples, key=lambda s: s.weighing.container)
 
 
-def write_sheet(path: Path, number: str, samples: list[Sample]) -> None:
+def write_sheet(
+    path: Path, number: str, samples: list[Sample], notebook: str | None = None
+) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = SHEET
     ws["A1"] = TITLE
     ws["A2"], ws["B2"] = "Work Order", number
     ws["A3"], ws["B3"] = "Test", TEST
+    if notebook is not None:
+        ws["A4"], ws["B4"] = NOTEBOOK_LABEL, notebook
     for col, title in enumerate(COLUMNS, start=1):
         ws.cell(HEADER_ROW, col, title)
     first = HEADER_ROW + 1
@@ -238,7 +260,7 @@ def read_back(path: Path) -> list[list[object]]:
 def compute_results(inputs: Path, outputs: Path) -> str:
     given = inputs_of(inputs)
     number, refs = read_work_order(given.work_order)
-    weighings = read_weighings(given.weighings)
+    weighings, notebook = read_weighings(given.weighings)
 
     with tempfile.TemporaryDirectory() as work:
         database = Path(work) / "lims.sqlite"
@@ -265,7 +287,7 @@ def compute_results(inputs: Path, outputs: Path) -> str:
             db.commit()
         shutil.copyfile(database, outputs / "lims.sqlite")
 
-    write_sheet(outputs / "result_worksheet.xlsx", number, samples)
+    write_sheet(outputs / "result_worksheet.xlsx", number, samples, notebook)
     summary = {
         "schema": "result_worksheet/1",
         "sheet": read_back(outputs / "result_worksheet.xlsx"),

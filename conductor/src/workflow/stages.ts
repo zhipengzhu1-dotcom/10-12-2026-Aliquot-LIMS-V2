@@ -130,7 +130,7 @@ export const STAGES: readonly Stage[] = checkStages([
 		number: 6,
 		name: "Report",
 		script: "render_roa",
-		inputs: ["VerificationRecord", "ReceivingLogRow"],
+		inputs: ["VerificationRecord", "ReceivingLogRow", "Other"],
 		carried: ["LimsDatabase"],
 		outputs: ["ReportOfAnalysis", "ReportOfAnalysis", "LimsDatabase"],
 		worked_by: AgentId.parse("A-ines"),

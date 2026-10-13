@@ -15,6 +15,8 @@ import {
 	evaluateVerification,
 	evaluateWorkOrder,
 	MEAN_AVERAGE_WEIGHT,
+	NOT_STATED,
+	NOTEBOOK_LABEL,
 	pdfText,
 	RECEIVING_LOG_COLUMNS,
 	REPORT_METADATA,
@@ -626,7 +628,12 @@ const resultsRun = ({
 	readBack = true,
 }: {
 	sheet?: Cell[][];
-	weighings?: typeof SEED1_WEIGHINGS;
+	weighings?: readonly {
+		container: number;
+		weight_of_20_g: number;
+		weight_taken_g: number;
+		notebook_reference?: string;
+	}[];
 	written?: Buffer;
 	readBack?: boolean;
 } = {}) => ({
@@ -661,9 +668,23 @@ const resultsRun = ({
 });
 
 // 3 per row (formula, two weights), 1 per weighing, the Mean formula, the
-// Work Order's rows, and 2 per Sample (its average, the mean).
+// notebook reference, the Work Order's rows, and 2 per Sample (its average,
+// the mean).
 const resultsChecks = (rows: number, weighings: number, samples: number) =>
-	3 * rows + weighings + 2 + 2 * samples;
+	3 * rows + weighings + 3 + 2 * samples;
+
+/** Seed 1's weighings as `parse_results_message` writes them, each naming NB-07 p.31. */
+const NOTED = SEED1_WEIGHINGS.map((w) => ({
+	...w,
+	notebook_reference: "NB-07 p.31",
+}));
+
+/** Seed 1's sheet with the notebook reference in row 4 of the header. */
+const notedSheet = (): Cell[][] => {
+	const sheet = seed1Sheet();
+	sheet[3] = [NOTEBOOK_LABEL, "NB-07 p.31", ...Array(6).fill(null)];
+	return sheet;
+};
 
 describe("evaluateResults", () => {
 	it("passes seed 1's worksheet: each average and the mean by formula, the weighings as values, and results rows that agree", () => {
@@ -746,6 +767,36 @@ describe("evaluateResults", () => {
 			`LR-2026-0002: results holds no row for ${TEST}, not ${7.2103 / 20}, container 2's Weight of 20 Capsules (g) / 20, within 0.0001 g`,
 			`LR-2026-0002: results holds no row for ${MEAN_AVERAGE_WEIGHT}, not ${SEED1_MEAN}, the mean of the worksheet's averages, within 0.0001 g`,
 		]);
+	});
+
+	it("passes a header that holds the weighings' notebook reference, and fails one that does not", () => {
+		expect(
+			evaluateResults(resultsRun({ weighings: NOTED, sheet: notedSheet() })),
+		).toEqual({ score: 1, passed: true, findings: [] });
+
+		const missing = evaluateResults(resultsRun({ weighings: NOTED }));
+		expect(missing.passed).toBe(false);
+		expect(missing.findings).toEqual([
+			"the header's Notebook Reference is empty, not the weighings' NB-07 p.31",
+		]);
+		expect(
+			evaluateResults(resultsRun({ sheet: notedSheet() })).findings,
+		).toEqual([
+			"the header's Notebook Reference is NB-07 p.31, not the weighings' (none)",
+		]);
+	});
+
+	it("scores 0 on weighings that name two notebook references", () => {
+		const weighings = NOTED.map((w, i) =>
+			i === 0 ? w : { ...w, notebook_reference: "NB-07 p.32" },
+		);
+		expect(evaluateResults(resultsRun({ weighings }))).toEqual({
+			score: 0,
+			passed: false,
+			findings: [
+				"the weighings do not all name one notebook reference: NB-07 p.31, NB-07 p.32",
+			],
+		});
 	});
 
 	it("scores 0 when the Run wrote no read-back, a sheet without the columns, or no Mean row", () => {
@@ -968,8 +1019,15 @@ const seed1LogRow = (): Record<string, string> =>
 		RECEIVING_LOG_COLUMNS.map((column, i) => [column, row(REF)[i] ?? ""]),
 	);
 
-/** The sheet `render_roa` writes for seed 1, as its read-back holds it, each labelled cell from `cells`. */
-const reportSheet = (cells: Record<string, string>): Cell[][] => {
+/**
+ * The sheet `render_roa` writes for seed 1, as its read-back holds it, each
+ * labelled cell from `cells`, and the signature area's notebook reference
+ * when one is given.
+ */
+const reportSheet = (
+	cells: Record<string, string>,
+	notebook?: string,
+): Cell[][] => {
 	const labelled = (label: string): Cell[] => [
 		label || null,
 		cells[label] ?? null,
@@ -998,6 +1056,18 @@ const reportSheet = (cells: Record<string, string>): Cell[][] => {
 		[null, null],
 		[...REPORT_RESULT_COLUMNS],
 		[TEST, "QAL-SOP-114", "Report value", RESULT_G, "g"],
+		[null, null],
+		[null, null],
+		["Rendered By", null, "Verified By"],
+		["render_roa", null, "Verification Record 0123456789ab, verdict pass"],
+		["Signature: ______________", null, "Signature: ______________"],
+		["Date: ______________", null, "Date: ______________"],
+		...(notebook === undefined
+			? []
+			: [
+					[null, null],
+					[NOTEBOOK_LABEL, notebook],
+				]),
 	];
 };
 
@@ -1029,16 +1099,17 @@ const pdfShowing = (shown: readonly string[]): Buffer =>
 
 const SEED1_PDF = [REF, NAME, LOT, PRODUCT_CODE, RESULT_G.toFixed(4)];
 
-/** A database version holding seed 1's Sample, the Work Order's rows and `reports` rows. */
+/** A database version holding seed 1's Sample, or `held`, the Work Order's rows and `reports` rows. */
 const reportDatabase = (
 	reports: readonly (readonly [string, string, string])[] = [],
+	held: typeof SEED1_SAMPLE = SEED1_SAMPLE,
 ): Buffer => {
 	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
 	try {
 		const path = join(dir, "lims.sqlite");
 		const db = new DatabaseSync(path);
 		const { product_code, product_name, product_type, client, ...sample } =
-			SEED1_SAMPLE;
+			held;
 		db.exec(
 			`CREATE TABLE lots (lot TEXT PRIMARY KEY, product_code TEXT, product_name TEXT, product_type TEXT, client TEXT);
 			CREATE TABLE samples (${Object.keys(sample).join(", ")});
@@ -1082,6 +1153,8 @@ const reportRun = ({
 	pdf = pdfShowing(SEED1_PDF),
 	carried = reportDatabase(),
 	reports,
+	weighings = SEED1_WEIGHINGS,
+	notebook,
 }: {
 	record?: VerificationRecordJson;
 	logRow?: Record<string, string>;
@@ -1089,6 +1162,9 @@ const reportRun = ({
 	pdf?: Buffer;
 	carried?: Buffer;
 	reports?: readonly (readonly [string, string, string])[];
+	weighings?: readonly object[];
+	/** The notebook reference the sheet's signature area holds. */
+	notebook?: string;
 } = {}) => {
 	const pdfId = sha256Hex(pdf);
 	return {
@@ -1102,6 +1178,11 @@ const reportRun = ({
 				"ReceivingLogRow",
 				"receiving_log_row.xlsx",
 				Buffer.from("the row"),
+			),
+			stageArtifact(
+				"Other",
+				"weighings.json",
+				Buffer.from(JSON.stringify(weighings)),
 			),
 			stageArtifact("LimsDatabase", "lims.sqlite", carried),
 		],
@@ -1118,7 +1199,7 @@ const reportRun = ({
 					JSON.stringify({
 						schema: "report_of_analysis/1",
 						receiving_log_row: logRow,
-						sheet: reportSheet(cells),
+						sheet: reportSheet(cells, notebook),
 					}),
 				),
 			),
@@ -1133,13 +1214,15 @@ const reportRun = ({
 };
 
 // The verdict, the Work Order, 1 per database column and 1 per Receiving Log
-// column of the metadata, the result, 4 in the PDF, and 3 on the reports rows.
+// column of the metadata, the result, 4 in the PDF, the signature area's
+// notebook reference, and 3 on the reports rows.
 const REPORT_CHECKS =
 	2 +
 	REPORT_METADATA.length +
 	REPORT_METADATA.filter((m) => m.receivingLog).length +
 	1 +
 	4 +
+	1 +
 	3;
 
 describe("evaluateReport", () => {
@@ -1216,6 +1299,58 @@ describe("evaluateReport", () => {
 				reportRun({ carried: reportDatabase([[REF, "Rev. 03", other]]) }),
 			).findings,
 		).toEqual([`the carried database already has a reports row for ${REF}`]);
+	});
+
+	it("passes a signature area and a PDF that show the weighings' notebook reference, and fails either without it", () => {
+		const noted = SEED1_WEIGHINGS.map((w) => ({
+			...w,
+			notebook_reference: "NB-07 p.31",
+		}));
+		const pdf = pdfShowing([...SEED1_PDF, NOTEBOOK_LABEL, "NB-07 p.31"]);
+
+		expect(
+			evaluateReport(
+				reportRun({ weighings: noted, notebook: "NB-07 p.31", pdf }),
+			),
+		).toEqual({ score: 1, passed: true, findings: [] });
+		expect(
+			evaluateReport(reportRun({ weighings: noted, notebook: "NB-07 p.31" }))
+				.findings,
+		).toEqual([
+			"the PDF's text does not show the notebook reference NB-07 p.31",
+		]);
+		expect(
+			evaluateReport(reportRun({ weighings: noted, pdf })).findings,
+		).toEqual([
+			"the signature area's Notebook Reference is empty, not the weighings' NB-07 p.31",
+		]);
+	});
+
+	it("passes Not stated for a value the Sample's sources leave blank, and fails a blank cell", () => {
+		const carried = reportDatabase([], {
+			...SEED1_SAMPLE,
+			report_to_contact: "",
+			product_type: "",
+		});
+		const logRow = { ...seed1LogRow(), TYPE: "" };
+		const cells = {
+			...seed1Cells(),
+			Attention: NOT_STATED,
+			"Product Type": NOT_STATED,
+		};
+
+		expect(evaluateReport(reportRun({ carried, logRow, cells }))).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+		expect(
+			evaluateReport(
+				reportRun({ carried, logRow, cells: { ...cells, Attention: "" } }),
+			).findings,
+		).toEqual([
+			"Attention: the report holds nothing, not Not stated, the carried database's report_to_contact for LR-2026-0001",
+		]);
 	});
 
 	it("fails a Sample that is not on the record's Work Order", () => {

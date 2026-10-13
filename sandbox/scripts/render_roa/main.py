@@ -5,18 +5,22 @@ Sandbox Script convention: run as
 with /inputs/manifest.json listing the inputs and each input at
 /inputs/<artifact_id>/<filename>. The inputs must hold exactly one
 `VerificationRecord` (the `verification_record/1` record `verify_results`
-writes), exactly one `ReceivingLogRow` (the sheet `log_receipt` writes) and
-exactly one `LimsDatabase`, the toy LIMS database version the stage carries.
+writes), exactly one `ReceivingLogRow` (the sheet `log_receipt` writes),
+exactly one `Other`, the weighings stage 4 computed from, and exactly one
+`LimsDatabase`, the toy LIMS database version the stage carries.
 
 The report is for the first Sample of the record's Work Order, by Lab
 Reference, that the Receiving Log row lists. Every metadata value is read
 from that Sample's Receiving Log row or from its `samples` row, as `CLIENT`
-and `METADATA` name the source of each; the Test from its `work_orders` row;
-the result is the record's recomputed mean, rounded to 4 places, and the
-unit is that of the Sample's `results` row for the Test. The letterhead, the
-Method, the Specification and the Document Revision belong to the report
-form, not to the Sample. The signature area names this Script and the
-Verification Record, whose Runs' actors the Ledger holds.
+and `METADATA` name the source of each; a value its source leaves blank, as
+a Sample received from a chat Message leaves the Report To party, reads
+`NOT_STATED`. The Test is read from its `work_orders` row; the result is the
+record's recomputed mean, rounded to 4 places, and the unit is that of the
+Sample's `results` row for the Test. The letterhead, the Method, the
+Specification and the Document Revision belong to the report form, not to
+the Sample. The signature area names this Script and the Verification
+Record, whose Runs' actors the Ledger holds, and, below them, the notebook
+reference the weighings name, when they name one.
 
 Outputs, typed in `/outputs/manifest.json`. The xlsx and the PDF are drawn
 from one `Report`, so they cannot disagree:
@@ -25,7 +29,8 @@ from one `Report`, so they cannot disagree:
   `sandbox/synth/report_of_analysis.py`. Letterhead in rows 1 to 5, the
   Client block from row 7 and the metadata block from row 12 (labels in
   column A, values in column B), the results table's columns in row 22 and
-  its row in row 23, and the signature area from row 26.
+  its row in row 23, and the signature area from row 26, with the
+  notebook reference's label and value in row 31.
 - `report_of_analysis.pdf` (`ReportOfAnalysis`): the same report, drawn by
   reportlab with uncompressed page streams and invariant metadata, so the
   stage 6 Evaluation reads its text from the bytes and the same report
@@ -40,9 +45,9 @@ from one `Report`, so they cannot disagree:
   row as this Script read it and the report's sheet as it reads back the
   saved xlsx, row 1 first. Dates read back as YYYY-MM-DD, times as HH:MM.
 
-The Script refuses inputs it cannot read or render a complete report from,
-including any metadata value that is missing or blank (exit 1, the reason on
-stderr, no outputs). It judges nothing else: the stage 6 Evaluation decides
+The Script refuses inputs it cannot read or render a report from, including
+a Sample with no `samples` row or no Receiving Log row (exit 1, the reason
+on stderr, no outputs). It judges nothing else: the stage 6 Evaluation decides
 whether the report agrees with its sources and whether the verdict was pass.
 """
 
@@ -76,6 +81,8 @@ METHOD = "QAL-SOP-114"
 SPECIFICATION = "Report value"
 RESULT_COLUMNS = ("Test", "Method", "Specification", "Result", "Unit")
 SIGNATURE_ROLES = ("Rendered By", "Verified By")
+NOTEBOOK_LABEL = "Notebook Reference"
+NOT_STATED = "Not stated"
 
 RECEIVING_LOG_COLUMNS = (
     "#",
@@ -147,6 +154,7 @@ class Report:
     metadata: tuple[tuple[str, Value], ...]
     result: tuple[str, str, str, float, str]
     signatures: tuple[tuple[str, str], ...]
+    notebook: str | None
 
     @property
     def lab_reference(self) -> str:
@@ -158,6 +166,7 @@ class Inputs:
     record: Path
     record_id: str
     receiving_log: Path
+    weighings: Path
     database: Path
 
 
@@ -180,8 +189,28 @@ def inputs_of(inputs: Path) -> Inputs:
         path(record),
         record["artifact_id"],
         path(only("ReceivingLogRow")),
+        path(only("Other")),
         path(only("LimsDatabase")),
     )
+
+
+def read_notebook_reference(path: Path) -> str | None:
+    """The notebook reference every weighing names, or None when none names one."""
+    try:
+        entries = json.loads(path.read_text())
+    except json.JSONDecodeError as error:
+        raise ReportError(f"the weighings are not JSON: {error}") from error
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        raise ReportError("the weighings are not a JSON array of objects")
+    named = {entry.get("notebook_reference") for entry in entries}
+    if named <= {None}:
+        return None
+    if len(named) > 1 or not all(isinstance(n, str) and n for n in named):
+        raise ReportError(
+            "the weighings do not all name one notebook reference:"
+            f" {sorted(map(str, named))}"
+        )
+    return named.pop()
 
 
 def text_of(value: object) -> str:
@@ -232,6 +261,7 @@ def build_report(
     receiving_log: dict[str, dict[str, object]],
     record: Path,
     record_id: str,
+    notebook: str | None,
 ) -> Report:
     work_order, mean, verdict = read_record(record)
     tests = db.execute(
@@ -257,12 +287,12 @@ def build_report(
         raise ReportError(f"the carried database has no {test} result for {ref}")
     row = receiving_log[ref]
 
-    def value(label: str, source: Source) -> Value:
+    def value(source: Source) -> Value:
         match source:
             case ReceivingLog(column):
-                found, where = row.get(column), f"the Receiving Log row of {ref}"
+                found = row.get(column)
             case Samples(column):
-                found, where = sample[column], f"the samples row of {ref}"
+                found = sample[column]
             case Form(form_value):
                 return form_value
         if isinstance(found, datetime):
@@ -270,13 +300,12 @@ def build_report(
         if isinstance(found, date | time):
             return found
         if found is None or str(found).strip() == "":
-            name = label or "Address, second line"
-            raise ReportError(f"{name}: {where} has no {source.column}")
+            return NOT_STATED
         return str(found)
 
     return Report(
-        client=tuple((label, value(label, s)) for label, s in CLIENT),
-        metadata=tuple((label, value(label, s)) for label, s in METADATA),
+        client=tuple((label, value(s)) for label, s in CLIENT),
+        metadata=tuple((label, value(s)) for label, s in METADATA),
         result=(test, METHOD, SPECIFICATION, round(mean, 4), unit["unit"]),
         signatures=(
             ("Rendered By", "render_roa"),
@@ -285,6 +314,7 @@ def build_report(
                 f"Verification Record {record_id[:12]}, verdict {verdict}",
             ),
         ),
+        notebook=notebook,
     )
 
 
@@ -319,6 +349,9 @@ def write_xlsx(report: Report, path: Path) -> None:
         ws.cell(27, col, who)
         ws.cell(28, col, "Signature: ______________")
         ws.cell(29, col, "Date: ______________")
+    if report.notebook is not None:
+        ws.cell(31, 1, NOTEBOOK_LABEL).font = Font(bold=True)
+        ws.cell(31, 2, report.notebook)
     ws.column_dimensions["A"].width = 22
     ws.column_dimensions["B"].width = 44
     wb.save(path)
@@ -364,6 +397,10 @@ def write_pdf(report: Report, path: Path) -> None:
         for text in (who, "Signature: ______________", "Date: ______________"):
             down(14)
             line(text, x=x)
+    if report.notebook is not None:
+        down(28)
+        line(NOTEBOOK_LABEL, font="Helvetica-Bold")
+        line(report.notebook, x=200)
     canvas.showPage()
     canvas.save()
 
@@ -393,7 +430,13 @@ def render_roa(inputs: Path, outputs: Path) -> Report:
                     f"the carried database has schema version {version};"
                     f" this Script writes version {SCHEMA_VERSION}"
                 )
-            report = build_report(db, receiving_log, given.record, given.record_id)
+            report = build_report(
+                db,
+                receiving_log,
+                given.record,
+                given.record_id,
+                read_notebook_reference(given.weighings),
+            )
             write_xlsx(report, out / "report_of_analysis.xlsx")
             write_pdf(report, out / "report_of_analysis.pdf")
             pdf_id = hashlib.sha256(

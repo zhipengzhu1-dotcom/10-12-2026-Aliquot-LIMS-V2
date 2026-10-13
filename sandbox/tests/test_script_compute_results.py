@@ -149,3 +149,46 @@ def test_it_refuses_a_work_order_without_weighings(tmp_path):
     assert result.returncode == 1
     assert "exactly one Other input, got 0" in result.stderr
     assert list(outputs.iterdir()) == []
+
+
+def noted(tmp_path: Path, *references: str) -> Path:
+    """Seed 1's weighings, each naming the next of `references`, as
+    parse_results_message writes them."""
+    entries = json.loads(WEIGHINGS.read_text())
+    path = tmp_path / "noted.json"
+    path.write_text(
+        json.dumps(
+            [
+                {**entry, "notebook_reference": ref}
+                for entry, ref in zip(entries, references, strict=True)
+            ]
+        )
+    )
+    return path
+
+
+def test_it_writes_the_weighings_notebook_reference_in_the_header(tmp_path):
+    result, outputs = results(tmp_path, weighings=noted(tmp_path, *["NB-07 p.31"] * 2))
+
+    assert result.returncode == 0, result.stderr
+    ws = load_workbook(outputs / "result_worksheet.xlsx").active
+    header = [list(row[:2]) for row in ws.iter_rows(max_row=5, values_only=True)]
+    assert header == [
+        ["Result Worksheet: Average Capsule Weight", None],
+        ["Work Order", "WO-2026-0001"],
+        ["Test", TEST],
+        ["Notebook Reference", "NB-07 p.31"],
+        ["#", "Code"],
+    ]
+    read_back = json.loads((outputs / "result_worksheet.json").read_text())["sheet"]
+    assert read_back[3][:2] == ["Notebook Reference", "NB-07 p.31"]
+
+
+def test_it_refuses_weighings_that_name_two_notebook_references(tmp_path):
+    result, outputs = results(
+        tmp_path, weighings=noted(tmp_path, "NB-07 p.31", "NB-07 p.32")
+    )
+
+    assert result.returncode == 1
+    assert "do not all name one notebook reference" in result.stderr
+    assert list(outputs.iterdir()) == []

@@ -85,13 +85,13 @@ describe("the stage table", () => {
 		});
 	});
 
-	it("has stage 6, Report: render_roa from the VerificationRecord, the ReceivingLogRow and the carried LimsDatabase to two Reports of Analysis and the next LimsDatabase, worked by Ines and reviewed by Anselm, and no stage after it", () => {
+	it("has stage 6, Report: render_roa from the VerificationRecord, the ReceivingLogRow, the weighings and the carried LimsDatabase to two Reports of Analysis and the next LimsDatabase, worked by Ines and reviewed by Anselm, and no stage after it", () => {
 		expect(STAGES).toHaveLength(6);
 		expect(STAGES[5]).toMatchObject({
 			number: 6,
 			name: "Report",
 			script: "render_roa",
-			inputs: ["VerificationRecord", "ReceivingLogRow"],
+			inputs: ["VerificationRecord", "ReceivingLogRow", "Other"],
 			carried: ["LimsDatabase"],
 			outputs: ["ReportOfAnalysis", "ReportOfAnalysis", "LimsDatabase"],
 			worked_by: "A-ines",
