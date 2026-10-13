@@ -19,7 +19,7 @@ This directory is the maintained source for proving what the Operator sees and d
 
 ## Proof and skip reporting
 
-- A proof is `proof/proof.md` in the run directory, with a section per driven feature: the intent quoted, the commands with exit codes, the evidence (a screenshot per browser step, API bodies, the Ledger rows the drive appended, `ledger verify`), and a one-line verdict.
+- A proof is `proof/proof.md` in the run directory, with a section per driven feature: the intent quoted, the commands with exit codes, the evidence (a screenshot per browser step, API bodies, the Ledger rows the drive appended (a read-only drive, such as Flow, proves it appended none), `ledger verify`), and a one-line verdict.
 - Capture the action and the resulting state: the screenshot sequence shows the form before, the status line after, and the redrawn view.
 - A mutation is proved by a second, read-only view: `/api/*` and the `events` rows in `home/ledger.sqlite`, not only the status line.
 - A feature whose path cannot be reached is reported with the command tried and the precondition that failed. Do not report it as verified through another path.
@@ -30,7 +30,7 @@ Each feature file starts with an H1 title and one paragraph describing the behav
 
 ## Features
 
-- [Org tree and its Actions](./org.md) covers the reporting tree, Mood and load badges, pause and resume, Rest through the Action bar, reassign and the redraw over the Event stream.
+- [Org tree and its Actions](./org.md) covers the reporting tree with Trust tier, paused and load badges (no Mood badge: Mood is flat since #62), pause and resume, Rest through the Action bar, reassign and the redraw over the Event stream.
 - [Flow board and the Task Event panel](./flow.md) covers the stage swimlanes, the Task and Lot filters, and the panel of a Task's Events with cause arrows.
 - [Agent page](./agent.md) covers Charter, Persona, Vitality, Merit after each Review, Coaching and authoring a Revision.
 - [Gates](./gates.md) covers the open Gates waiting on the Operator, the proposed-change table, and approve and reject with a reason.
@@ -41,5 +41,7 @@ Each feature file starts with an H1 title and one paragraph describing the behav
 
 - The command line. `tools/aliquot --home <abs path> <command>` drives every domain (`org`, `task`, `gate`, `vitality`, `training`, `room`, `sandbox`, `workflow`, `intake`, `turn`, `ledger`). Drive it by command and exit code. It writes only while `serve` is stopped. README.md has a section per domain.
 - The Sandbox. `workflow run <fixture>` runs Python Scripts in Docker, stages 1 to 6. `launch.sh` runs it once, and `launch.log` holds its output. `sandbox runs` and `sandbox lineage <artifact id>` read what it did.
-- The Scheduler. `serve` without `--no-schedule` runs a Tick every `--tick` and starts Turns; `/api/scheduler` reports the last Tick. A verify run never starts it on the real model: that starts live Turns on the Operator's subscription (gate G3). A proof of a scheduled Turn needs `ALIQUOT_SCRIPTED_MODEL=<json file>` (README "Turns") and a drive that does not exist yet.
-- The Rooms, Scripts and Performance views (`#/rooms`, `#/scripts`, `#/performance`). Rooms and Scripts show their JSON as it came; Performance draws Merit, the rubric means, the Energy budget and `reviews.csv`.
+- The Scheduler. `serve` without `--no-schedule` runs a Tick every `--tick` and starts Turns; `/api/scheduler` reports the last Tick. A verify run never starts it on the real model: that starts live Turns on the Operator's subscription, which only the Operator decides to spend. A proof of a scheduled Turn needs `ALIQUOT_SCRIPTED_MODEL=<json file>` (README "Turns") and a drive that does not exist yet.
+- The Rooms, Scripts and Performance views (`#/rooms`, `#/scripts`, `#/performance`). Rooms and Scripts show their JSON as it came; Performance draws Merit, the rubric means, Tasks by state, the Energy budget and `reviews.csv`.
+- Action bar verbs no view form posts and no drive runs: `task-assign`, `task-handoff` and `task-review` (`conductor/src/serve/actions.ts`). Drive one with `scripts/api.sh "$RUN" act <verb> '<json>'` and prove it by its Ledger row.
+- API reads no drive asserts: `/api/turns`, `/api/budget`, `/api/scheduler` answering 200 (it needs the Scheduler on), and the replay of `/api/events` from `Last-Event-ID` (`conductor/src/serve/http.ts`, `sse.ts`).

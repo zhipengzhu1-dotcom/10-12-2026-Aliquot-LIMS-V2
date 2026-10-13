@@ -34,5 +34,6 @@ Preconditions:
 
 - The view has no filter by kind, actor or Task. Its only query is `before`. Filter by Task on the Flow board (`#/flow?task=T-1`) or open a Task's Event panel (`#/flow?open=T-1`), or use `sqlite3` on `home/ledger.sqlite`.
 - The Checked-at time is the browser's clock at one-second resolution, and it moves on every live Event as well as on Verify. Two reads inside a second show the same time; assert the Event count in the verdict instead.
-- `/api/ledger` is served by `conductor/src/serve/http.ts`, not the projection routes; `before=1`, `before=<head+1>` and a bad `before` all give the newest page.
+- `/api/ledger` takes `from` (default 1) and `limit` (default 100, at most 1000) and answers 400 for a value that is not a whole number or a `limit` over 1000; it is dispatched in `conductor/src/serve/http.ts` and paged by `ledgerPage` in `routes.ts`. It ignores `before`.
+- `before` is the view's hash parameter (`#/ledger?before=<seq>`), not the API's. `before=1`, `before=<head+1>` and a bad `before` all give the newest page.
 - `/api/ledger` pages oldest first from `from`; the view reads the verdict first to find the head, so a broken chain costs a walk of every page.
