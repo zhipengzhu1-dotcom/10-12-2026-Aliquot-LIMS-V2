@@ -2,7 +2,7 @@ import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import type { AgentId, TaskId } from "../ids.js";
-import { activeAgent, liveAgent } from "../org/projection.js";
+import { activeAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
 import { type Actor, actorText } from "../types/actor.js";
@@ -96,20 +96,23 @@ const reviewRefusal = (
 	return undefined;
 };
 
-/** Help is requested of the Operator or of a live Agent. */
-export const helpTargetRefusal = (
+/**
+ * A Task is escalated to, and help is requested of, the Operator or a live
+ * Agent that is not paused.
+ */
+export const targetRefusal = (
 	projections: Projections,
 	to: Actor,
 ): Refusal | undefined => {
 	if (to.tag === "Operator") return undefined;
-	const live = liveAgent(projections.org, to.id);
-	return live instanceof Refusal ? live : undefined;
+	const active = activeAgent(projections.org, to.id);
+	return active instanceof Refusal ? active : undefined;
 };
 
 /**
  * The Conductor's assignments, that a Task is assigned or handed off only to
  * a live Agent that is not paused, the Review rules on completion, and whom
- * help is requested of. The Task state machine itself, and who may request
+ * a Task is escalated to and help is requested of. The Task state machine itself, and who may request
  * help, are the Task Projection's, which refuses every Event it cannot
  * express.
  */
@@ -128,8 +131,9 @@ const taskRules: AppendGuard = (projections, event) => {
 				? undefined
 				: reviewRefusal(projections, task, event);
 		}
+		case "TaskEscalated":
 		case "HelpRequested":
-			return reasonOf(helpTargetRefusal(projections, event.payload.to));
+			return reasonOf(targetRefusal(projections, event.payload.to));
 		default:
 			return undefined;
 	}

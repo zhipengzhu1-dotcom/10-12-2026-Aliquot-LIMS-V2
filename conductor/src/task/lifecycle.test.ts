@@ -477,6 +477,47 @@ describe("an assignment or Hand-off", () => {
 		expect(s.events()).toHaveLength(before);
 	});
 
+	it("an escalation or Help request is refused to a paused Agent, a Retired one, or one not in the Org, naming why, by the verb and by the Ledger, and appends nothing", () => {
+		const held = propose(s.ledger, proposal).task.id;
+		assign(s.ledger, { actor: operator, task_id: held, assignee: rin });
+		start(s.ledger, { actor: asRin, task_id: held });
+		const before = s.events().length;
+
+		for (const [agent, reason] of refusedAssignees) {
+			const to: Actor = { tag: "Agent", id: agent };
+			const escalated = new AppendRefused(`TaskEscalated refused: ${reason}`);
+			const helped = new AppendRefused(`HelpRequested refused: ${reason}`);
+			expect(() =>
+				escalate(s.ledger, { actor: asRin, task_id: held, to, reason: "x" }),
+			).toThrow(escalated);
+			expect(() =>
+				s.ledger.append({
+					actor: asRin,
+					task_id: held,
+					kind: "TaskEscalated",
+					payload: { task_id: held, to, reason: "x" },
+				}),
+			).toThrow(escalated);
+			expect(() =>
+				requestHelp(s.ledger, {
+					actor: asRin,
+					task_id: held,
+					to,
+					question: "q",
+				}),
+			).toThrow(helped);
+			expect(() =>
+				s.ledger.append({
+					actor: asRin,
+					task_id: held,
+					kind: "HelpRequested",
+					payload: { task_id: held, to, question: "q" },
+				}),
+			).toThrow(helped);
+		}
+		expect(s.events()).toHaveLength(before);
+	});
+
 	it("goes to a paused Agent once it is resumed", () => {
 		const task_id = propose(s.ledger, proposal).task.id;
 		resume(s.ledger, { actor: operator, agent_id: bram });
