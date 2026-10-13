@@ -19,7 +19,7 @@ A member of the society that acts in Turns under one Agent definition.
 _Avoid_: bot, worker, assistant, instance
 
 **Turn**:
-One bounded unit of agent activity that the Conductor schedules, from the prompt it sends to the result it records. The Conductor records each Turn in the Ledger as a `TurnStarted`, with the Agent's model, Mood and Policy, and a `TurnFinished`, with the usage that fatigue is computed from.
+One bounded unit of agent activity that the Conductor schedules: one call to the model, with a prompt built from the Ledger and the Agent's Tools as its only tools, from the prompt it sends to the result it records. The Conductor records each Turn in the Ledger as a `TurnStarted`, with the Agent's model, Mood and Policy, and a `TurnFinished`, with the usage that fatigue is computed from, then samples the Agent's Vitality naming that `TurnFinished`.
 _Avoid_: session, step, tick
 
 **Agent definition**:
