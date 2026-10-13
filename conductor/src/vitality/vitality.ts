@@ -17,7 +17,7 @@ export type SampleOptions = {
 	readonly energyBudgetTokens: number;
 };
 
-const FIVE_HOURS_MS = 5 * 3_600_000;
+export const FIVE_HOURS_MS = 5 * 3_600_000;
 
 /** The latest RestOrdered for the Agent is a `begin`. */
 export const restInEffect = (work: WorkState, agent: AgentId): boolean =>

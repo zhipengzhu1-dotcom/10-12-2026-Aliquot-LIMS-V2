@@ -21,5 +21,32 @@ export const act = async (
 	});
 	return res.ok
 		? { ok: true, event: (await res.json()) as LedgerEvent }
-		: { ok: false, status: res.status, text: await res.text() };
+		: { ok: false, status: res.status, text: (await res.text()).trim() };
+};
+
+/** The status line for an action: the Event it appended, or the refusal. */
+export const answerText = (answer: ActionAnswer): string =>
+	answer.ok
+		? `Appended ${answer.event.kind} at seq ${answer.event.seq}`
+		: `${answer.status}: ${answer.text}`;
+
+/**
+ * The body a view's action form posts: the JSON its markup carries in
+ * `data-body`, with each field the Operator filled in set at its dotted
+ * name, as `definition.supervisor_id`. An empty field leaves its key out.
+ */
+export const bodyOf = (
+	fixed: string,
+	fields: Iterable<readonly [string, string]>,
+): Record<string, unknown> => {
+	const body = JSON.parse(fixed) as Record<string, unknown>;
+	for (const [name, value] of fields) {
+		const path = name.split(".");
+		const key = path.pop() ?? name;
+		let target = body;
+		for (const step of path) target = target[step] as Record<string, unknown>;
+		if (value === "") delete target[key];
+		else target[key] = value;
+	}
+	return body;
 };
