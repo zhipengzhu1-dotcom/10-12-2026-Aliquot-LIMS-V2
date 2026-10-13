@@ -86,10 +86,10 @@ describe("the Task lifecycle", () => {
 			state: { tag: "Done", assignee: odile },
 			outputs: [output],
 		});
-		const steps = [proposed, assigned, started, submitted, reviewed, closed];
+		const recorded = [proposed, assigned, started, submitted, reviewed, closed];
 		const bySeq = new Map(ledger.all().map((e) => [e.seq, e]));
 		expect(
-			steps.map(({ seq }) => {
+			recorded.map(({ seq }) => {
 				const e = bySeq.get(seq);
 				return [e?.kind, e?.task_id, e?.causation_id];
 			}),

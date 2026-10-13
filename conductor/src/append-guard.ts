@@ -11,7 +11,7 @@ import type { Projections } from "./projections.js";
  * `<Kind> refused: <reason>`. A guard never throws and never reads the clock.
  */
 export type AppendGuard = (
-	ledger: Projections,
+	projections: Projections,
 	event: Event,
 ) => string | undefined;
 
@@ -20,14 +20,14 @@ export type AppendGuard = (
  * the cause applied. The Ledger writes them in the same transaction, through
  * the same guards, and writes none of them, nor the cause, if any is refused.
  */
-export type FollowOn = (ledger: Projections, cause: Event) => NewEvent[];
+export type FollowOn = (projections: Projections, cause: Event) => NewEvent[];
 
 /**
  * The Events a Ledger is missing, given its Projections. The Ledger writes
  * them when it opens for writing, before any caller appends, in their own
  * transaction and through the same guards.
  */
-export type CatchUp = (ledger: Projections) => NewEvent[];
+export type CatchUp = (projections: Projections) => NewEvent[];
 
 /** The Ledger refused an append. Nothing was written. */
 export class AppendRefused extends Error {

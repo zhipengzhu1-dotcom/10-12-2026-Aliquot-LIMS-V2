@@ -80,7 +80,7 @@ describe("aliquot gate", () => {
 	it("requests, lists and decides a Gate end to end", () => {
 		const file = join(home, "payload.json");
 		writeFileSync(file, JSON.stringify(deploy));
-		for (const step of [
+		for (const args of [
 			[
 				"propose",
 				"--title",
@@ -95,7 +95,7 @@ describe("aliquot gate", () => {
 			["assign", "T-1", "A-bram"],
 			["start", "T-1", "--as", "A-bram"],
 		]) {
-			expect(aliquot(["task", ...step]).status).toBe(0);
+			expect(aliquot(["task", ...args]).status).toBe(0);
 		}
 
 		const requested = runCli([

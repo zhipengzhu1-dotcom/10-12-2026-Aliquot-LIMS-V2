@@ -16,8 +16,8 @@ import { tierCauseRefusal, tierRefusal } from "../vitality/trust.js";
  * Why a Retired Agent's status may not change. An Agent not in the Org is
  * left to the Org Projection, which refuses every Event about it.
  */
-const retiredRefusal = (ledger: Projections, id: AgentId) =>
-	ledger.org.agents.get(id)?.retired
+const retiredRefusal = (projections: Projections, id: AgentId) =>
+	projections.org.agents.get(id)?.retired
 		? `${id} is Retired; its status can no longer change`
 		: undefined;
 
@@ -26,7 +26,7 @@ const retiredRefusal = (ledger: Projections, id: AgentId) =>
  * through an approved RetireAgent Gate whose payload names it.
  */
 const retirementRefusal = (
-	ledger: Projections,
+	projections: Projections,
 	event: Extract<Event, { kind: "AgentRetired" }>,
 ): string | undefined => {
 	const { agent_id, gate_id } = event.payload;
@@ -36,7 +36,7 @@ const retirementRefusal = (
 	if (gate_id === undefined) {
 		return `retiring ${agent_id} needs an approved RetireAgent Gate naming it; none was given`;
 	}
-	const { gates } = ledger;
+	const { gates } = projections;
 	if (
 		approvedGatesFor(gates, "RetireAgent", agent_id).some(
 			(g) => g.id === gate_id,
@@ -69,7 +69,7 @@ const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
  * every Revision follows, including that the tier is the projected one, run
  * after this in `orgGuard`.
  */
-const conductorGuard: AppendGuard = (ledger, event) => {
+const conductorGuard: AppendGuard = (projections, event) => {
 	if (event.actor.tag !== "Conductor") return undefined;
 	if (event.kind !== "AgentDefinitionRevised") {
 		return "the Conductor authors only tier Revisions";
@@ -82,7 +82,7 @@ const conductorGuard: AppendGuard = (ledger, event) => {
 	if (causation_id >= event.seq) {
 		return `causation_id ${causation_id} names no Event in the Ledger`;
 	}
-	const current = ledger.org.agents.get(definition.id)?.definition;
+	const current = projections.org.agents.get(definition.id)?.definition;
 	if (current === undefined) return undefined;
 	const fields = new Set([...Object.keys(current), ...Object.keys(definition)]);
 	const changed = [...fields].filter(
@@ -98,7 +98,7 @@ const conductorGuard: AppendGuard = (ledger, event) => {
 		return `the Conductor's Revision of ${definition.id} leaves its Trust tier at ${current.trust_tier}`;
 	}
 	return tierCauseRefusal(
-		ledger.trust,
+		projections.trust,
 		definition.id,
 		definition.trust_tier,
 		causation_id,
@@ -111,16 +111,20 @@ const conductorGuard: AppendGuard = (ledger, event) => {
  * only the Operator revises the Auditor, apart from the Conductor's tier
  * Revisions. Whether the Agent is in the Org is the Org Projection's to say.
  */
-const orgGuard: AppendGuard = (ledger, event) => {
+const orgGuard: AppendGuard = (projections, event) => {
 	switch (event.kind) {
 		case "AgentRecruited":
 			return (
 				authorRefusal(event, event.payload) ??
-				tierRefusal(ledger.trust, event.payload.id, event.payload.trust_tier)
+				tierRefusal(
+					projections.trust,
+					event.payload.id,
+					event.payload.trust_tier,
+				)
 			);
 		case "AgentDefinitionRevised": {
 			const { definition } = event.payload;
-			const current = ledger.org.agents.get(definition.id)?.definition;
+			const current = projections.org.agents.get(definition.id)?.definition;
 			if (current === undefined) return undefined;
 			if (current.role === "Auditor" && event.actor.tag === "Agent") {
 				return `the Auditor can only be revised by the Operator; ${actorText(event.actor)} tried to revise ${current.id} (${current.name}, version ${current.version})`;
@@ -130,22 +134,22 @@ const orgGuard: AppendGuard = (ledger, event) => {
 			}
 			return (
 				authorRefusal(event, definition) ??
-				tierRefusal(ledger.trust, definition.id, definition.trust_tier)
+				tierRefusal(projections.trust, definition.id, definition.trust_tier)
 			);
 		}
 		case "AgentPaused":
-			return retiredRefusal(ledger, event.payload.agent_id);
+			return retiredRefusal(projections, event.payload.agent_id);
 		case "AgentRetired":
 			return (
-				retiredRefusal(ledger, event.payload.agent_id) ??
-				retirementRefusal(ledger, event)
+				retiredRefusal(projections, event.payload.agent_id) ??
+				retirementRefusal(projections, event)
 			);
 		case "AgentResumed": {
 			const { agent_id } = event.payload;
-			const agent = ledger.org.agents.get(agent_id);
+			const agent = projections.org.agents.get(agent_id);
 			if (agent === undefined) return undefined;
 			return (
-				retiredRefusal(ledger, agent_id) ??
+				retiredRefusal(projections, agent_id) ??
 				(agent.paused ? undefined : `${agent_id} is not paused`)
 			);
 		}

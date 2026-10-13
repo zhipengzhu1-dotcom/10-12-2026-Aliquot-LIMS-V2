@@ -51,7 +51,7 @@ const decisionRefusal = (gate: Gate | undefined, event: Decided) => {
  * approval of one already Open. The Operator may still reject it.
  */
 const mentorRefusal = (
-	ledger: Projections,
+	projections: Projections,
 	event: Requested | Decided,
 	gate: Pick<Gate, "kind" | "payload"> | undefined,
 ) => {
@@ -61,17 +61,21 @@ const mentorRefusal = (
 	}
 	const agent = AgentId.safeParse(agentNamedBy(gate));
 	return agent.success
-		? mentorGateRefusal(ledger.trust, agent.data)
+		? mentorGateRefusal(projections.trust, agent.data)
 		: undefined;
 };
 
-const gateRules: AppendGuard = (ledger, event) => {
+const gateRules: AppendGuard = (projections, event) => {
 	if (event.kind === "GateRequested") {
-		return requestRefusal(event) ?? mentorRefusal(ledger, event, event.payload);
+		return (
+			requestRefusal(event) ?? mentorRefusal(projections, event, event.payload)
+		);
 	}
 	if (event.kind === "GateDecided") {
-		const gate = ledger.gates.gates.get(event.payload.gate_id);
-		return decisionRefusal(gate, event) ?? mentorRefusal(ledger, event, gate);
+		const gate = projections.gates.gates.get(event.payload.gate_id);
+		return (
+			decisionRefusal(gate, event) ?? mentorRefusal(projections, event, gate)
+		);
 	}
 	return undefined;
 };

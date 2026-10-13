@@ -31,11 +31,11 @@ export const restInEffect = (work: WorkState, agent: AgentId): boolean =>
  * table of docs/design/vitality-and-merit.md.
  */
 export const sampleVitality = (
-	ledger: Projections,
+	projections: Projections,
 	agent: AgentId,
 	options: SampleOptions,
 ): Vitality => {
-	const { org, work } = ledger;
+	const { org, work } = projections;
 	const definition = org.agents.get(agent)?.definition;
 	if (definition === undefined) throw new Error(`${agent} is not in the Org`);
 	if (!(options.energyBudgetTokens > 0)) {
@@ -49,7 +49,7 @@ export const sampleVitality = (
 	const share = options.energyBudgetTokens / Math.max(1, notResting);
 	return {
 		agent,
-		load: openTasks(ledger.tasks, agent).open / definition.capacity,
+		load: openTasks(projections.tasks, agent).open / definition.capacity,
 		fatigue: (options.tokensUsedInWindow ?? 0) / share,
 		...fromRecentWork(work, agent),
 		morale: morale(workOf(work, agent).reviews, options.now),

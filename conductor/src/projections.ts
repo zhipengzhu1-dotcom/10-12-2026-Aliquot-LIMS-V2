@@ -59,11 +59,11 @@ export const advance = (
 	before: Projections,
 	event: Event,
 ): Projections | Refusal => {
-	const step = <K extends keyof Projections>(key: K) =>
+	const reduced = <K extends keyof Projections>(key: K) =>
 		PROJECTIONS[key].reduce(before[key], event, before);
 	const after: Partial<Record<keyof Projections, unknown>> = {};
 	for (const key of KEYS) {
-		const next = step(key);
+		const next = reduced(key);
 		if (next instanceof Refusal) return next;
 		after[key] = next;
 	}
