@@ -127,7 +127,7 @@ One numbered entry in the Ledger, with an actor, a kind, and a payload.
 _Avoid_: entry, record, message
 
 **Projection**:
-State computed from the Ledger by a deterministic reducer, such as the org chart, Moods, Trust tiers, or a Task's state. A Projection is never stored as truth.
+State computed from the Ledger by a deterministic reducer, such as the org chart, Moods, Trust tiers, or a Task's state. The Ledger keeps every Projection and advances it by each Event it appends. A Projection is never stored as truth.
 _Avoid_: read model, cache, derived table
 
 **Artifact**:

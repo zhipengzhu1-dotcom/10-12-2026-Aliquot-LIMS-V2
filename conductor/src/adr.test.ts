@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, Seq } from "./ids.js";
-import { orgState } from "./org/projection.js";
 import type { Actor, EventActor } from "./types/actor.js";
 import type { AgentDefinition } from "./types/agent-definition.js";
 import { type Scenario, scenario } from "./vitality/scenario.js";
@@ -15,7 +14,7 @@ beforeEach(() => {
 afterEach(() => s.close());
 
 const current = (): AgentDefinition => {
-	const agent = orgState(s.events()).agents.get(rin);
+	const agent = s.ledger.projections.org.agents.get(rin);
 	if (agent === undefined) throw new Error("A-rin is not seeded");
 	return agent.definition;
 };
@@ -131,7 +130,7 @@ describe("ADR rules the slice-0 review found missing", () => {
 						},
 					},
 				}),
-			).toThrow('invalid Event of kind "TaskCompleted"');
+			).toThrow("TaskCompleted refused: not a valid Event");
 		});
 
 		it("refuses a Conductor Revision without a causation_id, or whose causation_id names no Event", () => {

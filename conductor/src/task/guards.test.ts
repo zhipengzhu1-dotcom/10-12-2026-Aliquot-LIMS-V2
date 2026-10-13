@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, ArtifactId, type TaskId } from "../ids.js";
-import { fold } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import { type Scenario, scenario, scores } from "../vitality/scenario.js";
-import { TaskProjection } from "./projection.js";
 
 const rin = AgentId.parse("A-rin");
 const pia: Actor = { tag: "Agent", id: AgentId.parse("A-pia") };
@@ -17,8 +15,7 @@ beforeEach(() => {
 afterEach(() => s.close());
 
 const stateOf = (id: TaskId) =>
-	fold(s.events(), TaskProjection.reduce, TaskProjection.init).tasks.get(id)
-		?.state.tag;
+	s.ledger.projections.tasks.tasks.get(id)?.state.tag;
 
 const complete = (
 	id: TaskId,
@@ -44,7 +41,7 @@ describe("Review skipping follows the Trust tier", () => {
 		const t = s.task(rin);
 
 		expect(() => skip(t)).toThrow(
-			"TaskCompleted (review Skipped) refused: A-rin is on Probation; every Task is reviewed",
+			"TaskCompleted refused: A-rin is on Probation; every Task is reviewed",
 		);
 		expect(stateOf(t)).toBe("InProgress");
 	});
@@ -60,7 +57,7 @@ describe("Review skipping follows the Trust tier", () => {
 		expect(stateOf(unsampled)).toBe("Done");
 		expect(sampled).toBe("T-15");
 		expect(() => skip(sampled)).toThrow(
-			"TaskCompleted (review Skipped) refused: A-rin is Trusted, and T-15 is one of the 1 in 3 Tasks sampled for Review",
+			"TaskCompleted refused: A-rin is Trusted, and T-15 is one of the 1 in 3 Tasks sampled for Review",
 		);
 	});
 });
@@ -72,13 +69,13 @@ describe("Completing a Task after Review", () => {
 		const reviewed = (actor: Actor) => complete(t, { tag: "Reviewed" }, actor);
 
 		expect(() => reviewed(pia)).toThrow(
-			"TaskCompleted (review Reviewed) refused: T-1 has no Review by A-pia, its reviewer",
+			"TaskCompleted refused: T-1 has no Review by A-pia, its reviewer",
 		);
 		s.review(t, scores(3), operator);
 		expect(() => reviewed(pia)).toThrow(/T-1 has no Review by A-pia/);
 		s.review(t, scores(3), pia);
 		expect(() => reviewed(operator)).toThrow(
-			"TaskCompleted (review Reviewed) refused: only A-pia, the reviewer of T-1, completes it after Review; the actor is Operator",
+			"TaskCompleted refused: only A-pia, the reviewer of T-1, completes it after Review; the actor is Operator",
 		);
 		expect(stateOf(t)).toBe("UnderReview");
 

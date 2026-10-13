@@ -12,11 +12,11 @@ import {
 	UsageError,
 } from "../command.js";
 import type { NewEvent } from "../events.js";
-import { payloadText, projectGates } from "../gate/projection.js";
+import { payloadText } from "../gate/projection.js";
 import { requestGate } from "../gate/request.js";
 import { AgentId, GateId } from "../ids.js";
 import { AgentDefinition } from "../types/agent-definition.js";
-import { orgState, renderTree, tree } from "./projection.js";
+import { renderTree, tree } from "./projection.js";
 import { rosterDefinitions, seedOrg } from "./seed.js";
 
 const options = {
@@ -91,7 +91,7 @@ export const orgCommands: CommandTable = {
 		describe: "Print the reporting tree of live Agents under the Operator",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const state = withLedger(ctx.home, false, (l) => orgState(l.events()));
+			const state = withLedger(ctx.home, false, (l) => l.projections.org);
 			ctx.stdout.write(renderTree(tree(state)));
 			return 0;
 		},
@@ -152,7 +152,7 @@ export const orgCommands: CommandTable = {
 			}
 			const gate_id = parseOrUsage(GateId, gate, "--gate must look like G-1");
 			withLedger(ctx.home, true, (ledger) => {
-				const requested = projectGates(ledger.events()).gates.get(gate_id);
+				const requested = ledger.projections.gates.gates.get(gate_id);
 				const gateReason = requested && payloadText(requested, "reason");
 				ledger.append({
 					actor: { tag: "Operator" },

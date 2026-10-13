@@ -115,7 +115,11 @@ const ALLOWED: readonly Exemption[] = [
 		in: "gate/guards.ts",
 		reason: "a regulatory inspector, not the Auditor",
 	},
-	{ phrase: "edit", in: "vitality/work.ts", reason: "a source-code edit" },
+	...["storage.ts", "ledger.ts", "vitality/scenario.ts"].map((file) => ({
+		phrase: "memory",
+		in: file,
+		reason: "process memory, the Ledger's storage for tests, not a Memory note",
+	})),
 ];
 
 type Entry = { readonly term: string; readonly avoided: readonly string[] };

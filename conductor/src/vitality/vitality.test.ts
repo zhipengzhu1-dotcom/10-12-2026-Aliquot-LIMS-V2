@@ -23,7 +23,7 @@ beforeEach(() => {
 afterEach(() => s.close());
 
 const sample = (opts: { tokensUsedInWindow?: number } = {}) =>
-	sampleVitality(s.events(), rin, {
+	sampleVitality(s.ledger.projections, rin, {
 		now: s.now(),
 		energyBudgetTokens: 8000,
 		...opts,
@@ -136,11 +136,11 @@ describe("sampleVitality over the Agent's last 10 Tasks", () => {
 
 describe("restInEffect", () => {
 	it("follows RestOrdered begin and end for that Agent only", () => {
-		expect(restInEffect(s.events(), rin)).toBe(false);
+		expect(restInEffect(s.ledger.projections.work, rin)).toBe(false);
 		rest(rin, "begin");
-		expect(restInEffect(s.events(), rin)).toBe(true);
-		expect(restInEffect(s.events(), ines)).toBe(false);
+		expect(restInEffect(s.ledger.projections.work, rin)).toBe(true);
+		expect(restInEffect(s.ledger.projections.work, ines)).toBe(false);
 		rest(rin, "end");
-		expect(restInEffect(s.events(), rin)).toBe(false);
+		expect(restInEffect(s.ledger.projections.work, rin)).toBe(false);
 	});
 });

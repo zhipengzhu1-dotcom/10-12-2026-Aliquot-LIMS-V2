@@ -6,19 +6,14 @@ import {
 	withLedger,
 } from "../cli-support.js";
 import { type CommandTable, UsageError } from "../command.js";
-import type { Event } from "../events.js";
 import { AgentId, TaskId } from "../ids.js";
-import { orgState } from "../org/projection.js";
+import { type OrgState, revisedBetween } from "../org/projection.js";
 import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { Score } from "../types/merit.js";
 import type { Policy, Vitality } from "../types/vitality.js";
-import {
-	type AgentVitality,
-	revisionsCausedBy,
-	vitalityProjection,
-} from "./projection.js";
-import { trustTierOf } from "./trust.js";
+import { type AgentVitality, vitalityProjection } from "./projection.js";
+import { trustOf } from "./trust.js";
 import { sampleVitality } from "./vitality.js";
 import { mean, scoresOf } from "./work.js";
 
@@ -67,8 +62,8 @@ const score = (text: string | undefined, flag: string): Score => {
 	return Score.parse(Number(text));
 };
 
-const liveAgents = (events: readonly Event[], only: AgentId | undefined) => {
-	const live = [...orgState(events).agents.values()]
+const liveAgents = (org: OrgState, only: AgentId | undefined) => {
+	const live = [...org.agents.values()]
 		.filter((a) => !a.retired)
 		.map((a) => a.definition);
 	if (only === undefined) return live;
@@ -102,12 +97,12 @@ export const vitalityCommands: CommandTable = {
 		run: async (args, ctx) => {
 			const { positionals } = parseArgs({ args, allowPositionals: true });
 			const only = atMostOne(positionals, "show");
-			const events = withLedger(ctx.home, false, (l) => l.all());
-			const view = vitalityProjection(events, {
+			const ledger = withLedger(ctx.home, false, (l) => l.projections);
+			const view = vitalityProjection(ledger, {
 				now: new Date(),
 				energyBudgetTokens: DEFAULT_ENERGY_BUDGET_TOKENS,
 			});
-			for (const d of liveAgents(events, only)) {
+			for (const d of liveAgents(ledger.org, only)) {
 				const a = view.get(d.id);
 				if (a !== undefined) ctx.stdout.write(`${line(d.id, d.name, a)}\n`);
 			}
@@ -135,10 +130,9 @@ export const vitalityCommands: CommandTable = {
 				DEFAULT_ENERGY_BUDGET_TOKENS,
 			);
 			return withLedger(ctx.home, true, (ledger) => {
-				const events = ledger.all();
 				const now = new Date();
-				for (const d of liveAgents(events, only)) {
-					const v = sampleVitality(events, d.id, {
+				for (const d of liveAgents(ledger.projections.org, only)) {
+					const v = sampleVitality(ledger.projections, d.id, {
 						now,
 						energyBudgetTokens,
 						tokensUsedInWindow,
@@ -229,13 +223,14 @@ export const vitalityCommands: CommandTable = {
 				note: values.note,
 			};
 			const revised = withLedger(ctx.home, true, (ledger) => {
-				const recorded = ledger.append({
+				const before = ledger.projections.org;
+				ledger.append({
 					actor: reviewer,
 					task_id,
 					kind: "ReviewRecorded",
 					payload: review,
 				});
-				return revisionsCausedBy(ledger.all(), recorded.seq);
+				return revisedBetween(before, ledger.projections.org);
 			});
 			ctx.stdout.write(
 				`Recorded a Review of ${task_id} by ${actorText(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
@@ -249,9 +244,9 @@ export const vitalityCommands: CommandTable = {
 			"Print each live Agent's Merit, reviewed Tasks, Trust tier and unused PromoteToMentor Gates",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const events = withLedger(ctx.home, false, (l) => l.all());
-			for (const d of liveAgents(events, undefined)) {
-				const { tier, standing, unusedMentorGates } = trustTierOf(events, d.id);
+			const { org, trust } = withLedger(ctx.home, false, (l) => l.projections);
+			for (const d of liveAgents(org, undefined)) {
+				const { tier, standing, unusedMentorGates } = trustOf(trust, d.id);
 				const unused =
 					unusedMentorGates.length === 0 ? "-" : unusedMentorGates.join(",");
 				ctx.stdout.write(

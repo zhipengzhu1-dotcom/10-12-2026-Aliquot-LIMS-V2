@@ -1,23 +1,10 @@
-import { type AppendGuard, AppendRefused } from "../append-guard.js";
+import type { AppendGuard } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
-import { fold } from "../reduce.js";
+import type { Projections } from "../projections.js";
 import { actorText } from "../types/actor.js";
 import type { Task } from "../types/task.js";
 import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
-import {
-	applyTaskEvent,
-	TaskProjection,
-	TransitionError,
-} from "./projection.js";
-
-type Completed = Extract<Event, { kind: "TaskCompleted" }>;
-
-const refuse = (completed: Completed, reason: string): never => {
-	throw new AppendRefused(
-		`TaskCompleted (review ${completed.payload.review.tag}) refused: ${reason}`,
-	);
-};
 
 /**
  * Review follows the Trust tier (docs/design/vitality-and-merit.md): a Task
@@ -25,57 +12,47 @@ const refuse = (completed: Completed, reason: string): never => {
  * it, and a Task completes after Review only once the reviewer it names has
  * recorded a Review, and only by that reviewer.
  */
-const checkReview = (
-	events: readonly Event[],
+const reviewRefusal = (
+	ledger: Projections,
 	task: Task,
-	event: Completed,
-) => {
+	event: Extract<Event, { kind: "TaskCompleted" }>,
+): string | undefined => {
 	const { state } = task;
 	const { review } = event.payload;
 	if (review.tag === "Skipped" && state.tag === "InProgress") {
-		const { tier, sampled } = reviewSampleOf(events, state.assignee, task.id);
-		if (!sampled) return;
-		refuse(
-			event,
-			tier === "Probation"
-				? `${state.assignee} is on Probation; every Task is reviewed`
-				: `${state.assignee} is ${tier}, and ${task.id} is one of the 1 in ${REVIEW_ONE_IN[tier]} Tasks sampled for Review`,
+		const { tier, sampled } = reviewSampleOf(
+			ledger.trust,
+			state.assignee,
+			task.id,
 		);
+		if (!sampled) return undefined;
+		return tier === "Probation"
+			? `${state.assignee} is on Probation; every Task is reviewed`
+			: `${state.assignee} is ${tier}, and ${task.id} is one of the 1 in ${REVIEW_ONE_IN[tier]} Tasks sampled for Review`;
 	}
 	if (review.tag === "Reviewed" && state.tag === "UnderReview") {
 		const reviewer = canonicalJson(state.reviewer);
-		const recorded = events.some(
-			(e) =>
-				e.kind === "ReviewRecorded" &&
-				e.payload.task_id === task.id &&
-				canonicalJson(e.payload.reviewer) === reviewer,
+		const recorded = (ledger.work.reviews.get(task.id) ?? []).some(
+			(r) => canonicalJson(r.review.reviewer) === reviewer,
 		);
 		if (!recorded) {
-			refuse(
-				event,
-				`${task.id} has no Review by ${actorText(state.reviewer)}, its reviewer`,
-			);
+			return `${task.id} has no Review by ${actorText(state.reviewer)}, its reviewer`;
 		}
 		if (canonicalJson(event.actor) !== reviewer) {
-			refuse(
-				event,
-				`only ${actorText(state.reviewer)}, the reviewer of ${task.id}, completes it after Review; the actor is ${actorText(event.actor)}`,
-			);
+			return `only ${actorText(state.reviewer)}, the reviewer of ${task.id}, completes it after Review; the actor is ${actorText(event.actor)}`;
 		}
 	}
+	return undefined;
 };
 
 /**
- * Refuse any Event the Task state machine cannot express, then any
- * completion the Review rules forbid.
+ * The Review rules on completion. The Task state machine itself is the Task
+ * Projection's, which refuses every Event it cannot express.
  */
-const taskRules: AppendGuard = (ctx, event) => {
-	const view = fold(ctx.events, TaskProjection.reduce, TaskProjection.init);
-	const next = applyTaskEvent(view, event);
-	if (next instanceof TransitionError) throw new AppendRefused(next.message);
-	if (event.kind !== "TaskCompleted") return;
-	const task = view.tasks.get(event.payload.task_id);
-	if (task !== undefined) checkReview(ctx.events, task, event);
+const taskRules: AppendGuard = (ledger, event) => {
+	if (event.kind !== "TaskCompleted") return undefined;
+	const task = ledger.tasks.tasks.get(event.payload.task_id);
+	return task === undefined ? undefined : reviewRefusal(ledger, task, event);
 };
 
 export const taskGuards: readonly AppendGuard[] = [taskRules];

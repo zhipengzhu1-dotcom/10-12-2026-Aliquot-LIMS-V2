@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
@@ -27,11 +29,11 @@ const ok = (r: ReturnType<typeof aliquot>) => {
 
 beforeEach(() => {
 	// A seeded Org in which Rin has 9 reviewed Tasks and T-10 UnderReview.
-	const s = scenario();
+	home = mkdtempSync(join(tmpdir(), "aliquot-vitality-cli-"));
+	const s = scenario(undefined, { home });
 	for (let i = 0; i < 9; i++) s.reviewed(rin, scores(3));
 	s.submit(rin, s.task(rin));
-	s.ledger.close();
-	home = s.home;
+	s.close();
 });
 
 afterEach(() => {
@@ -72,12 +74,11 @@ describe("aliquot vitality", () => {
 
 	it("demotes a Trusted Agent in the same command that records a boundary score of 0", () => {
 		rmSync(home, { recursive: true, force: true });
-		const s = scenario();
+		const s = scenario(undefined, { home });
 		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
 		const t = s.task(rin);
 		s.submit(rin, t);
-		s.ledger.close();
-		home = s.home;
+		s.close();
 
 		expect(
 			ok(
@@ -124,11 +125,10 @@ describe("aliquot vitality", () => {
 
 	it("lists each live Agent's Trust tier and standing, read-only, and has no --apply", () => {
 		rmSync(home, { recursive: true, force: true });
-		const s = scenario();
+		const s = scenario(undefined, { home });
 		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
 		s.gate("PromoteToMentor", { agent_id: "A-ines" });
-		s.ledger.close();
-		home = s.home;
+		s.close();
 
 		expect(ok(vitality("tiers"))).toBe(
 			[

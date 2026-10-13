@@ -13,25 +13,16 @@ import {
 	type CommandTable,
 	UsageError,
 } from "../command.js";
-import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import { GateId, TaskId } from "../ids.js";
 import { GateKind } from "../types/gate.js";
-import {
-	expiresAt,
-	type Gate,
-	type Gates,
-	gateState,
-	projectGates,
-} from "./projection.js";
+import { expiresAt, type Gate, type Gates, gateState } from "./projection.js";
 import { DEFAULT_LIFETIME_S, gateDecision, requestGate } from "./request.js";
 
 const SUMMARY_WIDTH = 60;
 
-const gatesOf = (ledger: { events(): Iterable<Event> }): Gates =>
-	projectGates(ledger.events());
-
-const readGates = (home: string): Gates => withLedger(home, false, gatesOf);
+const readGates = (home: string): Gates =>
+	withLedger(home, false, (ledger) => ledger.projections.gates);
 
 const gateOf = (gates: Gates, id: string): Gate => {
 	const gate = gates.gates.get(
@@ -192,27 +183,19 @@ const decideGate = async (args: string[], ctx: CommandContext) => {
 	}
 
 	const { hash, reason } = values;
-	// The signature time and the Event's ts are one instant, so the Ledger
-	// stamps the decision with this clock.
-	const now = new Date();
-	const decided = withLedger(
-		ctx.home,
-		true,
-		(ledger) => {
-			const gate = gateOf(gatesOf(ledger), id);
-			// The signature binds the payload the Operator looked at: refuse here,
-			// before anything is written, when it is not the one stored.
-			if (hash !== gate.payload_hash) {
-				throw new UsageError(
-					`--hash ${hash} is not ${gate.id}'s payload hash, ${gate.payload_hash}; run gate show ${gate.id} and check the payload again`,
-				);
-			}
-			return ledger.append(
-				gateDecision(gate, now, values.approve ? "approve" : "reject", reason),
+	const decided = withLedger(ctx.home, true, (ledger) => {
+		const gate = gateOf(ledger.projections.gates, id);
+		// The signature binds the payload the Operator looked at: refuse here,
+		// before anything is written, when it is not the one stored.
+		if (hash !== gate.payload_hash) {
+			throw new UsageError(
+				`--hash ${hash} is not ${gate.id}'s payload hash, ${gate.payload_hash}; run gate show ${gate.id} and check the payload again`,
 			);
-		},
-		() => now,
-	);
+		}
+		return ledger.append(
+			gateDecision(gate, values.approve ? "approve" : "reject", reason),
+		);
+	});
 	ctx.stdout.write(`${canonicalJson(decided)}\n`);
 	return 0;
 };

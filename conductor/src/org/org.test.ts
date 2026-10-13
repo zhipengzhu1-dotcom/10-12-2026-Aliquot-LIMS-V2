@@ -1,20 +1,14 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
-import { projectGates } from "../gate/projection.js";
 import { gateDecision, requestGate } from "../gate/request.js";
 import { AgentId, GateId } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
-import { orgState, renderTree, tree } from "./projection.js";
+import { renderTree, tree } from "./projection.js";
 import { seedOrg } from "./seed.js";
 
-let home: string;
 let ledger: Ledger;
-const NOW = new Date("2026-10-12T09:00:00.000Z");
 
 /** Request a Gate as the Operator and decide it. */
 const decidedGate = (
@@ -27,9 +21,9 @@ const decidedGate = (
 		kind,
 		payload,
 	});
-	const gate = projectGates(ledger.events()).gates.get(gate_id);
+	const gate = ledger.projections.gates.gates.get(gate_id);
 	if (gate === undefined) throw new Error(`${gate_id} was not requested`);
-	ledger.append(gateDecision(gate, NOW, meaning, "Checked"));
+	ledger.append(gateDecision(gate, meaning, "Checked"));
 	return gate_id;
 };
 
@@ -46,15 +40,10 @@ const retire = (id: AgentId, reason: string) =>
 	});
 
 beforeEach(() => {
-	home = mkdtempSync(join(tmpdir(), "aliquot-org-"));
-	// A fixed clock, so a Gate decision can sign the time the Ledger records.
-	ledger = openLedger({ home, writer: true, clock: () => NOW });
+	ledger = openMemoryLedger();
 });
 
-afterEach(() => {
-	ledger.close();
-	rmSync(home, { recursive: true, force: true });
-});
+afterEach(() => ledger.close());
 
 describe("org seed", () => {
 	it("recruits the eight roster Agents on Probation, authored by the Operator", () => {
@@ -65,7 +54,7 @@ describe("org seed", () => {
 		expect(events.map((e) => e.kind)).toEqual(Array(8).fill("AgentRecruited"));
 		expect(events.every((e) => e.actor.tag === "Operator")).toBe(true);
 
-		const agents = [...orgState(events).agents.values()].map(
+		const agents = [...ledger.projections.org.agents.values()].map(
 			(a) => a.definition,
 		);
 		expect(agents.map((d) => [d.id, d.name, d.role, d.supervisor_id])).toEqual([
@@ -110,7 +99,7 @@ const SEEDED_TREE = `Operator
 \\-- Thorne, Auditor, Probation
 `;
 
-const printedTree = () => renderTree(tree(orgState(ledger.events())));
+const printedTree = () => renderTree(tree(ledger.projections.org));
 
 describe("org tree", () => {
 	it("puts the Operator at the root and the Specialist pool once under the Director, beside both Supervisors", () => {
@@ -164,7 +153,7 @@ describe("org tree", () => {
 });
 
 const definitionOf = (id: string) => {
-	const agent = orgState(ledger.events()).agents.get(AgentId.parse(id));
+	const agent = ledger.projections.org.agents.get(AgentId.parse(id));
 	if (agent === undefined) throw new Error(`${id} is not in the Org`);
 	return agent.definition;
 };
@@ -214,7 +203,7 @@ describe("org guards", () => {
 
 	it("refuses a Revision that skips or repeats a version, or names an unknown Agent", () => {
 		expect(() => revise("A-pia", operator, 3)).toThrow(
-			/version 3 .* A-pia is at version 1; the next must be 2/,
+			"AgentDefinitionRevised refused: A-pia is at version 1, so its next Revision is version 2, not 3",
 		);
 		expect(() => revise("A-pia", operator, 1)).toThrow(AppendRefused);
 		const ghost = { ...definitionOf("A-pia"), id: AgentId.parse("A-ghost") };
@@ -400,7 +389,7 @@ describe("org guards", () => {
 		expect(ledger.all()).toHaveLength(before);
 
 		retireWith(approved);
-		expect(orgState(ledger.events()).agents.get(bram)?.retired).toBe(true);
+		expect(ledger.projections.org.agents.get(bram)?.retired).toBe(true);
 	});
 
 	it("refuses to resume an Agent that is not paused", () => {

@@ -10,11 +10,10 @@ import {
 import { type CommandTable, UsageError } from "../command.js";
 import { AgentId, ArtifactId, ScriptId, TaskId } from "../ids.js";
 import { ArtifactType } from "../types/artifact.js";
-import { openArtifacts, projectArtifacts } from "./artifacts.js";
+import { openArtifacts } from "./artifacts.js";
 import { buildImage, defaultImageTag, imageId, scriptsRoot } from "./image.js";
 import { guessMediaType, runScript } from "./runner.js";
-import { projectRuns } from "./runs.js";
-import { projectScripts, registerScript } from "./scripts.js";
+import { registerScript } from "./scripts.js";
 
 const operator = { tag: "Operator" } as const;
 
@@ -168,7 +167,7 @@ export const sandboxCommands: CommandTable = {
 				? parseOrUsage(TaskId, values.task, "--task must look like T-1")
 				: undefined;
 			const run = await withLedger(ctx.home, true, (ledger) => {
-				const versions = projectScripts(ledger).scripts.get(id);
+				const versions = ledger.projections.scripts.scripts.get(id);
 				const version = values.version
 					? Number(values.version)
 					: versions?.at(-1)?.version;
@@ -194,12 +193,12 @@ export const sandboxCommands: CommandTable = {
 			const runs = withLedger(
 				ctx.home,
 				false,
-				(ledger) => projectRuns(ledger).runs,
+				(ledger) => ledger.projections.runs.runs,
 			);
 			for (const [id, { started, finished }] of runs) {
 				const script = `${started.script.id} v${started.script.version}`;
 				const status = finished
-					? `exit ${finished.exit_code}, ${finished.duration_ms} ms, ${finished.outputs.length} outputs`
+					? `exit ${finished.run.exit_code}, ${finished.run.duration_ms} ms, ${finished.run.outputs.length} outputs`
 					: "no RunFinished";
 				ctx.stdout.write(
 					`${id}  ${script}  ${status}  inputs: ${started.inputs.join(", ") || "none"}\n`,
@@ -216,10 +215,10 @@ export const sandboxCommands: CommandTable = {
 			const { artifacts, productions } = withLedger(
 				ctx.home,
 				false,
-				projectArtifacts,
+				(ledger) => ledger.projections.artifacts,
 			);
 			for (const a of artifacts.values()) {
-				const records = (productions.get(a.id) ?? [a]).map((record) => {
+				const records = (productions.get(a.id) ?? []).map(({ record }) => {
 					const producer =
 						record.produced_by.tag === "Run"
 							? `Run ${record.produced_by.id}`
@@ -252,7 +251,7 @@ export const sandboxCommands: CommandTable = {
 				"sandbox cat takes an Artifact id (64 hex)",
 			);
 			const bytes = withLedger(ctx.home, false, (ledger) => {
-				if (!projectArtifacts(ledger).artifacts.has(id)) {
+				if (!ledger.projections.artifacts.artifacts.has(id)) {
 					throw new Error(`Artifact ${id} is not stored`);
 				}
 				return openArtifacts({ ledger, home: ctx.home }).read(id);

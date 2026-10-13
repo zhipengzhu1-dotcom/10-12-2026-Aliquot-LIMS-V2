@@ -1,20 +1,14 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Event, NewEvent } from "../events.js";
 import { AgentId, TaskId } from "../ids.js";
-import { openLedger } from "../ledger.js";
-import { orgState, renderTree, tree } from "../org/projection.js";
+import { openMemoryLedger } from "../ledger.js";
+import { type OrgState, renderTree, tree } from "../org/projection.js";
 import { seedOrg } from "../org/seed.js";
+import type { Projections } from "../projections.js";
+import { memoryStorage, type Storage } from "../storage.js";
+import { forge } from "../test-support/forge.js";
 import type { Actor, EventActor } from "../types/actor.js";
-import {
-	revisionsCausedBy,
-	tierRevisions,
-	vitalityProjection,
-} from "./projection.js";
+import { tierRevisions, vitalityProjection } from "./projection.js";
 import { type Scenario, scenario, scores } from "./scenario.js";
 import { reviewSampleOf } from "./trust.js";
 
@@ -22,7 +16,6 @@ const rin = AgentId.parse("A-rin");
 const ines = AgentId.parse("A-ines");
 const bram = AgentId.parse("A-bram");
 const conductor: EventActor = { tag: "Conductor" };
-const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 
 let s: Scenario;
 beforeEach(() => {
@@ -35,7 +28,15 @@ const repeat = (n: number, f: () => unknown) => {
 };
 
 const view = () =>
-	vitalityProjection(s.events(), { now: s.now(), energyBudgetTokens: 8000 });
+	vitalityProjection(s.ledger.projections, {
+		now: s.now(),
+		energyBudgetTokens: 8000,
+	});
+
+const printed = (org: OrgState, name: string) =>
+	renderTree(tree(org))
+		.split("\n")
+		.find((l) => l.includes(`${name}, `));
 
 describe("vitalityProjection", () => {
 	it("shows every live Agent, fresh and on Probation after seeding", () => {
@@ -97,16 +98,13 @@ describe("vitalityProjection", () => {
 
 describe("follow-on tier Revisions", () => {
 	const rinDefinition = () => {
-		const agent = orgState(s.events()).agents.get(rin);
+		const agent = s.ledger.projections.org.agents.get(rin);
 		if (agent === undefined) throw new Error("A-rin is not seeded");
 		return agent.definition;
 	};
 	const writtenAfter = (cause: Event) =>
 		s.events().filter((e) => e.seq > cause.seq);
-	const printedRin = () =>
-		renderTree(tree(orgState(s.events())))
-			.split("\n")
-			.find((l) => l.includes("Rin, "));
+	const printedRin = () => printed(s.ledger.projections.org, "Rin");
 	const reviewOfNextTask = (scored: Parameters<typeof scores>) => {
 		const t = s.task(rin);
 		s.submit(rin, t);
@@ -136,9 +134,6 @@ describe("follow-on tier Revisions", () => {
 				},
 			},
 		});
-		expect(revisionsCausedBy(s.events(), review.seq)).toEqual([
-			rinDefinition(),
-		]);
 		expect(printedRin()).toContain("Rin, Specialist, Trusted");
 	});
 
@@ -186,6 +181,15 @@ describe("follow-on tier Revisions", () => {
 	});
 
 	it("stores, after every append, the tier that decides whether each live Agent's Task is sampled for Review", () => {
+		s.close();
+		const storage = memoryStorage();
+		s = scenario(undefined, { storage });
+		/** The Projections of the Ledger as committed up to `seq`. */
+		const committedAt = (seq: number): Projections =>
+			openMemoryLedger({
+				storage: { ...storage, rows: () => [...storage.rows()].slice(0, seq) },
+				writer: false,
+			}).projections;
 		repeat(20, () => s.reviewed(rin, scores(3)));
 		s.gate("PromoteToMentor", { agent_id: rin });
 		repeat(10, () => s.worked(rin, scores(3)));
@@ -215,15 +219,13 @@ describe("follow-on tier Revisions", () => {
 		const anyTask = TaskId.parse("T-1");
 		events.forEach((e, i) => {
 			if (events[i + 1]?.actor.tag === "Conductor") return;
-			const committed = events.slice(0, i + 1);
-			for (const { definition, retired } of orgState(
-				committed,
-			).agents.values()) {
+			const { org, trust } = committedAt(e.seq);
+			for (const { definition, retired } of org.agents.values()) {
 				if (retired) continue;
 				expect(
 					definition.trust_tier,
 					`${definition.id} after seq ${e.seq}`,
-				).toBe(reviewSampleOf(committed, definition.id, anyTask).tier);
+				).toBe(reviewSampleOf(trust, definition.id, anyTask).tier);
 			}
 		});
 	});
@@ -235,31 +237,20 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		"recorded late: the Ledger before ADR-0011 did not record this Revision";
 
 	// A Ledger written before ADR-0011: no follow-on Revisions, so stored tiers lag.
+	let storage: Storage;
 	let old: Scenario;
 	beforeEach(() => {
-		old = scenario(undefined, { followOns: [] });
+		storage = memoryStorage();
+		old = scenario(undefined, { followOns: [], storage });
 	});
-	afterEach(() => rmSync(old.home, { recursive: true, force: true }));
 
 	/** Every Event after opening the Ledger again, as the next command would. */
-	const reopened = (writer: boolean): Event[] => {
-		const ledger = openLedger({ home: old.home, writer });
-		try {
-			return ledger.all();
-		} finally {
-			ledger.close();
-		}
-	};
+	const reopened = (writer: boolean): Event[] =>
+		openMemoryLedger({ storage, writer }).all();
 
 	/** Open the Ledger for writing again and append one Event, as the next command would. */
-	const appendedAfterReopening = (newEvent: NewEvent): Event => {
-		const ledger = openLedger({ home: old.home, writer: true });
-		try {
-			return ledger.append(newEvent);
-		} finally {
-			ledger.close();
-		}
-	};
+	const appendedAfterReopening = (newEvent: NewEvent): Event =>
+		openMemoryLedger({ storage }).append(newEvent);
 
 	const revisions = (events: readonly Event[]) =>
 		events.flatMap((e) =>
@@ -278,8 +269,10 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 				: [],
 		);
 
-	const storedTier = (events: readonly Event[], agent: AgentId) =>
-		orgState(events).agents.get(agent)?.definition.trust_tier;
+	const storedTier = (agent: AgentId) =>
+		openMemoryLedger({ storage, writer: false }).projections.org.agents.get(
+			agent,
+		)?.definition.trust_tier;
 
 	const sampled = (agent: AgentId) =>
 		old.append({
@@ -358,7 +351,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 			}),
 		).toThrow(`${bram} is not paused`);
 
-		expect(storedTier(reopened(false), ines)).toBe("Trusted");
+		expect(storedTier(ines)).toBe("Trusted");
 	});
 
 	it("catches up a Retired Agent whose stored tier lags", () => {
@@ -367,7 +360,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		old.ledger.close();
 
 		const events = reopened(true);
-		expect(storedTier(events, ines)).toBe("Trusted");
+		expect(storedTier(ines)).toBe("Trusted");
 		expect(revisions(events)).toMatchObject([
 			{ actor: conductor, causation_id: tenth.seq, id: ines },
 		]);
@@ -391,7 +384,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		);
 		const earlier = sampled(rin);
 		const latest = sampled(ines);
-		const current = orgState(old.events()).agents.get(rin)?.definition;
+		const current = old.ledger.projections.org.agents.get(rin)?.definition;
 		if (current === undefined) throw new Error("A-rin is not seeded");
 		const revisionCausedBy = (cause: Event) => () =>
 			old.append({
@@ -419,24 +412,21 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 
 	it("names the Recruitment of an Agent whose stored tier no Review or Gate ever supported", () => {
 		old.ledger.close();
-		const home = mkdtempSync(join(tmpdir(), "aliquot-unsupported-"));
-		try {
-			const unguarded = openLedger({
-				home,
-				writer: true,
-				guards: [],
-				followOns: [],
-			});
-			seedOrg(unguarded);
-			const events = unguarded.all();
-			const recruited = events.find(
-				(e) => e.kind === "AgentRecruited" && e.payload.id === ines,
-			);
-			const current = orgState(events).agents.get(ines)?.definition;
-			if (recruited === undefined || current === undefined) {
-				throw new Error("A-ines is not seeded");
-			}
-			unguarded.append({
+		const unsupported = memoryStorage();
+		const seeded = openMemoryLedger({ storage: unsupported, followOns: [] });
+		seedOrg(seeded);
+		const events = seeded.all();
+		const recruited = events.find(
+			(e) => e.kind === "AgentRecruited" && e.payload.id === ines,
+		);
+		const current = seeded.projections.org.agents.get(ines)?.definition;
+		if (recruited === undefined || current === undefined) {
+			throw new Error("A-ines is not seeded");
+		}
+		// The Trust tier rules in force refuse this Revision; a Ledger written
+		// before them may hold it.
+		forge(unsupported, [
+			{
 				actor: operator,
 				kind: "AgentDefinitionRevised",
 				payload: {
@@ -448,31 +438,24 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 						revision_reason: "Trusted by hand before ADR-0011",
 					},
 				},
-			});
-			unguarded.close();
+			},
+		]);
 
-			const ledger = openLedger({ home, writer: true });
-			try {
-				expect(revisions(ledger.all()).at(-1)).toEqual({
-					seq: events.length + 2,
-					actor: conductor,
-					causation_id: recruited.seq,
-					id: ines,
-					version: 3,
-					trust_tier: "Probation",
-					revision_reason: `Trust tier Trusted -> Probation: no Review or PromoteToMentor Gate has changed the projected tier since Recruitment; ${late}`,
-				});
-			} finally {
-				ledger.close();
-			}
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
+		const ledger = openMemoryLedger({ storage: unsupported });
+		expect(revisions(ledger.all()).at(-1)).toEqual({
+			seq: events.length + 2,
+			actor: conductor,
+			causation_id: recruited.seq,
+			id: ines,
+			version: 3,
+			trust_tier: "Probation",
+			revision_reason: `Trust tier Trusted -> Probation: no Review or PromoteToMentor Gate has changed the projected tier since Recruitment; ${late}`,
+		});
 	});
 
 	it("still refuses an Operator Revision that keeps a lagging tier, naming the projected tier, and org tree prints that tier after the catch-up", () => {
 		repeat(10, () => old.reviewed(ines, scores(2)));
-		const current = orgState(old.events()).agents.get(ines)?.definition;
+		const current = old.ledger.projections.org.agents.get(ines)?.definition;
 		if (current === undefined) throw new Error("A-ines is not seeded");
 
 		expect(() =>
@@ -495,25 +478,22 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		old.ledger.close();
 		reopened(true);
 
-		const tree = spawnSync(
-			process.execPath,
-			["--import", "tsx", cli, "--home", old.home, "org", "tree"],
-			{ encoding: "utf8", env: { ...process.env, ALIQUOT_HOME: "" } },
-		);
-		expect(tree.stdout).toContain("Ines, Specialist, Trusted");
+		expect(
+			printed(
+				openMemoryLedger({ storage, writer: false }).projections.org,
+				"Ines",
+			),
+		).toContain("Ines, Specialist, Trusted");
 	});
 
 	it("leaves Retired Agents out of the follow-on Revisions", () => {
 		repeat(10, () => old.reviewed(rin, scores(3)));
 		repeat(10, () => old.reviewed(ines, scores(2)));
 		old.retire(ines, "Replaced");
-		const events = old.events();
-		old.ledger.close();
-
-		const last = events.at(-1);
+		const last = old.events().at(-1);
 		if (last === undefined) throw new Error("the Ledger is empty");
 		expect(
-			tierRevisions(events, last).map((e) =>
+			tierRevisions(old.ledger.projections, last).map((e) =>
 				e.kind === "AgentDefinitionRevised"
 					? [e.payload.definition.id, e.causation_id]
 					: e.kind,

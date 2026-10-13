@@ -1,6 +1,6 @@
 import type { Event, NewEvent } from "../events.js";
 import type { AgentId, Seq } from "../ids.js";
-import { orgState } from "../org/projection.js";
+import type { Projections } from "../projections.js";
 import type { EventActor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { TrustTier } from "../types/merit.js";
@@ -8,7 +8,7 @@ import type { Mood, Policy, Vitality } from "../types/vitality.js";
 import type { Standing } from "./merit.js";
 import { moodOf } from "./mood.js";
 import { policyOf } from "./policy.js";
-import { type TrustStanding, trustTierOf } from "./trust.js";
+import { type TrustStanding, trustOf } from "./trust.js";
 import {
 	restInEffect,
 	type SampleOptions,
@@ -28,14 +28,6 @@ export type AgentVitality = {
 	readonly tier: TrustTier;
 };
 
-const latestSamples = (events: readonly Event[]) => {
-	const latest = new Map<AgentId, Vitality>();
-	for (const e of events) {
-		if (e.kind === "VitalitySampled") latest.set(e.payload.agent, e.payload);
-	}
-	return latest;
-};
-
 /**
  * Vitality, Mood, Policy, Merit and Trust tier for every live Agent, in
  * Recruitment order. Vitality is the Agent's latest VitalitySampled, or a
@@ -43,22 +35,21 @@ const latestSamples = (events: readonly Event[]) => {
  * InProgress from the Ledger as it stands.
  */
 export const vitalityProjection = (
-	events: readonly Event[],
+	ledger: Projections,
 	options: SampleOptions,
 ): ReadonlyMap<AgentId, AgentVitality> => {
-	const samples = latestSamples(events);
 	const view = new Map<AgentId, AgentVitality>();
-	for (const { definition, retired } of orgState(events).agents.values()) {
+	for (const { definition, retired } of ledger.org.agents.values()) {
 		if (retired) continue;
 		const id = definition.id;
-		const sample = samples.get(id);
-		const vitality = sample ?? sampleVitality(events, id, options);
+		const sample = ledger.work.samples.get(id);
+		const vitality = sample ?? sampleVitality(ledger, id, options);
 		const mood = moodOf(
 			vitality,
-			restInEffect(events, id),
-			openTasks(events, id).inProgress > 0,
+			restInEffect(ledger.work, id),
+			openTasks(ledger.tasks, id).inProgress > 0,
 		);
-		const { tier, standing } = trustTierOf(events, id);
+		const { tier, standing } = trustOf(ledger.trust, id);
 		view.set(id, {
 			vitality,
 			sampled: sample !== undefined,
@@ -119,13 +110,13 @@ const tierRevision = (
  * matches, which is the case again once these are written.
  */
 export const tierRevisions = (
-	events: readonly Event[],
+	ledger: Projections,
 	cause: Event,
 ): NewEvent[] => {
 	const revisions: NewEvent[] = [];
-	for (const { definition, retired } of orgState(events).agents.values()) {
+	for (const { definition, retired } of ledger.org.agents.values()) {
 		if (retired) continue;
-		const projected = trustTierOf(events, definition.id);
+		const projected = trustOf(ledger.trust, definition.id);
 		if (projected.tier === definition.trust_tier) continue;
 		revisions.push(
 			tierRevision(
@@ -147,10 +138,10 @@ export const tierRevisions = (
  * changed, gives the Merit or Gate change there, and says that it is
  * recorded late.
  */
-export const tierCatchUp = (events: readonly Event[]): NewEvent[] => {
+export const tierCatchUp = (ledger: Projections): NewEvent[] => {
 	const revisions: NewEvent[] = [];
-	for (const { definition } of orgState(events).agents.values()) {
-		const projected = trustTierOf(events, definition.id);
+	for (const { definition } of ledger.org.agents.values()) {
+		const projected = trustOf(ledger.trust, definition.id);
 		const { lastChange } = projected;
 		if (projected.tier === definition.trust_tier || lastChange === undefined) {
 			continue;
@@ -170,16 +161,3 @@ export const tierCatchUp = (events: readonly Event[]): NewEvent[] => {
 	}
 	return revisions;
 };
-
-/** The definitions the Conductor revised because of the Event at `seq`. */
-export const revisionsCausedBy = (
-	events: readonly Event[],
-	seq: Seq,
-): AgentDefinition[] =>
-	events.flatMap((e) =>
-		e.kind === "AgentDefinitionRevised" &&
-		e.actor.tag === "Conductor" &&
-		e.causation_id === seq
-			? [e.payload.definition]
-			: [],
-	);

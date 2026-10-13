@@ -18,7 +18,7 @@ export const TaskState = z.discriminatedUnion("tag", [
 	}),
 	z.strictObject({ tag: z.literal("Escalated"), to: Actor }),
 	z.strictObject({ tag: z.literal("Failed"), reason: z.string() }),
-	z.strictObject({ tag: z.literal("Done") }),
+	z.strictObject({ tag: z.literal("Done"), assignee: AgentId }),
 ]);
 export type TaskState = z.infer<typeof TaskState>;
 

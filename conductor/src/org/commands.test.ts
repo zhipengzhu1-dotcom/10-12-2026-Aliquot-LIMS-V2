@@ -75,7 +75,7 @@ describe("aliquot org", () => {
 
 		expect(asDirector.status).toBe(1);
 		expect(asDirector.stderr).toMatch(
-			/^AppendRefused: the Auditor can only be revised by the Operator; A-odile tried/,
+			/^AppendRefused: AgentDefinitionRevised refused: the Auditor can only be revised by the Operator; A-odile tried/,
 		);
 		expect(asOperator.stderr).toBe("");
 		expect(asOperator.stdout).toBe("Revised A-thorne to version 2\n");

@@ -1,10 +1,11 @@
-import type { Event } from "../events.js";
-import { approvedGatesFor, projectGates } from "../gate/projection.js";
+import { agentNamedBy } from "../gate/projection.js";
 import { sha256Hex } from "../hash.js";
-import type { AgentId, GateId, Seq, TaskId } from "../ids.js";
+import { AgentId, type GateId, type Seq, type TaskId } from "../ids.js";
+import type { Projections } from "../projections.js";
+import type { Projection } from "../reduce.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { type Standing, standingOf } from "./merit.js";
-import { workOf } from "./work.js";
+import { countedReview } from "./work.js";
 
 const ORDER: readonly TrustTier[] = [
 	"Probation",
@@ -41,7 +42,7 @@ const meritTier = (input: TierInput): TrustTier => {
 
 /**
  * The tier an Agent qualifies for: Merit and tenure, and no boundary score
- * below 2 in the window. This is the bar for a Promotion; `trustTierOf`
+ * below 2 in the window. This is the bar for a Promotion; `stepped`
  * decides what an Agent already holding a tier keeps.
  */
 export const tierOf = (input: TierInput): TrustTier =>
@@ -95,76 +96,117 @@ type Step =
 	| { readonly seq: Seq; readonly tag: "Review"; readonly review: Review }
 	| { readonly seq: Seq; readonly tag: "Approval"; readonly gate: GateId };
 
-/**
- * The decisions approving PromoteToMentor Gates that name the Agent, so they
- * interleave with its Reviews in Ledger order.
- */
-const mentorApprovals = (events: readonly Event[], agent: AgentId): Step[] => {
-	const approved = new Set(
-		approvedGatesFor(projectGates(events), "PromoteToMentor", agent).map(
-			(gate) => gate.id,
-		),
-	);
-	return events.flatMap((e): Step[] =>
-		e.kind === "GateDecided" && approved.has(e.payload.gate_id)
-			? [{ seq: e.seq, tag: "Approval", gate: e.payload.gate_id }]
-			: [],
-	);
+/** Every Agent's Trust tier, by Agent. */
+export type TrustState = {
+	readonly agents: ReadonlyMap<AgentId, TrustStanding>;
+};
+
+const PROBATION: TrustStanding = {
+	tier: "Probation",
+	standing: standingOf([]),
+	unusedMentorGates: [],
 };
 
 /**
- * The Agent's Trust tier, folded from Probation at Recruitment over its
- * counted Reviews and approved PromoteToMentor Gates in Ledger order. One
- * Gate covers one Promotion to Mentor: a step into Mentor uses the oldest
- * unused Gate, and a Demotion from Mentor leaves it used, so a return to
- * Mentor needs another.
+ * The Agent's Trust tier: Probation from Recruitment, then one `step` at
+ * each counted Review and each approved PromoteToMentor Gate naming it, in
+ * Ledger order.
  */
-export const trustTierOf = (
-	events: readonly Event[],
-	agent: AgentId,
-): TrustStanding => {
-	const steps: Step[] = [
-		...workOf(events, agent).reviews.map(
-			(r): Step => ({ seq: r.seq, tag: "Review", review: r.review }),
-		),
-		...mentorApprovals(events, agent),
-	].sort((a, b) => a.seq - b.seq);
+export const trustOf = (trust: TrustState, agent: AgentId): TrustStanding =>
+	trust.agents.get(agent) ?? PROBATION;
 
-	const recruited = events.find(
-		(e) => e.kind === "AgentRecruited" && e.payload.id === agent,
-	);
-	let lastChange: TierChange | undefined =
-		recruited === undefined
-			? undefined
-			: { seq: recruited.seq, at: "Recruitment", standing: standingOf([]) };
-	let tier: TrustTier = "Probation";
-	let mentorGate: GateId | undefined;
-	const unused: GateId[] = [];
-	const counted: Review[] = [];
-	for (const s of steps) {
-		if (s.tag === "Approval") unused.push(s.gate);
-		else counted.push(s.review);
-		const standing = standingOf(counted);
-		const next = step(
-			tier,
-			{
-				...standing,
-				mentorGateApproved: tier === "Mentor" || unused.length > 0,
-			},
-			s.tag === "Review" ? s.review : undefined,
-		);
-		if (next !== "Mentor") mentorGate = undefined;
-		else if (tier !== "Mentor") mentorGate = unused.shift();
-		if (next !== tier) lastChange = { seq: s.seq, at: s.tag, standing };
-		tier = next;
-	}
-	return {
+/**
+ * The standing after one Review or approval, given every Review counted for
+ * the Agent so far. One Gate covers one Promotion to Mentor: a step into
+ * Mentor uses the oldest unused Gate, and a Demotion from Mentor leaves it
+ * used, so a return to Mentor needs another.
+ */
+const stepped = (
+	current: TrustStanding,
+	s: Step,
+	counted: readonly Review[],
+): TrustStanding => {
+	const unused = [...current.unusedMentorGates];
+	if (s.tag === "Approval") unused.push(s.gate);
+	const standing = standingOf(counted);
+	const { tier } = current;
+	const next = step(
 		tier,
-		standing: standingOf(counted),
+		{ ...standing, mentorGateApproved: tier === "Mentor" || unused.length > 0 },
+		s.tag === "Review" ? s.review : undefined,
+	);
+	const mentorGate =
+		next !== "Mentor"
+			? undefined
+			: tier !== "Mentor"
+				? unused.shift()
+				: current.mentorGate;
+	const lastChange =
+		next === tier ? current.lastChange : { seq: s.seq, at: s.tag, standing };
+	return {
+		tier: next,
+		standing,
 		unusedMentorGates: unused,
 		...(mentorGate === undefined ? {} : { mentorGate }),
 		...(lastChange === undefined ? {} : { lastChange }),
 	};
+};
+
+const reviewsOf = (ledger: Projections, agent: AgentId) =>
+	(ledger.work.agents.get(agent)?.reviews ?? []).map((r) => r.review);
+
+export const TrustProjection: Projection<TrustState> = {
+	init: { agents: new Map() },
+	reduce: (trust, event, ledger) => {
+		const set = (agent: AgentId, standing: TrustStanding) => ({
+			agents: new Map(trust.agents).set(agent, standing),
+		});
+		switch (event.kind) {
+			case "AgentRecruited": {
+				const { id } = event.payload;
+				const current = trustOf(trust, id);
+				if (current.lastChange !== undefined) return trust;
+				return set(id, {
+					...current,
+					lastChange: {
+						seq: event.seq,
+						at: "Recruitment",
+						standing: standingOf([]),
+					},
+				});
+			}
+			case "ReviewRecorded": {
+				const counted = countedReview(ledger, event);
+				if (counted === undefined) return trust;
+				const { agent, review } = counted;
+				return set(
+					agent,
+					stepped(
+						trustOf(trust, agent),
+						{ seq: event.seq, tag: "Review", review: review.review },
+						[...reviewsOf(ledger, agent), review.review],
+					),
+				);
+			}
+			case "GateDecided": {
+				if (event.payload.meaning !== "approve") return trust;
+				const gate = ledger.gates.gates.get(event.payload.gate_id);
+				if (gate?.kind !== "PromoteToMentor") return trust;
+				const agent = AgentId.safeParse(agentNamedBy(gate));
+				if (!agent.success) return trust;
+				return set(
+					agent.data,
+					stepped(
+						trustOf(trust, agent.data),
+						{ seq: event.seq, tag: "Approval", gate: gate.id },
+						reviewsOf(ledger, agent.data),
+					),
+				);
+			}
+			default:
+				return trust;
+		}
+	},
 };
 
 /**
@@ -172,11 +214,11 @@ export const trustTierOf = (
  * may: only the projected Trust tier is allowed.
  */
 export const tierRefusal = (
-	events: readonly Event[],
+	trust: TrustState,
 	agent: AgentId,
 	tier: TrustTier,
 ): string | undefined => {
-	const projected = trustTierOf(events, agent);
+	const projected = trustOf(trust, agent);
 	if (projected.tier === tier) return undefined;
 	if (tier === "Mentor" && projected.unusedMentorGates.length === 0) {
 		return `${agent} cannot be Mentor: no approved, unused PromoteToMentor Gate names it; its projected Trust tier is ${projected.tier}`;
@@ -192,12 +234,12 @@ export const tierRefusal = (
  * of a follow-on Revision and of a late one alike (ADR-0011).
  */
 export const tierCauseRefusal = (
-	events: readonly Event[],
+	trust: TrustState,
 	agent: AgentId,
 	tier: TrustTier,
 	cause: Seq | undefined,
 ): string | undefined => {
-	const { tier: projected, lastChange } = trustTierOf(events, agent);
+	const { tier: projected, lastChange } = trustOf(trust, agent);
 	if (
 		tier !== projected ||
 		lastChange === undefined ||
@@ -214,10 +256,10 @@ export const tierCauseRefusal = (
  * an approved Gate that no Promotion has used gets no new one (ADR-0006).
  */
 export const mentorGateRefusal = (
-	events: readonly Event[],
+	trust: TrustState,
 	agent: AgentId,
 ): string | undefined => {
-	const [unused] = trustTierOf(events, agent).unusedMentorGates;
+	const [unused] = trustOf(trust, agent).unusedMentorGates;
 	return unused === undefined
 		? undefined
 		: `${agent} holds ${unused}, an approved PromoteToMentor Gate that no Promotion has used`;
@@ -245,10 +287,10 @@ export const reviewSampled = (taskId: TaskId, tier: TrustTier): boolean =>
  * Trust tier, and whether the sample for that tier picks the Task.
  */
 export const reviewSampleOf = (
-	events: readonly Event[],
+	trust: TrustState,
 	assignee: AgentId,
 	taskId: TaskId,
 ): { readonly tier: TrustTier; readonly sampled: boolean } => {
-	const { tier } = trustTierOf(events, assignee);
+	const { tier } = trustOf(trust, assignee);
 	return { tier, sampled: reviewSampled(taskId, tier) };
 };

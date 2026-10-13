@@ -4,12 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Sha256 } from "../ids.js";
 import { AgentId } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
-import { lineageOf, openArtifacts, projectArtifacts } from "./artifacts.js";
+import { lineageOf, openArtifacts } from "./artifacts.js";
 import { buildImage, scriptsRoot } from "./image.js";
 import { runScript } from "./runner.js";
-import { projectRuns } from "./runs.js";
 import { registerScript } from "./scripts.js";
 
 const suite = dockerAvailable
@@ -56,7 +55,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 	beforeEach(() => {
 		home = mkdtempSync(join(tmpdir(), "aliquot-runner-"));
-		ledger = openLedger({ home, writer: true });
+		ledger = openMemoryLedger();
 	});
 
 	afterEach(() => {
@@ -88,12 +87,12 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 		// Identity is per content, and each production has its own record: the
 		// input keeps its Operator record as canonical, and the Run adds its own.
-		const projection = projectArtifacts(ledger);
+		const projection = ledger.projections.artifacts;
 		expect(projection.artifacts.get(input.id)).toEqual(input);
 		const records = projection.productions.get(input.id);
 		expect(records).toHaveLength(2);
-		expect(records?.[0]).toEqual(input);
-		expect(records?.[1]).toMatchObject({
+		expect(records?.[0]?.record).toEqual(input);
+		expect(records?.[1]?.record).toMatchObject({
 			produced_by: { tag: "Run", id: run.id },
 			lineage: [input.id],
 			filename: "receiving.txt",
@@ -121,7 +120,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(kinds.indexOf("RunStarted")).toBeLessThan(
 			kinds.indexOf("RunFinished"),
 		);
-		expect(projectRuns(ledger).runs.get(run.id)?.finished).toEqual(run);
+		expect(ledger.projections.runs.runs.get(run.id)?.finished?.run).toEqual(
+			run,
+		);
 		expect(ledger.verify()).toEqual({ ok: true, count: kinds.length });
 	}, 120_000);
 
@@ -141,7 +142,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 		expect(run.exit_code).toBe(0);
 		expect(new Set(run.outputs)).toEqual(new Set([a.id, b.id]));
-		const projection = projectArtifacts(ledger);
+		const projection = ledger.projections.artifacts;
 		const producedBy = { tag: "Run", id: run.id } as const;
 		expect(lineageOf(projection, a.id, producedBy)).toEqual([a.id, b.id]);
 		expect(lineageOf(projection, b.id, producedBy)).toEqual([a.id, b.id]);
@@ -167,9 +168,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(
 			openArtifacts({ ledger, home }).read(run.stderr_ref).toString(),
 		).toMatch(/no network/);
-		expect(projectRuns(ledger).runs.get(run.id)?.finished?.exit_code).toBe(
-			run.exit_code,
-		);
+		expect(
+			ledger.projections.runs.runs.get(run.id)?.finished?.run.exit_code,
+		).toBe(run.exit_code);
 	}, 120_000);
 
 	it("kills a Script that exceeds the time limit and records the kill", async () => {
@@ -195,6 +196,8 @@ describe.skipIf(!requireDocker())(suite, () => {
 		).toMatch(
 			/killed after the 3000 ms time limit \(docker kill [^)]+\); exit code 124, the time-limit code/,
 		);
-		expect(projectRuns(ledger).runs.get(run.id)?.finished).toEqual(run);
+		expect(ledger.projections.runs.runs.get(run.id)?.finished?.run).toEqual(
+			run,
+		);
 	}, 120_000);
 });

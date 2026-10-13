@@ -3,7 +3,7 @@ import { AgentId, TaskId } from "../ids.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { standingOf } from "./merit.js";
 import { type Scenario, type Scores, scenario, scores } from "./scenario.js";
-import { reviewSampled, tierOf, trustTierOf } from "./trust.js";
+import { reviewSampled, tierOf, trustOf } from "./trust.js";
 
 const reviewsOf = (...groups: [count: number, s: Scores][]): Review[] => {
 	let n = 0;
@@ -124,7 +124,7 @@ describe("reviewSampled", () => {
 	});
 });
 
-describe("trustTierOf", () => {
+describe("the Trust tier Projection", () => {
 	const rin = AgentId.parse("A-rin");
 	let s: Scenario;
 	beforeEach(() => {
@@ -132,7 +132,7 @@ describe("trustTierOf", () => {
 	});
 	afterEach(() => s.close());
 
-	const tier = () => trustTierOf(s.events(), rin).tier;
+	const tier = () => trustOf(s.ledger.projections.trust, rin).tier;
 	const repeat = (n: number, f: () => unknown) => {
 		for (let i = 0; i < n; i++) f();
 	};
@@ -156,7 +156,9 @@ describe("trustTierOf", () => {
 		expect(tier()).toBe("Trusted");
 
 		repeat(19, () => s.reviewed(rin, scores(3)));
-		expect(trustTierOf(s.events(), rin).standing.merit).toBeGreaterThan(2.5);
+		expect(
+			trustOf(s.ledger.projections.trust, rin).standing.merit,
+		).toBeGreaterThan(2.5);
 		expect(tier()).toBe("Trusted");
 
 		s.reviewed(rin, scores(3)); // the 0 leaves the 20-Task window
@@ -195,7 +197,7 @@ describe("trustTierOf", () => {
 	it("does not return to Mentor after a Demotion until a new PromoteToMentor Gate is approved", () => {
 		repeat(20, () => s.reviewed(rin, scores(3)));
 		const first = approve();
-		expect(trustTierOf(s.events(), rin)).toMatchObject({
+		expect(trustOf(s.ledger.projections.trust, rin)).toMatchObject({
 			tier: "Mentor",
 			mentorGate: first,
 			unusedMentorGates: [],
@@ -203,12 +205,12 @@ describe("trustTierOf", () => {
 
 		demote();
 		repeat(20, () => s.reviewed(rin, scores(3)));
-		const demoted = trustTierOf(s.events(), rin);
+		const demoted = trustOf(s.ledger.projections.trust, rin);
 		expect(demoted).toMatchObject({ tier: "Senior", unusedMentorGates: [] });
 		expect(demoted.mentorGate).toBeUndefined();
 
 		const second = approve();
-		expect(trustTierOf(s.events(), rin)).toMatchObject({
+		expect(trustOf(s.ledger.projections.trust, rin)).toMatchObject({
 			tier: "Mentor",
 			mentorGate: second,
 			unusedMentorGates: [],
@@ -220,7 +222,7 @@ describe("trustTierOf", () => {
 		approve();
 		demote();
 		const second = approve();
-		expect(trustTierOf(s.events(), rin)).toMatchObject({
+		expect(trustOf(s.ledger.projections.trust, rin)).toMatchObject({
 			tier: "Senior",
 			unusedMentorGates: [second],
 		});
@@ -228,7 +230,7 @@ describe("trustTierOf", () => {
 		repeat(19, () => s.reviewed(rin, scores(3)));
 		expect(tier()).toBe("Senior");
 		s.reviewed(rin, scores(3)); // the 0 leaves the 20-Task window
-		expect(trustTierOf(s.events(), rin)).toMatchObject({
+		expect(trustOf(s.ledger.projections.trust, rin)).toMatchObject({
 			tier: "Mentor",
 			mentorGate: second,
 			unusedMentorGates: [],
@@ -239,11 +241,13 @@ describe("trustTierOf", () => {
 		const first = s.requested("PromoteToMentor", { agent_id: rin });
 		const second = s.requested("PromoteToMentor", { agent_id: rin });
 		s.decided(first);
-		expect(trustTierOf(s.events(), rin).unusedMentorGates).toEqual([first]);
+		expect(trustOf(s.ledger.projections.trust, rin).unusedMentorGates).toEqual([
+			first,
+		]);
 
 		repeat(20, () => s.reviewed(rin, scores(3)));
 		s.decided(second);
-		expect(trustTierOf(s.events(), rin)).toMatchObject({
+		expect(trustOf(s.ledger.projections.trust, rin)).toMatchObject({
 			tier: "Mentor",
 			mentorGate: first,
 			unusedMentorGates: [second],
@@ -251,7 +255,7 @@ describe("trustTierOf", () => {
 
 		demote();
 		repeat(20, () => s.reviewed(rin, scores(3)));
-		expect(trustTierOf(s.events(), rin)).toMatchObject({
+		expect(trustOf(s.ledger.projections.trust, rin)).toMatchObject({
 			tier: "Mentor",
 			mentorGate: second,
 			unusedMentorGates: [],

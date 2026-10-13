@@ -1,66 +1,41 @@
-import { type AppendGuard, AppendRefused } from "../append-guard.js";
+import type { AppendGuard } from "../append-guard.js";
 import { canonicalJson } from "../hash.js";
-import { orgState } from "../org/projection.js";
-import { fold } from "../reduce.js";
-import { TaskProjection } from "../task/projection.js";
+import { notInOrg } from "../org/projection.js";
+import { assigneeOf } from "../task/projection.js";
 import { actorText } from "../types/actor.js";
 import { restInEffect } from "./vitality.js";
-import { lastAssignee } from "./work.js";
-
-const refuse = (kind: string, reason: string): never => {
-	throw new AppendRefused(`${kind} refused: ${reason}`);
-};
 
 /**
  * A Review scores a completed Task (UnderReview, or Done when the Auditor
  * adds one), is recorded by the reviewer it names, and never by the assignee.
  */
-const reviewRules: AppendGuard = (ctx, event) => {
-	if (event.kind !== "ReviewRecorded") return;
+const reviewRules: AppendGuard = (ledger, event) => {
+	if (event.kind !== "ReviewRecorded") return undefined;
 	const { task_id, reviewer } = event.payload;
-	const kind = event.kind;
-	const { tasks } = fold(
-		ctx.events,
-		TaskProjection.reduce,
-		TaskProjection.init,
-	);
-	const task = tasks.get(task_id);
-	if (task === undefined) return refuse(kind, `${task_id} does not exist`);
+	const task = ledger.tasks.tasks.get(task_id);
+	if (task === undefined) return `${task_id} does not exist`;
 	if (task.state.tag !== "UnderReview" && task.state.tag !== "Done") {
-		refuse(
-			kind,
-			`${task_id} is ${task.state.tag}; only an UnderReview or Done Task gets a Review`,
-		);
+		return `${task_id} is ${task.state.tag}; only an UnderReview or Done Task gets a Review`;
 	}
 	if (canonicalJson(reviewer) !== canonicalJson(event.actor)) {
-		refuse(
-			kind,
-			`the reviewer ${actorText(reviewer)} is not the actor ${actorText(event.actor)}`,
-		);
+		return `the reviewer ${actorText(reviewer)} is not the actor ${actorText(event.actor)}`;
 	}
-	const assignee = lastAssignee(ctx.events, task_id);
+	const assignee = assigneeOf(task);
 	if (reviewer.tag === "Agent" && reviewer.id === assignee) {
-		refuse(
-			kind,
-			`${assignee} is the assignee of ${task_id} and cannot review it`,
-		);
+		return `${assignee} is the assignee of ${task_id} and cannot review it`;
 	}
+	return undefined;
 };
 
 /** Rest is ordered for an Agent in the Org, and begins and ends in turn. */
-const restRules: AppendGuard = (ctx, event) => {
-	if (event.kind !== "RestOrdered") return;
+const restRules: AppendGuard = (ledger, event) => {
+	if (event.kind !== "RestOrdered") return undefined;
 	const { agent_id, action } = event.payload;
-	if (!orgState(ctx.events).agents.has(agent_id)) {
-		refuse(event.kind, `${agent_id} is not in the Org`);
-	}
-	const resting = restInEffect(ctx.events, agent_id);
-	if (action === "begin" && resting) {
-		refuse(event.kind, `${agent_id} is already resting`);
-	}
-	if (action === "end" && !resting) {
-		refuse(event.kind, `${agent_id} is not resting`);
-	}
+	if (!ledger.org.agents.has(agent_id)) return notInOrg(agent_id);
+	const resting = restInEffect(ledger.work, agent_id);
+	if (action === "begin" && resting) return `${agent_id} is already resting`;
+	if (action === "end" && !resting) return `${agent_id} is not resting`;
+	return undefined;
 };
 
 export const vitalityGuards: readonly AppendGuard[] = [reviewRules, restRules];

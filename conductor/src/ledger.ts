@@ -1,16 +1,6 @@
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { Event, NewEvent } from "./events.js";
 import {
-	type AppendGuard,
 	AppendRefused,
 	appendFollowOns,
 	appendGuards,
@@ -18,26 +8,41 @@ import {
 	ledgerCatchUps,
 } from "./guards.js";
 import { canonicalJson, sha256Hex } from "./hash.js";
-import { IsoTime, Seq, Sha256 } from "./ids.js";
+import { IsoTime, Seq } from "./ids.js";
+import { advance, emptyProjections, type Projections } from "./projections.js";
+import { Refusal } from "./reduce.js";
+import {
+	eventOf,
+	GENESIS_HASH,
+	memoryStorage,
+	Row,
+	rowOf,
+	type Storage,
+	sqliteStorage,
+	stripUndefined,
+	type VerifyResult,
+	verifyRows,
+} from "./storage.js";
+
+export { LedgerLocked, type VerifyResult } from "./storage.js";
 
 export type LedgerOptions = {
-	/** The data directory. The Ledger lives at `<home>/ledger.sqlite`. */
-	home: string;
-	/** Open for writing. Only one writer may hold the Ledger at a time. */
+	/** Open for writing. Only one writer may hold a SQLite Ledger at a time. */
 	writer: boolean;
 	/** Source of each Event's `ts`. Defaults to the wall clock. */
 	clock?: () => Date;
-	/** Guards run before every append. Defaults to `appendGuards`. */
-	guards?: readonly AppendGuard[];
 	/** Follow-ons run after every append. Defaults to `appendFollowOns`. */
 	followOns?: readonly FollowOn[];
 };
 
 export type Ledger = {
 	readonly path: string;
+	/** Every Projection, as of the Ledger's last Event. */
+	readonly projections: Projections;
 	/**
-	 * Validate, guard, number, hash, and write one Event and its follow-ons
-	 * in one transaction, and return that Event. Throws `AppendRefused`.
+	 * Validate, number, hash, guard, project and write one Event and its
+	 * follow-ons in one transaction, and return that Event. Throws
+	 * `AppendRefused`, worded `<Kind> refused: <reason>`.
 	 */
 	append(newEvent: NewEvent): Event;
 	/** Every Event in seq order. */
@@ -48,105 +53,38 @@ export type Ledger = {
 	close(): void;
 };
 
-export type VerifyResult =
-	| { ok: true; count: number }
-	| { ok: false; seq: number; reason: string };
+/**
+ * The Ledger holds an Event that its Projections cannot apply, so it would
+ * have refused to append it. Nothing reads such a Ledger.
+ */
+export class LedgerCorrupt extends Error {
+	override readonly name = "LedgerCorrupt";
+}
 
-const GENESIS_HASH = Sha256.parse("0".repeat(64));
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS events (
-	seq INTEGER PRIMARY KEY,
-	ts TEXT NOT NULL,
-	actor TEXT NOT NULL,
-	task_id TEXT,
-	causation_id INTEGER,
-	kind TEXT NOT NULL,
-	payload TEXT NOT NULL,
-	prev_hash TEXT NOT NULL,
-	hash TEXT NOT NULL
-)`;
-
-const Row = z.object({
-	seq: z.number().int(),
-	ts: z.string(),
-	actor: z.string(),
-	task_id: z.string().nullable(),
-	causation_id: z.number().int().nullable(),
-	kind: z.string(),
-	payload: z.string(),
-	prev_hash: z.string(),
-	hash: z.string(),
-});
-type Row = z.infer<typeof Row>;
-
-const insertStatement = (db: DatabaseSync) =>
-	db.prepare(
-		`INSERT INTO events (seq, ts, actor, task_id, causation_id, kind, payload, prev_hash, hash)
-		 VALUES (:seq, :ts, :actor, :task_id, :causation_id, :kind, :payload, :prev_hash, :hash)`,
-	);
-
-/** The fields the hash covers, with absent optional fields omitted. */
-const hashedFields = (row: Row) => ({
-	seq: row.seq,
-	ts: row.ts,
-	actor: JSON.parse(row.actor) as unknown,
-	task_id: row.task_id ?? undefined,
-	causation_id: row.causation_id ?? undefined,
-	kind: row.kind,
-	payload: JSON.parse(row.payload) as unknown,
-	prev_hash: row.prev_hash,
-});
-
-const stripUndefined = (o: object): Record<string, unknown> =>
-	Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
-
-const eventOf = (row: Row): Event =>
-	Event.parse(stripUndefined({ ...hashedFields(row), hash: row.hash }));
-
-const verifyRows = (rows: Iterable<unknown>): VerifyResult => {
-	let expected = 1;
-	let prevHash: string = GENESIS_HASH;
-	for (const raw of rows) {
-		const parsed = Row.safeParse(raw);
-		if (!parsed.success) {
-			return { ok: false, seq: expected, reason: "row has the wrong columns" };
-		}
-		const row = parsed.data;
-		if (row.seq !== expected) {
-			return {
-				ok: false,
-				seq: expected,
-				reason: `seq ${expected} is missing; the next row is seq ${row.seq}`,
-			};
-		}
-		if (row.prev_hash !== prevHash) {
-			return {
-				ok: false,
-				seq: row.seq,
-				reason:
-					row.seq === 1
-						? "prev_hash of seq 1 is not the genesis hash"
-						: `prev_hash does not match the hash of seq ${row.seq - 1}`,
-			};
-		}
-		let fields: ReturnType<typeof hashedFields>;
-		try {
-			fields = hashedFields(row);
-		} catch {
-			return { ok: false, seq: row.seq, reason: "stored JSON does not parse" };
-		}
-		if (sha256Hex(canonicalJson(fields)) !== row.hash) {
-			return {
-				ok: false,
-				seq: row.seq,
-				reason: "hash does not match the Event's contents",
-			};
-		}
-		prevHash = row.hash;
-		expected++;
-	}
-	return { ok: true, count: expected - 1 };
+/**
+ * Number and hash `newEvent` after `last`, at `ts`. A GateDecided is signed
+ * at the time it is recorded, so its `decided_at` is `ts` (ADR-0006).
+ */
+export const seal = (
+	newEvent: NewEvent,
+	last: Event | undefined,
+	ts: IsoTime,
+) => {
+	const unhashed = {
+		seq: Seq.parse((last?.seq ?? 0) + 1),
+		ts,
+		actor: newEvent.actor,
+		task_id: newEvent.task_id,
+		causation_id: newEvent.causation_id,
+		kind: newEvent.kind,
+		payload:
+			newEvent.kind === "GateDecided"
+				? { ...newEvent.payload, decided_at: ts }
+				: newEvent.payload,
+		prev_hash: last?.hash ?? GENESIS_HASH,
+	};
+	const hash = sha256Hex(canonicalJson(unhashed));
+	return Event.parse(stripUndefined({ ...unhashed, hash }));
 };
 
 /**
@@ -157,244 +95,166 @@ export const parseNewEvent = (input: unknown): NewEvent => {
 	const parsed = NewEvent.safeParse(input);
 	if (!parsed.success) {
 		const kind =
-			typeof input === "object" && input !== null && "kind" in input
-				? ` of kind ${JSON.stringify(input.kind)}`
-				: "";
+			typeof input === "object" &&
+			input !== null &&
+			"kind" in input &&
+			typeof input.kind === "string"
+				? input.kind
+				: "Event";
 		throw new AppendRefused(
-			`invalid Event${kind}: ${z.prettifyError(parsed.error)}`,
+			`${kind} refused: not a valid Event: ${z.prettifyError(parsed.error)}`,
 		);
 	}
 	return parsed.data;
 };
 
-/** Another process holds the Ledger for writing. */
-export class LedgerLocked extends Error {
-	override readonly name = "LedgerLocked";
-	constructor(lockPath: string, pid: number | "unknown") {
-		super(`${lockPath} held by pid ${pid}`);
-	}
-}
-
-const errnoIs = (error: unknown, code: string) =>
-	error instanceof Error && "code" in error && error.code === code;
-
-const isRunning = (pid: number) => {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return errnoIs(error, "EPERM");
-	}
-};
-
-/** The pid a lock file names; undefined when the file is gone. */
-const lockHolder = (path: string): number | "unknown" | undefined => {
-	let text: string;
-	try {
-		text = readFileSync(path, "utf8");
-	} catch (error) {
-		if (errnoIs(error, "ENOENT")) return undefined;
-		throw error;
-	}
-	const pid = Number(text.trim());
-	return Number.isInteger(pid) && pid > 0 ? pid : "unknown";
-};
-
-/** Create `path` holding our pid; false when it already exists. */
-const createExclusive = (path: string): boolean => {
-	try {
-		writeFileSync(path, String(process.pid), { flag: "wx" });
-		return true;
-	} catch (error) {
-		if (errnoIs(error, "EEXIST")) return false;
-		throw error;
-	}
-};
-
 /**
- * Create the lock file with our pid, taking over one whose pid is dead.
- *
- * Two processes can find the same stale lock at once. If each deleted it
- * and created its own, the slower one would delete the faster one's fresh
- * lock and both would write. Renaming the stale file aside first does not
- * help: the slower rename can move the faster process's fresh lock, and a
- * third process can create the lock in the gap. So a takeover happens only
- * under a second lock, `<lock>.takeover`, created with `wx`. While a process
- * holds it, nobody else removes the lock file, and nobody creates one while
- * it exists, so the dead pid that process reads is still the one it removes.
- * A process that finds a takeover in progress reports the lock as held.
+ * The Projections after `event`, or why the Ledger refuses it: a Projection
+ * that cannot apply it, else the first guard that refuses it.
  */
-const acquireLock = (lockPath: string) => {
-	const takeover = `${lockPath}.takeover`;
-	for (let attempt = 0; attempt < 3; attempt++) {
-		if (createExclusive(lockPath)) return;
-		const stale = lockHolder(lockPath);
-		if (stale === undefined) continue; // released meanwhile; try again
-		if (stale === "unknown" || isRunning(stale)) {
-			throw new LedgerLocked(lockPath, stale);
-		}
-		if (!createExclusive(takeover)) {
-			const other = lockHolder(takeover);
-			if (typeof other === "number" && !isRunning(other)) {
-				throw new Error(
-					`${takeover} was left by pid ${other}, which stopped while taking over ${lockPath}; check that no Conductor runs, then delete ${takeover}`,
-				);
-			}
-			throw new LedgerLocked(lockPath, other ?? "unknown");
-		}
-		try {
-			if (lockHolder(lockPath) === stale) rmSync(lockPath, { force: true });
-			if (createExclusive(lockPath)) return;
-			throw new LedgerLocked(lockPath, lockHolder(lockPath) ?? "unknown");
-		} finally {
-			rmSync(takeover, { force: true });
-		}
+const appended = (before: Projections, event: Event): Projections | Refusal => {
+	const after = advance(before, event);
+	if (after instanceof Refusal) return after;
+	for (const guard of appendGuards) {
+		const reason = guard(before, event);
+		if (reason !== undefined) return new Refusal(reason);
 	}
-	throw new LedgerLocked(lockPath, "unknown");
+	return after;
 };
 
-const releaseLock = (lockPath: string) => {
-	if (
-		existsSync(lockPath) &&
-		readFileSync(lockPath, "utf8") === String(process.pid)
-	) {
-		rmSync(lockPath);
-	}
-};
-
-const openDatabase = (path: string, writer: boolean) => {
-	if (!writer) {
-		if (!existsSync(path)) throw new Error(`no Ledger at ${path}`);
-		return new DatabaseSync(path, { readOnly: true });
-	}
-	const db = new DatabaseSync(path);
-	db.exec(SCHEMA);
-	return db;
-};
-
-export const openLedger = (options: LedgerOptions): Ledger => {
-	const path = join(options.home, "ledger.sqlite");
-	const lockPath = `${path}.lock`;
+const openOn = (storage: Storage, options: LedgerOptions): Ledger => {
 	const clock = options.clock ?? (() => new Date());
-	const guards = options.guards ?? appendGuards;
 	const followOns = options.followOns ?? appendFollowOns;
 
-	if (options.writer) {
-		mkdirSync(options.home, { recursive: true });
-		acquireLock(lockPath);
-	}
-	let db: DatabaseSync;
+	// Built once from every Event; each append then advances them by one.
+	let projections = emptyProjections();
+	let last: Event | undefined;
 	try {
-		db = openDatabase(path, options.writer);
+		for (const raw of storage.rows()) {
+			const event = eventOf(Row.parse(raw));
+			const after = advance(projections, event);
+			if (after instanceof Refusal) {
+				throw new LedgerCorrupt(
+					`${storage.path} is corrupt at seq ${event.seq}: ${event.kind} refused: ${after.reason}`,
+				);
+			}
+			projections = after;
+			last = event;
+		}
 	} catch (error) {
-		if (options.writer) releaseLock(lockPath);
+		storage.close();
 		throw error;
 	}
 
-	const selectAll = db.prepare("SELECT * FROM events ORDER BY seq");
-	const insert = options.writer ? insertStatement(db) : undefined;
-
-	function* events(): IterableIterator<Event> {
-		for (const row of selectAll.iterate()) yield eventOf(Row.parse(row));
-	}
-
-	// The writer holds the lock, so no one else appends; the Events it has
-	// read once stay current and each append only adds to them.
-	let appended: Event[] | undefined;
-
 	/**
-	 * Run `body` in one transaction, handing it a copy of the Events and a
-	 * `write` that numbers, hashes, guards and inserts one Event after them.
-	 * A refusal anywhere rolls back every write and leaves `appended` as the
-	 * Ledger was before.
+	 * Run `body` in one transaction, handing it a `write` that numbers,
+	 * hashes, guards, projects and inserts one Event, and the Projections as
+	 * of the last write. A refusal anywhere rolls back every write and leaves
+	 * the Ledger as it was.
 	 */
 	const transaction = <T>(
-		body: (write: (newEvent: NewEvent) => Event, written: Event[]) => T,
+		body: (
+			write: (newEvent: NewEvent) => Event,
+			current: () => Projections,
+		) => T,
 	): T => {
-		if (!insert) {
+		if (!options.writer) {
 			throw new Error(
-				`Ledger at ${path} is open read-only; open it with writer: true to append`,
+				`Ledger at ${storage.path} is open read-only; open it with writer: true to append`,
 			);
 		}
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			appended ??= [...events()];
-			const written = [...appended];
-			const write = (newEvent: NewEvent): Event => {
-				const parsed = parseNewEvent(newEvent);
-				const last = written.at(-1);
-				const unhashed = {
-					seq: Seq.parse((last?.seq ?? 0) + 1),
-					ts: IsoTime.parse(clock().toISOString()),
-					actor: parsed.actor,
-					task_id: parsed.task_id,
-					causation_id: parsed.causation_id,
-					kind: parsed.kind,
-					payload: parsed.payload,
-					prev_hash: last?.hash ?? GENESIS_HASH,
-				};
-				const hash = sha256Hex(canonicalJson(unhashed));
-				const event = Event.parse(stripUndefined({ ...unhashed, hash }));
-
-				for (const guard of guards) guard({ events: written }, event);
-
-				insert.run({
-					seq: event.seq,
-					ts: event.ts,
-					actor: canonicalJson(event.actor),
-					task_id: event.task_id ?? null,
-					causation_id: event.causation_id ?? null,
-					kind: event.kind,
-					payload: canonicalJson(event.payload),
-					prev_hash: event.prev_hash,
-					hash: event.hash,
-				});
-				written.push(event);
-				return event;
-			};
-			const result = body(write, written);
-			db.exec("COMMIT");
-			appended = written;
-			return result;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		let pending = projections;
+		let tip = last;
+		const result = storage.transaction((insert) =>
+			body(
+				(newEvent) => {
+					const ts = IsoTime.parse(clock().toISOString());
+					const event = seal(parseNewEvent(newEvent), tip, ts);
+					const after = appended(pending, event);
+					if (after instanceof Refusal) {
+						throw new AppendRefused(`${event.kind} refused: ${after.reason}`);
+					}
+					insert(rowOf(event));
+					pending = after;
+					tip = event;
+					return event;
+				},
+				() => pending,
+			),
+		);
+		projections = pending;
+		last = tip;
+		return result;
 	};
 
 	const append = (newEvent: NewEvent): Event =>
-		transaction((write, written) => {
+		transaction((write, current) => {
 			const cause = write(newEvent);
 			for (const followOn of followOns) {
-				for (const next of followOn(written, cause)) write(next);
+				for (const next of followOn(current(), cause)) write(next);
 			}
 			return cause;
 		});
 
-	const close = () => {
-		db.close();
-		if (options.writer) releaseLock(lockPath);
-	};
+	function* events(): IterableIterator<Event> {
+		for (const raw of storage.rows()) yield eventOf(Row.parse(raw));
+	}
 
 	if (options.writer) {
 		try {
-			transaction((write, written) => {
+			transaction((write, current) => {
 				for (const catchUp of ledgerCatchUps) {
-					for (const next of catchUp(written)) write(next);
+					for (const next of catchUp(current())) write(next);
 				}
 			});
 		} catch (error) {
-			close();
+			storage.close();
 			throw error;
 		}
 	}
 
 	return {
-		path,
+		path: storage.path,
+		get projections() {
+			return projections;
+		},
 		append,
 		events,
 		all: () => [...events()],
-		verify: () => verifyRows(selectAll.iterate()),
-		close,
+		verify: () => verifyRows(storage.rows()),
+		close: () => storage.close(),
 	};
+};
+
+/** The Ledger in the SQLite file `<home>/ledger.sqlite` (ADR-0008). */
+export const openLedger = (
+	options: LedgerOptions & {
+		/** The data directory. The Ledger lives at `<home>/ledger.sqlite`. */
+		home: string;
+	},
+): Ledger => openOn(sqliteStorage(options.home, options.writer), options);
+
+/**
+ * A Ledger in memory, under the same rules as SQLite. Several Ledgers may
+ * open one `storage`, as several processes open one SQLite file.
+ */
+export const openMemoryLedger = (
+	options: Partial<LedgerOptions> & { storage?: Storage } = {},
+): Ledger =>
+	openOn(options.storage ?? memoryStorage(), {
+		...options,
+		writer: options.writer ?? true,
+	});
+
+/**
+ * Walk the chain of the SQLite Ledger in `home` without projecting it, so a
+ * Ledger too corrupt to open still reports its first broken link.
+ */
+export const verifyLedger = (home: string): VerifyResult => {
+	const storage = sqliteStorage(home, false);
+	try {
+		return verifyRows(storage.rows());
+	} finally {
+		storage.close();
+	}
 };

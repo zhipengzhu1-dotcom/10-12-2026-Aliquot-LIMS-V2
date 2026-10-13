@@ -1,7 +1,6 @@
 import { AgentId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { AgentDefinition, Role } from "../types/agent-definition.js";
-import { orgState } from "./projection.js";
 
 type RosterEntry = {
 	slug: string;
@@ -207,7 +206,7 @@ export const rosterDefinitions = (): AgentDefinition[] =>
  * the Operator. Returns the ids recruited; a second run returns none.
  */
 export const seedOrg = (ledger: Ledger): AgentId[] => {
-	const { agents } = orgState(ledger.events());
+	const { agents } = ledger.projections.org;
 	const missing = rosterDefinitions().filter((d) => !agents.has(d.id));
 	for (const definition of missing) {
 		ledger.append({

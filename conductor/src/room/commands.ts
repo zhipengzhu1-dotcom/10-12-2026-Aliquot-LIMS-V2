@@ -11,17 +11,10 @@ import {
 	withLedger,
 } from "../cli-support.js";
 import { type CommandTable, UsageError } from "../command.js";
-import type { Event } from "../events.js";
 import { RoomId, Seq } from "../ids.js";
-import { orgState } from "../org/projection.js";
+import { emptyProjections, type Projections } from "../projections.js";
 import { Room } from "../types/room.js";
-import {
-	history,
-	type Message,
-	RoomRefused,
-	roomState,
-	roomsOf,
-} from "./projection.js";
+import { history, type Message, RoomRefused, roomsOf } from "./projection.js";
 import { LAB_ROOM, seedRooms } from "./seed.js";
 
 const asOption = { as: { type: "string" } } as const;
@@ -35,10 +28,10 @@ const roomIdOf = (command: string, positionals: string[]): RoomId => {
 	return parseOrUsage(RoomId, text, what);
 };
 
-const ledgerEvents = (home: string): Event[] =>
+const readProjections = (home: string): Projections =>
 	existsSync(join(home, "ledger.sqlite"))
-		? withLedger(home, false, (ledger) => ledger.all())
-		: [];
+		? withLedger(home, false, (ledger) => ledger.projections)
+		: emptyProjections();
 
 const membersText = (room: Room) =>
 	room.membership.tag === "Everyone"
@@ -134,12 +127,8 @@ export const roomCommands: CommandTable = {
 		describe: "List the Rooms the Operator, or the Agent named, may read",
 		run: async (args, ctx) => {
 			const { values } = parseArgs({ args, options: asOption });
-			const events = ledgerEvents(ctx.home);
-			const rooms = roomsOf(
-				roomState(events),
-				orgState(events),
-				parseActor(values.as),
-			);
+			const { rooms: state, org } = readProjections(ctx.home);
+			const rooms = roomsOf(state, org, parseActor(values.as));
 			if (rooms.length === 0) {
 				ctx.stdout.write("No Rooms\n");
 				return 0;
@@ -162,13 +151,8 @@ export const roomCommands: CommandTable = {
 				allowPositionals: true,
 			});
 			const room_id = roomIdOf("history", positionals);
-			const events = ledgerEvents(ctx.home);
-			const messages = history(
-				roomState(events),
-				orgState(events),
-				room_id,
-				parseActor(values.as),
-			);
+			const { rooms, org } = readProjections(ctx.home);
+			const messages = history(rooms, org, room_id, parseActor(values.as));
 			if (messages instanceof RoomRefused) {
 				ctx.stderr.write(`${messages.message}\n`);
 				return 1;

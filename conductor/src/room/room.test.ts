@@ -1,16 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { projectGates } from "../gate/projection.js";
 import { gateDecision, requestGate } from "../gate/request.js";
 import { AgentId, RoomId, type Seq } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
-import { orgState } from "../org/projection.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import type { Actor } from "../types/actor.js";
 import type { Membership } from "../types/room.js";
-import { history, RoomRefused, roomState, roomsOf } from "./projection.js";
+import { history, RoomRefused, roomsOf } from "./projection.js";
 
 const operator: Actor = { tag: "Operator" };
 const agent = (slug: string): Actor => ({
@@ -30,21 +25,14 @@ const listed = (...slugs: string[]): Membership => ({
 	agents: slugs.map((s) => AgentId.parse(`A-${s}`)),
 });
 
-let home: string;
 let ledger: Ledger;
-const NOW = new Date("2026-10-12T09:00:00.000Z");
 
 beforeEach(() => {
-	home = mkdtempSync(join(tmpdir(), "aliquot-room-"));
-	// A fixed clock, so a Gate decision can sign the time the Ledger records.
-	ledger = openLedger({ home, writer: true, clock: () => NOW });
+	ledger = openMemoryLedger();
 	seedOrg(ledger);
 });
 
-afterEach(() => {
-	ledger.close();
-	rmSync(home, { recursive: true, force: true });
-});
+afterEach(() => ledger.close());
 
 const open = (
 	id: RoomId,
@@ -76,9 +64,9 @@ const retire = (who: Actor) => {
 		kind: "RetireAgent",
 		payload: { agent_id: who.id },
 	});
-	const gate = projectGates(ledger.events()).gates.get(gate_id);
+	const gate = ledger.projections.gates.gates.get(gate_id);
 	if (gate === undefined) throw new Error(`${gate_id} was not requested`);
-	ledger.append(gateDecision(gate, NOW, "approve", "left the lab"));
+	ledger.append(gateDecision(gate, "approve", "left the lab"));
 	ledger.append({
 		actor: operator,
 		kind: "AgentRetired",
@@ -87,15 +75,10 @@ const retire = (who: Actor) => {
 };
 
 const read = (room_id: RoomId, reader: Actor) =>
-	history(
-		roomState(ledger.events()),
-		orgState(ledger.events()),
-		room_id,
-		reader,
-	);
+	history(ledger.projections.rooms, ledger.projections.org, room_id, reader);
 
 const readable = (actor: Actor) =>
-	roomsOf(roomState(ledger.events()), orgState(ledger.events()), actor).map(
+	roomsOf(ledger.projections.rooms, ledger.projections.org, actor).map(
 		(r) => r.id,
 	);
 
@@ -119,7 +102,7 @@ describe("opening a Room", () => {
 		expect(() => open(PIA_RIN, listed("pia", "bram"), pia)).toThrow(
 			"RoomOpened refused: A-bram is Retired",
 		);
-		expect(roomState(ledger.events()).rooms.size).toBe(0);
+		expect(ledger.projections.rooms.rooms.size).toBe(0);
 	});
 
 	it("lets the Operator open a Room whose list does not name it", () => {
@@ -134,7 +117,7 @@ describe("opening a Room", () => {
 		expect(() => open(LAB, listed("rin"))).toThrow(
 			"RoomOpened refused: RM-lab is already open",
 		);
-		expect(roomState(ledger.events()).rooms.get(LAB)?.membership).toEqual({
+		expect(ledger.projections.rooms.rooms.get(LAB)?.membership).toEqual({
 			tag: "Everyone",
 		});
 	});
@@ -170,7 +153,7 @@ describe("saying a Message", () => {
 		expect(() => say(RoomId.parse("RM-nowhere"), rin, "Hello?")).toThrow(
 			"MessageSent refused: RM-nowhere is not an open Room",
 		);
-		expect(roomState(ledger.events()).messages).toEqual([]);
+		expect(ledger.projections.rooms.messages).toEqual([]);
 	});
 
 	it("lets the Operator say a Message in a private Room", () => {

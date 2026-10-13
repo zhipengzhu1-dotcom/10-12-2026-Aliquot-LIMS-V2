@@ -215,7 +215,9 @@ describe("aliquot gate", () => {
 			"late",
 		]);
 		expect(refused.status).toBe(1);
-		expect(refused.stderr).toMatch(/^AppendRefused: Gate G-1 expired at /);
+		expect(refused.stderr).toMatch(
+			/^AppendRefused: GateDecided refused: G-1 expired at /,
+		);
 
 		const ledger = openLedger({ home, writer: false });
 		try {

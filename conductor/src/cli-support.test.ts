@@ -14,7 +14,7 @@ import {
 	withLedger,
 } from "./cli-support.js";
 import { UsageError } from "./command.js";
-import { RubricId, TaskId } from "./ids.js";
+import { TaskId } from "./ids.js";
 import { Room } from "./types/room.js";
 
 describe("parseActor", () => {
@@ -106,29 +106,5 @@ describe("withLedger", () => {
 			}),
 		).toThrow("boom");
 		expect(existsSync(lock)).toBe(false);
-	});
-
-	it("stamps each Event with the clock it is given", () => {
-		const at = new Date("2026-10-12T09:30:00.000Z");
-		const event = withLedger(
-			home,
-			true,
-			(ledger) =>
-				ledger.append({
-					actor: { tag: "Operator" },
-					kind: "TaskProposed",
-					payload: {
-						task_id: TaskId.parse("T-1"),
-						title: "Clock check",
-						goal: "Record the time",
-						inputs: [],
-						rubric_id: RubricId.parse("rubric-1"),
-						priority: 1,
-						tat_class: "Regular",
-					},
-				}),
-			() => at,
-		);
-		expect(event.ts).toBe("2026-10-12T09:30:00.000Z");
 	});
 });

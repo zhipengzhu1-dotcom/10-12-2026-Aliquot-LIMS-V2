@@ -51,6 +51,12 @@ type EventBody =
 	// and the rest of the initial set below
 ```
 
+The Ledger keeps every Projection: Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, and Artifacts. It builds them from its Events once when it opens (ADR-0001), and it advances each one by every Event it appends. A writer and a read-only opener build the same Projections from the same Events. Guards and commands read these Projections. No module outside the Ledger folds the Events.
+
+Before the Ledger writes an Event, it advances the Projections by it and runs every guard. Each guard reads the Projections as they stood before the Event. A Projection that cannot apply the Event, or a guard, returns a reason. The Ledger then refuses the Event with `<Kind> refused: <reason>` and writes nothing. The guards always run, and no option opens a Ledger without them. A stored Event that a Projection cannot apply makes the Ledger corrupt: opening it fails and names the `seq` and the reason. `ledger verify` reads only the hash chain, so it still reports on such a Ledger.
+
+The Ledger stores its Events in SQLite, in `<home>/ledger.sqlite`, with one writer (ADR-0008). Tests use in-memory storage instead. Numbering, the hash chain, the guards, and the Projections all live in the Ledger, above the storage, so both storages run the same rules. SQLite stays the production storage, and the tests of persistence, the writer lock, and the chain on disk run on it.
+
 The actor `Conductor` authors only the tier Revisions that Merit and Gates require (ADR-0011). The Ledger refuses any other Event it authors. Only an Event's `actor` and a definition's `revised_by` can name it, so no payload can make the Conductor a reviewer, an escalation target, or a Skill author. No command line acts as the Conductor.
 
 The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`.
@@ -83,7 +89,7 @@ type AgentDefinition = {
 
 ### 3. Task
 
-A Task moves through a state machine. A Hand-off is a transition back to `Assigned` with a new assignee, not a state of its own. A Task that the Trust tier rules do not select for Review goes from `InProgress` straight to `Done`.
+A Task moves through a state machine. A Hand-off is a transition back to `Assigned` with a new assignee, not a state of its own. A Task that the Trust tier rules do not select for Review goes from `InProgress` straight to `Done`. A `Done` Task keeps its assignee, so the Task Projection alone says whose work a Review scores.
 
 ```ts
 type TaskState =
@@ -94,7 +100,7 @@ type TaskState =
 	| { tag: "Blocked"; assignee: AgentId; gate: GateId }
 	| { tag: "Escalated"; to: Actor }
 	| { tag: "Failed"; reason: string }
-	| { tag: "Done" };
+	| { tag: "Done"; assignee: AgentId };
 
 type TatClass = "Regular" | "Rush1to2Days" | "Rush3to4Days";
 
@@ -217,7 +223,7 @@ type TrustTier = "Probation" | "Trusted" | "Senior" | "Mentor";
 
 ### 8. Gate
 
-A Gate is a request for an Operator decision. Only the Operator emits `GateDecided`. The decision is the electronic signature record.
+A Gate is a request for an Operator decision. Only the Operator emits `GateDecided`. The decision is the electronic signature record. The Ledger stamps `decided_at` with the decision Event's own `ts`, so the caller supplies no time and the signature time is the time the decision is recorded (ADR-0006).
 
 ```ts
 type GateKind = "Deploy" | "WriteSystemOfRecord" | "ExternalMessage" | "RetireAgent" | "PromoteToMentor";

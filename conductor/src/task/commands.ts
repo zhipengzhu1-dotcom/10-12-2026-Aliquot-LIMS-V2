@@ -14,7 +14,6 @@ import {
 } from "../command.js";
 import type { EventBody, NewEvent } from "../events.js";
 import { AgentId, ArtifactId, RubricId, TaskId } from "../ids.js";
-import { fold } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import { type Task, TaskState, TatClass } from "../types/task.js";
 import { nextTaskId, TaskProjection, type TaskView } from "./projection.js";
@@ -48,9 +47,7 @@ const asOption = { as: { type: "string" } } as const;
 
 const readView = (home: string): TaskView => {
 	if (!existsSync(join(home, "ledger.sqlite"))) return TaskProjection.init;
-	return withLedger(home, false, (ledger) =>
-		fold(ledger.events(), TaskProjection.reduce, TaskProjection.init),
-	);
+	return withLedger(home, false, (ledger) => ledger.projections.tasks);
 };
 
 type TaskBody = Extract<EventBody, { payload: { task_id: TaskId } }>;
@@ -65,17 +62,14 @@ const record = (
 	build: (view: TaskView) => TaskBody,
 ): Task =>
 	withLedger(ctx.home, true, (ledger) => {
-		const view = fold(ledger.all(), TaskProjection.reduce, TaskProjection.init);
-		const body = build(view);
+		const body = build(ledger.projections.tasks);
 		const newEvent: NewEvent = {
 			actor,
 			task_id: body.payload.task_id,
 			...body,
 		};
-		const event = ledger.append(newEvent);
-		const task = TaskProjection.reduce(view, event).tasks.get(
-			body.payload.task_id,
-		);
+		ledger.append(newEvent);
+		const task = ledger.projections.tasks.tasks.get(body.payload.task_id);
 		if (!task) throw new Error(`${body.payload.task_id} vanished`);
 		return task;
 	});

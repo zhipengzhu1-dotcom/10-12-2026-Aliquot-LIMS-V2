@@ -25,14 +25,9 @@ import type { Ledger } from "../ledger.js";
 import type { Actor } from "../types/actor.js";
 import { ArtifactFilename, ArtifactType } from "../types/artifact.js";
 import type { Run, ScriptRef } from "../types/script.js";
-import {
-	type ArtifactMeta,
-	openArtifacts,
-	projectArtifacts,
-} from "./artifacts.js";
+import { type ArtifactMeta, openArtifacts } from "./artifacts.js";
 import { imageId } from "./image.js";
-import { projectRuns } from "./runs.js";
-import { findScript, projectScripts, scriptDir } from "./scripts.js";
+import { findScript, scriptDir } from "./scripts.js";
 
 // The Conductor never loads Script code. A Run is one `docker run` child
 // process; the Script's directory only ever reaches the container as a
@@ -191,13 +186,13 @@ const listFiles = (dir: string, skipped: string[]): string[] =>
  */
 export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 	const { ledger, home, actor, task_id } = options;
-	const script = findScript(projectScripts(ledger), options.script);
+	const script = findScript(ledger.projections.scripts, options.script);
 	if (!script) {
 		throw new Error(
 			`${options.script.id} v${options.script.version} is not registered`,
 		);
 	}
-	const known = projectArtifacts(ledger).artifacts;
+	const known = ledger.projections.artifacts.artifacts;
 	const inputs = [...options.inputs];
 	const lineage = unique(inputs);
 	const staged = lineage.map((id) => {
@@ -214,7 +209,7 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 	}
 
 	const artifacts = openArtifacts({ ledger, home });
-	const runId = RunId.parse(nextId("R", projectRuns(ledger).runs.keys()));
+	const runId = RunId.parse(nextId("R", ledger.projections.runs.runs.keys()));
 	const work = mkdtempSync(join(tmpdir(), "aliquot-run-"));
 	try {
 		const inputsDir = join(work, "inputs");

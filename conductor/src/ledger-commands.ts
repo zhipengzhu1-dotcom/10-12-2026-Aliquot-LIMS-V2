@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { readAll, withLedger } from "./cli-support.js";
 import { type CommandTable, UsageError } from "./command.js";
 import { canonicalJson } from "./hash.js";
-import { parseNewEvent } from "./ledger.js";
+import { parseNewEvent, verifyLedger } from "./ledger.js";
 
 const parseJson = (text: string): unknown => {
 	try {
@@ -38,7 +38,7 @@ export const ledgerCommands: CommandTable = {
 		describe: "Walk the hash chain and report the first broken seq",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const result = withLedger(ctx.home, false, (l) => l.verify());
+			const result = verifyLedger(ctx.home);
 			if (result.ok) {
 				const noun = result.count === 1 ? "Event" : "Events";
 				ctx.stdout.write(
