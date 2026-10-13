@@ -1,0 +1,91 @@
+Serving /private/tmp/claude-501/-Users-maracchi-Desktop-Claude-10--October-2026-10-12-2026-Aliquot-LIMS/501d668e-af6a-4c97-ace7-902b357d5757/scratchpad/live-run/home at http://127.0.0.1:56857
+Scheduling Turns on the Agent SDK, on the subscription login of the claude CLI: a Tick every 15s, standing duty every 30m, at most 2 Turns at once, an Energy budget of 1000000 tokens
+scheduler 2026-10-13T06:29:52.224Z A-mabel start standing duty, no Turn yet
+scheduler 2026-10-13T06:29:52.246Z A-odile start 1 Submission Form with no Task
+scheduler 2026-10-13T06:29:52.247Z A-thorne skip 2 Turns open, the most at once; standing duty, no Turn yet
+scheduler 2026-10-13T06:29:58.208Z A-mabel finished TN-1 Completed: 0 Tool calls, 7972 tokens; Mood fresh
+scheduler 2026-10-13T06:30:01.242Z A-odile finished TN-2 Completed: 1 Tool call, 10235 tokens; Mood fresh
+scheduler 2026-10-13T06:30:07.249Z A-thorne start standing duty, no Turn yet
+scheduler 2026-10-13T06:30:11.148Z A-thorne finished TN-3 Completed: 1 Tool call, 3651 tokens; Mood fresh
+scheduler 2026-10-13T06:30:22.251Z A-ines assign T-1: pick 109 of 300 over A-bram 100, A-ines 100, A-rin 100
+scheduler 2026-10-13T06:30:22.253Z A-ines start holds T-1
+scheduler 2026-10-13T06:30:31.572Z A-ines finished TN-4 Completed: 4 Tool calls, 6282 tokens; Mood fresh
+scheduler 2026-10-13T06:30:37.251Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:30:52.251Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:31:07.252Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:31:22.254Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:31:37.256Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:31:52.257Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:32:07.258Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:32:22.260Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:32:37.263Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:32:52.264Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:33:07.265Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:33:22.267Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:33:37.269Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:33:52.269Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:34:07.270Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:34:22.271Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:34:37.273Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:34:52.274Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:35:07.275Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:35:22.276Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:35:37.277Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:35:52.278Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:36:07.279Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:36:22.280Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:36:37.282Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:36:52.282Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:37:07.285Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:37:22.285Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:37:37.286Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:37:52.287Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:38:07.288Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:38:22.288Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:38:37.289Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:38:52.291Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:39:07.291Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:39:22.293Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:39:37.294Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:39:52.296Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:40:07.296Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:40:22.298Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:40:37.298Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:40:52.300Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:41:07.301Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:41:22.301Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:41:37.303Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:41:52.304Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:42:07.305Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:42:22.306Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:42:37.307Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:42:52.307Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:43:07.309Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:43:22.310Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:43:37.312Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:43:52.313Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:44:07.314Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:44:22.316Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:44:37.317Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:44:52.318Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:45:07.319Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:45:22.320Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:45:37.322Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:45:52.322Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:46:07.324Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:46:22.325Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:46:37.326Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:46:52.328Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:47:07.329Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:47:22.331Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:47:37.332Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:47:52.333Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:48:07.335Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:48:22.336Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:48:37.336Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:48:52.337Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:49:07.339Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:49:22.339Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:49:37.341Z nobody idle no Agent has anything to do
+scheduler 2026-10-13T06:49:52.342Z nobody idle no Agent has anything to do
+Stopped on SIGTERM; the Ledger is closed

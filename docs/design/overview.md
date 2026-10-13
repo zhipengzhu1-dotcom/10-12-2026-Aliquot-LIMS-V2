@@ -528,7 +528,8 @@ Each item states the default we take and the one word the Operator can send to r
 | Lab text reaches Anthropic inside prompts. | Accept for the toy phase. Real data waits for slice 3 and an explicit decision. | `local` |
 | Subdomain or path on the Cloudflare zone. | `agents.nitrolims-demo.com`. | `path` |
 | The templates hold real Client data and are untracked. | Ignore them in git and copy shapes only. | `anonymize`, which creates scrubbed copies for Fixtures |
-| Nobody knows how many Turns the subscription allows at once. | Two at a time, measured in slice 1. | `serial`, which runs one Turn at a time |
+| Nobody knows how many Turns the subscription allows at once. | Two at a time. The live run of 2026-10-13 ([live-run-2026-10.md](live-run-2026-10.md)) had 2 Turns open at once for 6 seconds, and the subscription refused neither. It never asked for a third, so the ceiling is still unknown. | `serial`, which runs one Turn at a time |
+| The Energy budget of 1,000,000 tokens per 5-hour window is a guess. | Keep it. The live run counted 28,140 tokens in 4 Turns, which is 2.8 percent of the budget and an average of 7,035 per Turn, and the subscription refused nothing. The run stopped at stage 1, so it does not show what a full chain costs. | `budget`, with the Operator's number of tokens |
 | The Mood thresholds are guesses. | The numbers in `docs/design/vitality-and-merit.md`, tuned against slice 1 data. | `flat`, which treats every Agent as `fresh` until the data exists |
 | Agents may talk in private Rooms. | Allowed. The Operator is a member of every Room and reads everything. | `open`, which forbids Listed Rooms |
 | An Agent may write a Revision that removes one of its own forbidden Actions. | Allow it. The Conductor, not the Charter, enforces Gates, and the Auditor flags every Revision that removes a boundary. | `lock`, which puts such Revisions behind a Gate |
