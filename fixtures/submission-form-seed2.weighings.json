@@ -1,0 +1,17 @@
+[
+  {
+    "container": 1,
+    "weight_of_20_g": 11.6014,
+    "weight_taken_g": 0.6281
+  },
+  {
+    "container": 2,
+    "weight_of_20_g": 11.7525,
+    "weight_taken_g": 0.5854
+  },
+  {
+    "container": 3,
+    "weight_of_20_g": 11.5695,
+    "weight_taken_g": 0.527
+  }
+]

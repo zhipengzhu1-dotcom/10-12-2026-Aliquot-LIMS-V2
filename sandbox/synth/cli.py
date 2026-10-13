@@ -1,4 +1,9 @@
-"""`synth --seed N --out DIR`: write one invented record as the four lab documents."""
+"""`synth --seed N --out DIR`: write one invented record as the four lab documents.
+
+Beside them it writes `manifest.json`, the record itself, and `weighings.json`,
+the record's weighings as the balance would give them to stage 4: one JSON
+array of `{container, weight_of_20_g, weight_taken_g}`.
+"""
 
 import argparse
 import json
@@ -20,6 +25,17 @@ def generate(seed: int, out: Path) -> None:
     write_report_of_analysis(record, out / "report_of_analysis.xlsx")
     manifest = json.dumps(record.manifest(), indent=2, sort_keys=True) + "\n"
     (out / "manifest.json").write_text(manifest, encoding="utf-8")
+    weighings = [
+        {
+            "container": w.container,
+            "weight_of_20_g": w.weight_of_20_capsules_g,
+            "weight_taken_g": w.weight_taken_g,
+        }
+        for w in record.weighings
+    ]
+    (out / "weighings.json").write_text(
+        json.dumps(weighings, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
