@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import { AgentId, ArtifactId, type Seq, type TaskId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
+import { pause, resume } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
+import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
 import {
 	assign,
@@ -409,5 +411,78 @@ describe("a Help request", () => {
 		expect(ledger.all(), "only the failure is appended").toHaveLength(
 			before + 1,
 		);
+	});
+});
+
+describe("an assignment or Hand-off", () => {
+	const bram = AgentId.parse("A-bram");
+	const anselm = AgentId.parse("A-anselm");
+	const nobody = AgentId.parse("A-nobody");
+	const refusedAssignees: readonly [AgentId, string][] = [
+		[bram, "A-bram is paused"],
+		[anselm, "A-anselm is not a live Agent in the Org"],
+		[nobody, "A-nobody is not a live Agent in the Org"],
+	];
+
+	let s: Scenario;
+	beforeEach(() => {
+		s = scenario();
+		pause(s.ledger, { actor: operator, agent_id: bram, reason: "audit" });
+		s.retire(anselm, "Replaced");
+	});
+	afterEach(() => s.close());
+
+	it("is refused to a paused Agent, a Retired one, or one not in the Org, naming why, by the verb and by the Ledger, and appends nothing", () => {
+		const proposed = propose(s.ledger, proposal).task.id;
+		const held = propose(s.ledger, proposal).task.id;
+		assign(s.ledger, { actor: operator, task_id: held, assignee: rin });
+		start(s.ledger, { actor: asRin, task_id: held });
+		const before = s.events().length;
+
+		for (const [agent, reason] of refusedAssignees) {
+			const assigned = new AppendRefused(`TaskAssigned refused: ${reason}`);
+			const handedOff = new AppendRefused(`TaskHandedOff refused: ${reason}`);
+			expect(() =>
+				assign(s.ledger, {
+					actor: operator,
+					task_id: proposed,
+					assignee: agent,
+				}),
+			).toThrow(assigned);
+			expect(() =>
+				s.ledger.append({
+					actor: operator,
+					task_id: proposed,
+					kind: "TaskAssigned",
+					payload: { task_id: proposed, assignee: agent },
+				}),
+			).toThrow(assigned);
+			expect(() =>
+				handOff(s.ledger, {
+					actor: asRin,
+					task_id: held,
+					to: agent,
+					reason: "out of time",
+				}),
+			).toThrow(handedOff);
+			expect(() =>
+				s.ledger.append({
+					actor: asRin,
+					task_id: held,
+					kind: "TaskHandedOff",
+					payload: { task_id: held, from: rin, to: agent, reason: "" },
+				}),
+			).toThrow(handedOff);
+		}
+		expect(s.events()).toHaveLength(before);
+	});
+
+	it("goes to a paused Agent once it is resumed", () => {
+		const task_id = propose(s.ledger, proposal).task.id;
+		resume(s.ledger, { actor: operator, agent_id: bram });
+
+		expect(
+			assign(s.ledger, { actor: operator, task_id, assignee: bram }).task.state,
+		).toEqual({ tag: "Assigned", assignee: bram });
 	});
 });

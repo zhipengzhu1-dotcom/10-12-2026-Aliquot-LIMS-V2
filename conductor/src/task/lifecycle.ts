@@ -12,6 +12,7 @@ import {
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { type Origin, type Recorded, readBack } from "../lifecycle-support.js";
+import { activeAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
 import type { Actor, EventActor } from "../types/actor.js";
@@ -122,9 +123,9 @@ export const propose = (
 	);
 
 /**
- * Assign a Task to `assignee`. The Conductor assigns too, as its own act
- * (ADR-0013): only a Proposed Task, naming the Task's previous Event as the
- * cause.
+ * Assign a Task to `assignee`, a live Agent that is not paused. The Conductor
+ * assigns too, as its own act (ADR-0013): only a Proposed Task, naming the
+ * Task's previous Event as the cause.
  */
 export const assign = (
 	ledger: Ledger,
@@ -143,6 +144,7 @@ export const assign = (
 			conductorAssignRefusal(ledger.projections, task_id),
 		);
 	}
+	orRefuse("TaskAssigned", activeAgent(ledger.projections.org, assignee));
 	return record(ledger, origin, {
 		kind: "TaskAssigned",
 		payload: { task_id, assignee },
@@ -264,8 +266,8 @@ export const review = (
 };
 
 /**
- * Hand an InProgress Task off from its assignee to `to`, which returns it to
- * Assigned.
+ * Hand an InProgress Task off from its assignee to `to`, a live Agent that is
+ * not paused, which returns it to Assigned.
  */
 export const handOff = (
 	ledger: Ledger,
@@ -284,6 +286,7 @@ export const handOff = (
 		"TaskHandedOff",
 		stateIn(ledger.projections.tasks, task_id, ["InProgress"]),
 	);
+	orRefuse("TaskHandedOff", activeAgent(ledger.projections.org, to));
 	return record(ledger, origin, {
 		kind: "TaskHandedOff",
 		payload: { task_id, from, to, reason },

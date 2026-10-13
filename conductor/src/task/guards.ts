@@ -2,7 +2,7 @@ import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import type { AgentId, TaskId } from "../ids.js";
-import { liveAgent } from "../org/projection.js";
+import { activeAgent, liveAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
 import { type Actor, actorText } from "../types/actor.js";
@@ -107,14 +107,21 @@ export const helpTargetRefusal = (
 };
 
 /**
- * The Conductor's assignments, the Review rules on completion, and whom help
- * is requested of. The Task state machine itself, and who may request help,
- * are the Task Projection's, which refuses every Event it cannot express.
+ * The Conductor's assignments, that a Task is assigned or handed off only to
+ * a live Agent that is not paused, the Review rules on completion, and whom
+ * help is requested of. The Task state machine itself, and who may request
+ * help, are the Task Projection's, which refuses every Event it cannot
+ * express.
  */
 const taskRules: AppendGuard = (projections, event) => {
 	switch (event.kind) {
 		case "TaskAssigned":
-			return conductorAssignment(projections, event);
+			return (
+				conductorAssignment(projections, event) ??
+				reasonOf(activeAgent(projections.org, event.payload.assignee))
+			);
+		case "TaskHandedOff":
+			return reasonOf(activeAgent(projections.org, event.payload.to));
 		case "TaskCompleted": {
 			const task = projections.tasks.tasks.get(event.payload.task_id);
 			return task === undefined
