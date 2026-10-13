@@ -1,12 +1,16 @@
-import type { AgentId } from "../ids.js";
+import type { AgentId, Seq } from "../ids.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 
-/** One Agent as the Org Projection sees it: its current definition and status. */
+/**
+ * One Agent as the Org Projection sees it: its current definition, its
+ * status, and the seq of its latest Org Event.
+ */
 export type AgentState = {
 	readonly definition: AgentDefinition;
 	readonly paused: boolean;
 	readonly retired: boolean;
+	readonly lastSeq: Seq;
 };
 
 /** Every Agent ever recruited, in Recruitment order. Retired Agents stay. */
@@ -17,11 +21,14 @@ export type OrgState = {
 const withAgent = (
 	state: OrgState,
 	id: AgentId,
-	change: (agent: AgentState) => AgentState,
+	lastSeq: Seq,
+	change: (agent: AgentState) => Omit<AgentState, "lastSeq">,
 ): OrgState | Refusal => {
 	const agent = state.agents.get(id);
 	if (agent === undefined) return new Refusal(notInOrg(id));
-	return { agents: new Map(state.agents).set(id, change(agent)) };
+	return {
+		agents: new Map(state.agents).set(id, { ...change(agent), lastSeq }),
+	};
 };
 
 export const notInOrg = (id: AgentId) => `${id} is not in the Org`;
@@ -42,25 +49,29 @@ export const OrgProjection: Projection<OrgState> = {
 						definition: event.payload,
 						paused: false,
 						retired: false,
+						lastSeq: event.seq,
 					}),
 				};
 			}
 			case "AgentDefinitionRevised": {
 				const { definition } = event.payload;
-				return withAgent(state, definition.id, (a) => ({ ...a, definition }));
+				return withAgent(state, definition.id, event.seq, (a) => ({
+					...a,
+					definition,
+				}));
 			}
 			case "AgentPaused":
-				return withAgent(state, event.payload.agent_id, (a) => ({
+				return withAgent(state, event.payload.agent_id, event.seq, (a) => ({
 					...a,
 					paused: true,
 				}));
 			case "AgentResumed":
-				return withAgent(state, event.payload.agent_id, (a) => ({
+				return withAgent(state, event.payload.agent_id, event.seq, (a) => ({
 					...a,
 					paused: false,
 				}));
 			case "AgentRetired":
-				return withAgent(state, event.payload.agent_id, (a) => ({
+				return withAgent(state, event.payload.agent_id, event.seq, (a) => ({
 					...a,
 					retired: true,
 				}));

@@ -6,16 +6,11 @@ import {
 	parseOrUsage,
 	withLedger,
 } from "../cli-support.js";
-import {
-	type CommandContext,
-	type CommandTable,
-	UsageError,
-} from "../command.js";
-import type { NewEvent } from "../events.js";
-import { payloadText } from "../gate/projection.js";
+import { type CommandTable, UsageError } from "../command.js";
 import { requestGate } from "../gate/request.js";
 import { AgentId, GateId } from "../ids.js";
 import { AgentDefinition } from "../types/agent-definition.js";
+import { pause, resume, retire, revise } from "./lifecycle.js";
 import { renderTree, tree } from "./projection.js";
 import { rosterDefinitions, seedOrg } from "./seed.js";
 
@@ -54,12 +49,6 @@ const needReason = (command: string, reason: string | undefined) => {
 	return reason;
 };
 
-const appendOne = (ctx: CommandContext, event: NewEvent, done: string) => {
-	withLedger(ctx.home, true, (ledger) => ledger.append(event));
-	ctx.stdout.write(`${done}\n`);
-	return 0;
-};
-
 const readJson = (file: string): unknown => {
 	try {
 		return JSON.parse(readFileSync(file, "utf8"));
@@ -74,7 +63,9 @@ export const orgCommands: CommandTable = {
 			"Recruit the eight-agent starting roster; a second run appends nothing",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ids = withLedger(ctx.home, true, seedOrg);
+			const ids = withLedger(ctx.home, true, seedOrg).map(
+				(r) => r.agent.definition.id,
+			);
 			if (ids.length === 0) {
 				const count = rosterDefinitions().length;
 				ctx.stdout.write(
@@ -101,15 +92,12 @@ export const orgCommands: CommandTable = {
 		describe: "Pause an Agent",
 		run: async (args, ctx) => {
 			const { id, reason, actor } = parse("pause", args, ["id"]);
-			return appendOne(
-				ctx,
-				{
-					actor,
-					kind: "AgentPaused",
-					payload: { agent_id: id, reason: needReason("pause", reason) },
-				},
-				`Paused ${id}`,
+			const why = needReason("pause", reason);
+			withLedger(ctx.home, true, (ledger) =>
+				pause(ledger, { actor, agent_id: id, reason: why }),
 			);
+			ctx.stdout.write(`Paused ${id}\n`);
+			return 0;
 		},
 	},
 	resume: {
@@ -117,11 +105,11 @@ export const orgCommands: CommandTable = {
 		describe: "Resume a paused Agent",
 		run: async (args, ctx) => {
 			const { id, actor } = parse("resume", args, ["id"]);
-			return appendOne(
-				ctx,
-				{ actor, kind: "AgentResumed", payload: { agent_id: id } },
-				`Resumed ${id}`,
+			withLedger(ctx.home, true, (ledger) =>
+				resume(ledger, { actor, agent_id: id }),
 			);
+			ctx.stdout.write(`Resumed ${id}\n`);
+			return 0;
 		},
 	},
 	retire: {
@@ -151,19 +139,14 @@ export const orgCommands: CommandTable = {
 				);
 			}
 			const gate_id = parseOrUsage(GateId, gate, "--gate must look like G-1");
-			withLedger(ctx.home, true, (ledger) => {
-				const requested = ledger.projections.gates.gates.get(gate_id);
-				const gateReason = requested && payloadText(requested, "reason");
-				ledger.append({
+			withLedger(ctx.home, true, (ledger) =>
+				retire(ledger, {
 					actor: { tag: "Operator" },
-					kind: "AgentRetired",
-					payload: {
-						agent_id: id,
-						reason: reason ?? gateReason ?? `Retired through ${gate_id}`,
-						gate_id,
-					},
-				});
-			});
+					agent_id: id,
+					gate_id,
+					reason,
+				}),
+			);
 			ctx.stdout.write(`Retired ${id} through ${gate_id}\n`);
 			return 0;
 		},
@@ -185,11 +168,11 @@ export const orgCommands: CommandTable = {
 					`org revise ${id}: ${file} defines ${definition.id}, not ${id}`,
 				);
 			}
-			return appendOne(
-				ctx,
-				{ actor, kind: "AgentDefinitionRevised", payload: { definition } },
-				`Revised ${id} to version ${definition.version}`,
+			withLedger(ctx.home, true, (ledger) =>
+				revise(ledger, { actor, definition }),
 			);
+			ctx.stdout.write(`Revised ${id} to version ${definition.version}\n`);
+			return 0;
 		},
 	},
 };

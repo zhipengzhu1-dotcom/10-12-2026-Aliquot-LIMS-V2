@@ -16,6 +16,7 @@ import {
 	openLedger,
 	openMemoryLedger,
 } from "../ledger.js";
+import { retire as retireAgent } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
 import type { Storage } from "../storage.js";
 import {
@@ -265,14 +266,11 @@ export const scenario = (
 
 	/** Retire `agent` through an approved RetireAgent Gate. */
 	const retire = (agent: AgentId, reason: string) =>
-		appendNonTask({
+		retireAgent(ledger, {
 			actor: operator,
-			kind: "AgentRetired",
-			payload: {
-				agent_id: agent,
-				reason,
-				gate_id: gate("RetireAgent", { agent_id: agent }),
-			},
+			agent_id: agent,
+			gate_id: gate("RetireAgent", { agent_id: agent }),
+			reason,
 		});
 
 	return {
