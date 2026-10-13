@@ -47,19 +47,35 @@ type EventBody =
 	| { kind: "AgentDefinitionRevised"; payload: { definition: AgentDefinition } }
 	| { kind: "TaskAssigned"; payload: { task_id: TaskId; assignee: AgentId } }
 	| { kind: "GateDecided"; payload: GateDecision }
-	| { kind: "VitalitySampled"; payload: Vitality };
-	// and the rest of the initial set below
+	| { kind: "VitalitySampled"; payload: Vitality }
+	| { kind: "TurnStarted"; payload: { turn_id: TurnId; agent: AgentId; model: string; mood: Mood; policy: Policy } }
+	| { kind: "TurnFinished"; payload: { turn_id: TurnId; usage: TurnUsage; outcome: TurnOutcome; tool_calls: number } };
+	// and the rest of the set below
+
+type TurnUsage = {
+	input_tokens: number;
+	output_tokens: number;
+	cache_creation_tokens: number;
+	cache_read_tokens: number;
+	cost_usd: number;
+};
+
+type TurnOutcome =
+	| { tag: "Completed" }
+	| { tag: "MaxTurns" }
+	| { tag: "Budget" }
+	| { tag: "Error"; message: string };
 ```
 
-The Ledger keeps every Projection: Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, and Artifacts. It builds them from its Events once when it opens (ADR-0001), and it advances each one by every Event it appends. A writer and a read-only opener build the same Projections from the same Events. Guards and commands read these Projections. No module outside the Ledger folds the Events.
+The Ledger keeps every Projection: Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, and Turns. It builds them from its Events once when it opens (ADR-0001), and it advances each one by every Event it appends. A writer and a read-only opener build the same Projections from the same Events. Guards and commands read these Projections. No module outside the Ledger folds the Events.
 
 Before the Ledger writes an Event, it advances the Projections by it and runs every guard. Each guard reads the Projections as they stood before the Event. A Projection that cannot apply the Event, or a guard, returns a reason. The Ledger then refuses the Event with `<Kind> refused: <reason>` and writes nothing. The guards always run on an append, and no option turns one off. Opening a Ledger does not run them again ([ADR-0012](../adr/0012-opening-a-ledger-does-not-rerun-the-guards.md)), so a Ledger written under older rules still opens. Only a stored Event that a Projection cannot apply makes the Ledger corrupt: opening it fails and names the `seq` and the reason. `ledger verify` reads only the hash chain, so it still reports on such a Ledger.
 
 The Ledger stores its Events in SQLite, in `<home>/ledger.sqlite`, with one writer (ADR-0008). Tests use in-memory storage instead. Numbering, the hash chain, the guards, and the Projections all live in the Ledger, above the storage, so both storages run the same rules. SQLite stays the production storage, and the tests of persistence, the writer lock, and the chain on disk run on it.
 
-The actor `Conductor` authors only the tier Revisions that Merit and Gates require (ADR-0011). The Ledger refuses any other Event it authors. Only an Event's `actor` and a definition's `revised_by` can name it, so no payload can make the Conductor a reviewer, an escalation target, or a Skill author. No command line acts as the Conductor.
+The actor `Conductor` authors the tier Revisions that Merit and Gates require (ADR-0011), and records its own acts ([ADR-0013](../adr/0013-the-conductor-records-its-own-acts.md)): the `TurnStarted` and `TurnFinished` of each Turn it schedules. The Ledger refuses any other Event it authors, and refuses a Turn Event from any actor but the Conductor. Only an Event's `actor` and a definition's `revised_by` can name it, so no payload can make the Conductor a reviewer, an escalation target, or a Skill author. No command line acts as the Conductor.
 
-The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`.
+The initial kinds are `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`, `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `RoomOpened`, `MessageSent`, `HelpRequested`, `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored`, `EvaluationRecorded`, `ReviewRecorded`, `VitalitySampled`, `RestOrdered`, `GateRequested`, `GateDecided`, `HumanCoached`, `MemoryNoted`, and `SkillPublished`. Slice 1 adds `TurnStarted` and `TurnFinished`.
 
 Only a domain's lifecycle module appends Events, and no command appends a raw one. Each verb mints the ids and derives `causation_id` from the Projections, so the Ledger records the true cause of every Event. `lifecycle-support.ts` holds what the verbs share: `Origin`, the actor and any cause from outside the domain; `Recorded`, the entity as the Event left it with the Event's seq, which each verb returns; and `readBack`, which reads that entity from the Projections after the append. A verb decides each refusal before it builds the Event, through the predicate the guard uses, and throws it with `orRefuse` from `append-guard.ts`. The lifecycle modules and the kinds each one appends:
 
@@ -71,6 +87,7 @@ Only a domain's lifecycle module appends Events, and no command appends a raw on
 | `room/lifecycle.ts` | `RoomOpened`, `MessageSent` |
 | `sandbox/lifecycle.ts` | `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored` |
 | `vitality/lifecycle.ts` | `VitalitySampled`, `RestOrdered` |
+| `turn/lifecycle.ts` | `TurnStarted`, `TurnFinished`, always as the Conductor (ADR-0013) |
 | `stage1/lifecycle.ts` | `EvaluationRecorded` |
 
 The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). No lifecycle appends `HelpRequested`, `HumanCoached`, `MemoryNoted` or `SkillPublished` yet. Those kinds are reserved for a later slice, and no command writes them. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
@@ -108,6 +125,11 @@ type AgentDefinition = {
 A Task moves through a state machine. A Hand-off is a transition back to `Assigned` with a new assignee, not a state of its own. A Task that the Trust tier rules do not select for Review goes from `InProgress` straight to `Done`. A `Done` Task keeps its assignee, so the Task Projection alone says whose work a Review scores.
 
 One module, the Task lifecycle (`task/lifecycle.ts`), appends every Task Event: it proposes, assigns, starts, hands off, escalates, completes, reviews, and fails a Task, and blocks one on a Gate it requests. Each verb mints the ids it needs from the Projections and returns the new Task and the seq it appended. Each verb also names the Event's cause in `causation_id`, from the Projections. The cause is the Task's previous Event, which the Task Projection keeps, or for a completion after Review the reviewer's `ReviewRecorded`. A caller names a cause only when it lies outside the Task, as the stage 1 tracer names the `EvaluationRecorded` it completes a Task on. A verb that the Projections already refuse, such as a Hand-off of a Task that is not `InProgress`, is refused before the verb builds an Event, in the same words. Completing a Task decides its Review: the verb asks the Trust tier whether the sample picks the Task. If it does, the Task goes `UnderReview` with the named reviewer, and a completion that names none is refused as sampled for Review. If it does not, the Review is skipped, and a named reviewer is unused. So `task complete <id>` takes only `--reviewer` and `--output`, and on a Task `UnderReview` it completes the Task after Review.
+
+Two rules from `docs/design/vitality-and-merit.md` decide who takes a Task and who reviews it. Each is one predicate. The Ledger's guard refuses an Event with it, and the lifecycle verb refuses with it before it builds the Event, so both refusals use the same words.
+
+- The reviewer rule (`vitality/reviewers.ts`). The role of the assignee decides the reviewer: either Supervisor for a Specialist, the Director for a Supervisor, and the Operator for the Director, the Steward, and the Auditor. The Auditor may review any Task, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`. No one reviews their own Task. One predicate decides both the reviewer that a `TaskCompleted` names and the actor of a `ReviewRecorded`, so the two cannot disagree. A refusal names the assignee, its role, and who may review it. The design names no reviewer for the Developer and the Tester, so until they join in slice 2 they take the Specialists' rule.
+- The Mood rule. A `TaskAssigned` or a `TaskHandedOff` is refused when the Policy of the new assignee's Mood does not let it accept Tasks: when it is `strained`, `overloaded`, `discouraged`, or `resting`. The refusal names the Agent and its Mood. The Mood comes from the Agent's latest `VitalitySampled`, with Rest and Tasks `InProgress` read from the Ledger as it stands. A guard reads no clock, so it cannot take a new sample. An Agent with no sample counts as one with no work, so it is `fresh` unless Rest or a Task `InProgress` changes that. A new sample or the end of Rest lifts the refusal.
 
 ```ts
 type TaskState =
@@ -216,7 +238,11 @@ declare function moodOf(v: Vitality, restInEffect: boolean, hasTaskInProgress: b
 declare function policyOf(m: Mood): Policy;
 ```
 
-One module, the Vitality lifecycle (`vitality/lifecycle.ts`), appends every Vitality Event. It samples a live Agent's Vitality from the Ledger and returns the sample and the seq it appended. A sample names no cause, because the end of a Turn lies outside Vitality. It orders Rest for an Agent or ends it, and returns the seq. A Rest order names the Agent's previous `VitalitySampled` or `RestOrdered` as its cause: the Vitality it acts on, or the Rest it ends. A Rest order that the Rest guard would refuse is refused before the verb builds an Event, in the same words.
+`fatigue` is the sum of input, output and cache creation tokens of the Agent's `TurnFinished` Events in the trailing 5 hours, divided by its share of the Energy budget. Cache reads are recorded but not counted. The Turn Projection keeps each Agent's open Turn and every Turn with its start and finish times, and answers the tokens one Agent, or the whole society, used in a window.
+
+One module, the Turn lifecycle (`turn/lifecycle.ts`), appends both Turn Events, always as the Conductor. Starting a Turn mints `TN-<n>` from the Turn Projection and records the model and the Mood and Policy that `vitality show` gives the Agent at that moment. It is refused for an Agent that is not live, is resting, is paused, or already has an open Turn. Finishing a Turn names its `TurnStarted` as the cause, and is refused for a Turn that is unknown or already finished. No command writes a Turn Event. `turn list` prints them.
+
+One module, the Vitality lifecycle (`vitality/lifecycle.ts`), appends every Vitality Event. It samples a live Agent's Vitality from the Ledger and returns the sample and the seq it appended. A sample taken at the end of a Turn names that Turn's `TurnFinished` as its cause, which the caller gives because it lies outside Vitality. A sample from the command line names none. It orders Rest for an Agent or ends it, and returns the seq. A Rest order names the Agent's previous `VitalitySampled` or `RestOrdered` as its cause: the Vitality it acts on, or the Rest it ends. A Rest order that the Rest guard would refuse is refused before the verb builds an Event, in the same words.
 
 ### 7. Merit and Trust tier
 
@@ -304,7 +330,7 @@ Five parts run on the Operator's Mac. Cloudflare carries only the Operator's bro
                                +--> Docker sandbox: Python scripts, toy LIMS SQLite, artifacts
 ```
 
-**Conductor.** The Conductor is a TypeScript process on Node. It is the only writer to the SQLite Ledger. It schedules Turns, enforces Policy, serves the interface, and streams Ledger Events over SSE. Each Turn is one `query()` call from `@anthropic-ai/claude-agent-sdk`. The Agent's tools are an in-process MCP server that exposes Ledger-backed verbs: `read_tasks`, `send_message`, `read_room`, `open_room`, `request_help`, `hand_off`, `run_script`, `propose_revision`, `request_gate`, `note_memory`, and `publish_skill`. A `PreToolUse` hook records every tool call in the Ledger and blocks the Charter's forbidden actions. The hook does this job because allow rules bypass `canUseTool`. `maxTurns` and `maxBudgetUsd` cap each Turn. The `modelUsage` field of each result feeds fatigue.
+**Conductor.** The Conductor is a TypeScript process on Node. It is the only writer to the SQLite Ledger. It schedules Turns, enforces Policy, serves the interface, and streams Ledger Events over SSE. Each Turn is one `query()` call from `@anthropic-ai/claude-agent-sdk`. The Agent's tools are an in-process MCP server that exposes Ledger-backed verbs: `read_tasks`, `send_message`, `read_room`, `open_room`, `request_help`, `hand_off`, `run_script`, `propose_revision`, `request_gate`, `note_memory`, and `publish_skill`. A `PreToolUse` hook records every tool call in the Ledger and blocks the Charter's forbidden actions. The hook does this job because allow rules bypass `canUseTool`. `maxTurns` and `maxBudgetUsd` cap each Turn. The Conductor records each Turn as a `TurnStarted`, with the Agent's model, Mood and Policy, and a `TurnFinished`, with the usage the result reports, its outcome and its number of tool calls (ADR-0013). Fatigue is computed from the `TurnFinished` Events.
 
 **Authentication.** The Agent SDK spawns the `claude` CLI, which uses the subscription login when no API key is set. The SDK documentation, read on 2026-10-12 for SDK 0.3.296, lists subscription OAuth last in precedence. It says `claude setup-token` and `CLAUDE_CODE_OAUTH_TOKEN` authenticate scripts with a subscription. It also says third-party developers may not offer claude.ai login in products built on the SDK, and it says nothing about personal internal tools. Authentication is one module, so an API key with `maxBudgetUsd` can replace it. Two Turns run at the same time to start. The Energy budget is the subscription's 5-hour window.
 

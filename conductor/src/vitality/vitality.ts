@@ -1,5 +1,6 @@
 import type { AgentId, TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
+import { tokensInWindow } from "../turn/projection.js";
 import type { Vitality } from "../types/vitality.js";
 import {
 	type DatedReview,
@@ -14,13 +15,9 @@ export type SampleOptions = {
 	readonly now: Date;
 	/** Tokens per 5-hour window for the whole society, set by the Operator. */
 	readonly energyBudgetTokens: number;
-	/**
-	 * Tokens the Agent used in the rolling 5-hour window. No Event carries
-	 * token use yet; from slice 1 the Conductor supplies it from each Turn's
-	 * `modelUsage`. Defaults to 0.
-	 */
-	readonly tokensUsedInWindow?: number;
 };
+
+const FIVE_HOURS_MS = 5 * 3_600_000;
 
 /** The latest RestOrdered for the Agent is a `begin`. */
 export const restInEffect = (work: WorkState, agent: AgentId): boolean =>
@@ -50,7 +47,13 @@ export const sampleVitality = (
 	return {
 		agent,
 		load: openTasks(projections.tasks, agent).open / definition.capacity,
-		fatigue: (options.tokensUsedInWindow ?? 0) / share,
+		fatigue:
+			tokensInWindow(
+				projections.turns,
+				agent,
+				new Date(options.now.getTime() - FIVE_HOURS_MS),
+				options.now,
+			) / share,
 		...fromRecentWork(work, agent),
 		morale: morale(workOf(work, agent).reviews, options.now),
 	};

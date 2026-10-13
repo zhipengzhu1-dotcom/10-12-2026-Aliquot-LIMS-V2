@@ -19,7 +19,7 @@ A member of the society that acts in Turns under one Agent definition.
 _Avoid_: bot, worker, assistant, instance
 
 **Turn**:
-One bounded unit of agent activity that the Conductor schedules, from the prompt it sends to the result it records.
+One bounded unit of agent activity that the Conductor schedules, from the prompt it sends to the result it records. The Conductor records each Turn in the Ledger as a `TurnStarted`, with the Agent's model, Mood and Policy, and a `TurnFinished`, with the usage that fatigue is computed from.
 _Avoid_: session, step, tick
 
 **Agent definition**:
@@ -141,7 +141,7 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require.
+The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns.
 _Avoid_: orchestrator, server, backend, scheduler
 
 **Interface**:
@@ -183,7 +183,7 @@ _Avoid_: production database, real DB, LIMS
 ### Merit
 
 **Review**:
-A score that a reviewer gives a completed Task on the five-dimension rubric: quality, traceability, boundary adherence, collaboration, and timeliness, each 0 to 3.
+A score that a reviewer gives a completed Task on the five-dimension rubric: quality, traceability, boundary adherence, collaboration, and timeliness, each 0 to 3. The role of the assignee decides the reviewer: a Supervisor reviews a Specialist, the Director reviews a Supervisor, and the Operator reviews the Director, the Steward, and the Auditor. The Auditor may review any Task, and a `Senior` or `Mentor` Agent may review an Agent on `Probation`.
 _Avoid_: grade, rating, feedback, verification (Verification is a lab term)
 
 **Merit**:

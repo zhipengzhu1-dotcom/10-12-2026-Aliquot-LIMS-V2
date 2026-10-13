@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgentId, Seq } from "./ids.js";
+import { AgentId, Seq, TurnId } from "./ids.js";
 import { type Scenario, scenario } from "./test-support/scenario.js";
 import type { Actor, EventActor } from "./types/actor.js";
 import type { AgentDefinition } from "./types/agent-definition.js";
+import { policyOf } from "./vitality/policy.js";
 
 const rin = AgentId.parse("A-rin");
 const operator: Actor = { tag: "Operator" };
@@ -155,6 +156,54 @@ describe("ADR rules the slice-0 review found missing", () => {
 		it("refuses a Conductor Revision to a tier other than the projected one", () => {
 			expect(tierRevision({ trust_tier: "Trusted" })).toThrow(
 				"AgentDefinitionRevised refused: A-rin's projected Trust tier is Probation, not Trusted",
+			);
+		});
+	});
+
+	describe("the Conductor records its own acts, and no one else records them (ADR-0013)", () => {
+		const conductor: EventActor = { tag: "Conductor" };
+		const turnStarted = (actor: EventActor) => () =>
+			s.appendNonTask({
+				actor,
+				kind: "TurnStarted",
+				payload: {
+					turn_id: TurnId.parse("TN-1"),
+					agent: rin,
+					model: "claude-opus-5-5",
+					mood: "fresh",
+					policy: policyOf("fresh"),
+				},
+			});
+
+		it("accepts a Turn by the Conductor and refuses one by the Operator or an Agent", () => {
+			expect(turnStarted(operator)).toThrow(
+				"TurnStarted refused: only the Conductor records a Turn; Operator tried to record TN-1",
+			);
+			expect(turnStarted({ tag: "Agent", id: rin })).toThrow(
+				"TurnStarted refused: only the Conductor records a Turn; A-rin tried to record TN-1",
+			);
+			expect(turnStarted(conductor)()).toMatchObject({
+				kind: "TurnStarted",
+				actor: conductor,
+			});
+		});
+
+		it("still refuses every Conductor Event that is neither its own act nor a tier Revision", () => {
+			expect(() =>
+				s.appendNonTask({
+					actor: conductor,
+					kind: "VitalitySampled",
+					payload: {
+						agent: rin,
+						load: 0,
+						fatigue: 0,
+						friction: 0,
+						confidence: 1,
+						morale: 0,
+					},
+				}),
+			).toThrow(
+				"VitalitySampled refused: the Conductor authors only tier Revisions",
 			);
 		});
 	});

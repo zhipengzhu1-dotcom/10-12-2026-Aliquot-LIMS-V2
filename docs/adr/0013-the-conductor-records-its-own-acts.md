@@ -1,0 +1,21 @@
+---
+status: proposed
+---
+
+# The Conductor records its own acts
+
+The Conductor schedules Turns, and fatigue is the tokens an Agent's Turns used in the rolling 5-hour window (ADR-0004). Fatigue must come from the Ledger, so the Ledger must record each Turn and its usage. The Conductor starts a Turn and receives its result. No Agent and not the Operator does either. So the Conductor records the Events it causes itself, its own acts: `TurnStarted` and `TurnFinished` now, and the refusals that a later ticket adds. This amends ADR-0011, which says that the Conductor authors only tier Revisions. The Conductor still authors the tier Revisions of ADR-0011, and the Ledger still refuses every other Event by the Conductor.
+
+Each act is recorded by the actor `Conductor` and by no one else. The Ledger refuses a `TurnStarted` or a `TurnFinished` from an Agent or the Operator. A `TurnFinished` names its Turn's `TurnStarted` in `causation_id`. No command line acts as the Conductor, so no command writes these Events. The Turn lifecycle (`conductor/src/turn/lifecycle.ts`) appends them, and the Conductor's Turn loop calls it.
+
+## Considered Options
+
+- The Operator as author. Rejected for the reason ADR-0011 gives: it records a decision the Operator never made.
+- The Agent as author of its own Turn. Rejected because an Agent does not start its Turn, and its usage is what the model reports to the Conductor, not what the Agent says.
+- Token use outside the Ledger, in a log or a counter. Rejected because a Vitality sample must be recomputable from the Ledger (ADR-0004), and the Auditor must be able to check every Mood.
+
+## Consequences
+
+- Fatigue is the sum of input, output and cache creation tokens of the Agent's `TurnFinished` Events in the trailing 5 hours, divided by its share of the Energy budget. Cache reads are recorded but not counted. `vitality sample` takes no token count from the command line.
+- A new kind of act joins the list of acts in the Conductor guard (`conductor/src/org/guards.ts`), and its own domain's guard refuses it from any other actor.
+- A Ledger written before this decision holds no Turn Events, so it opens unchanged (ADR-0012), and its Agents' fatigue is 0 until they have Turns.

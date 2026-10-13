@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
 import { type Ledger, openLedger } from "../ledger.js";
 import { scenario, scores } from "../test-support/scenario.js";
+import { finishTurn, startTurn } from "../turn/lifecycle.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const rin = AgentId.parse("A-rin");
@@ -35,6 +36,41 @@ const lastEvent = () => read((l) => l.all().at(-1));
 const storedTier = (agent: AgentId) =>
 	read((l) => l.projections.org.agents.get(agent)?.definition.trust_tier);
 
+/**
+ * Finished Turns of A-rin, oldest first, each finished `hoursAgo` before
+ * now and spending `tokens` of the Energy budget.
+ */
+const rinTurns = (
+	...turns: readonly { hoursAgo: number; tokens: number }[]
+) => {
+	let at = new Date();
+	const ledger = openLedger({ home, writer: true, clock: () => at });
+	try {
+		for (const { hoursAgo, tokens } of turns) {
+			at = new Date(Date.now() - hoursAgo * 3_600_000);
+			const { turn } = startTurn(ledger, {
+				agent: rin,
+				model: "claude-opus-5-5",
+				energyBudgetTokens: 8000,
+			});
+			finishTurn(ledger, {
+				turn_id: turn.started.turn_id,
+				usage: {
+					input_tokens: tokens,
+					output_tokens: 0,
+					cache_creation_tokens: 0,
+					cache_read_tokens: 40_000,
+					cost_usd: 0.05,
+				},
+				outcome: { tag: "Completed" },
+				tool_calls: 4,
+			});
+		}
+	} finally {
+		ledger.close();
+	}
+};
+
 const ok = (r: ReturnType<typeof aliquot>) => {
 	expect(r.stderr).toBe("");
 	expect(r.status).toBe(0);
@@ -55,8 +91,8 @@ afterEach(() => {
 });
 
 describe("aliquot vitality", () => {
-	it("review refuses a score outside 0 to 3, then records a Review and the Trust tier Revision it earns", () => {
-		const review = (quality: string) =>
+	it("review refuses a score outside 0 to 3 and a reviewer the assignee's role does not allow, then records a Review and the Trust tier Revision it earns", () => {
+		const review = (quality: string, ...as: string[]) =>
 			vitality(
 				"review",
 				"T-10",
@@ -72,15 +108,21 @@ describe("aliquot vitality", () => {
 				"2",
 				"--note",
 				"Late by an hour",
+				...as,
 			);
 
-		const four = review("4");
+		const four = review("4", "--as", "A-pia");
 		expect(four.status).toBe(2);
 		expect(four.stderr.split("\n")[0]).toBe(
 			'UsageError: --quality must be a score 0, 1, 2 or 3, not "4"',
 		);
-		expect(ok(review("3"))).toBe(
-			"Recorded a Review of T-10 by Operator: mean 2.80\n" +
+		const byOperator = review("3");
+		expect(byOperator.status).toBe(1);
+		expect(byOperator.stderr).toContain(
+			"ReviewRecorded refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); Operator may not review T-10",
+		);
+		expect(ok(review("3", "--as", "A-pia"))).toBe(
+			"Recorded a Review of T-10 by A-pia: mean 2.80\n" +
 				"Revised A-rin to version 2: Trust tier Probation -> Trusted: Merit 2.98 over 10 reviewed Tasks\n",
 		);
 		expect(storedTier(rin)).toBe("Trusted");
@@ -139,9 +181,15 @@ describe("aliquot vitality", () => {
 		});
 	});
 
-	it("sample appends a Vitality sample computed from the Ledger", () => {
+	it("show and sample compute fatigue from A-rin's Turns in the trailing 5 hours", () => {
+		rinTurns({ hoursAgo: 6, tokens: 90_000 }, { hoursAgo: 1, tokens: 300 });
+
+		expect(ok(vitality("show", "A-rin"))).toMatch(
+			/^A-rin Rin load=0\.00 fatigue=0\.00 /,
+		);
 		expect(
-			ok(vitality("sample", "A-rin", "--tokens", "300", "--budget", "8000")),
+			ok(vitality("sample", "A-rin", "--budget", "8000")),
+			"300 tokens of a 1000-token share",
 		).toBe(
 			"Sampled A-rin: load=0.00 fatigue=0.30 friction=0.00 confidence=1.00 morale=0.00\n",
 		);
@@ -149,5 +197,21 @@ describe("aliquot vitality", () => {
 			kind: "VitalitySampled",
 			payload: { agent: "A-rin", fatigue: 0.3 },
 		});
+		expect(lastEvent()).not.toHaveProperty("causation_id");
+	});
+
+	it("show computes fatigue from Turns for an Agent never sampled", () => {
+		rinTurns({ hoursAgo: 1, tokens: 100_000 });
+
+		expect(
+			ok(vitality("show", "A-rin")),
+			"100,000 tokens of a 125,000-token share",
+		).toMatch(/^A-rin Rin load=0\.00 fatigue=0\.80 .* mood=overloaded /);
+	});
+
+	it("sample has no --tokens", () => {
+		const r = vitality("sample", "A-rin", "--tokens", "300");
+		expect(r.status).toBe(2);
+		expect(r.stderr.split("\n")[0]).toMatch(/Unknown option '--tokens'/);
 	});
 });

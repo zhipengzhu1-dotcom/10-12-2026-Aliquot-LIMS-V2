@@ -190,7 +190,7 @@ const CASES: Record<Verb, Case> = {
 	},
 	"task-review": {
 		body: (s) => ({
-			task_id: s.submitted(AgentId.parse("A-rin")),
+			task_id: s.submitted(AgentId.parse("A-odile")),
 			...SCORES,
 			note: "Clean",
 		}),

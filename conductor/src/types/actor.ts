@@ -10,8 +10,9 @@ export type Actor = z.infer<typeof Actor>;
 
 /**
  * Who appends an Event: an Actor, or the `Conductor`, which authors only the
- * tier Revisions that Merit and Gates require (ADR-0011). No payload field
- * but `revised_by` can name the Conductor, and no command line can act as it.
+ * tier Revisions that Merit and Gates require (ADR-0011) and the records of
+ * its own acts, such as Turns (ADR-0013). No payload field but `revised_by`
+ * can name the Conductor, and no command line can act as it.
  */
 export const EventActor = z.discriminatedUnion("tag", [
 	...Actor.options,

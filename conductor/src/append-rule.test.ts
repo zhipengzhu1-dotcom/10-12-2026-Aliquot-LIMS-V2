@@ -29,12 +29,14 @@ const REFUSED = [
 	"src/room/commands.ts",
 	"src/sandbox/runner.ts",
 	"src/task/commands.ts",
+	"src/turn/commands.ts",
 ];
 const ALLOWED = [
 	"src/ledger.ts",
 	"src/task/commands.test.ts",
 	"src/task/lifecycle.ts",
 	"src/test-support/scenario.ts",
+	"src/turn/lifecycle.ts",
 ];
 
 const LEDGER = "type Ledger = { append(event: unknown): unknown };\n";

@@ -1,13 +1,33 @@
-import type { AppendGuard } from "../append-guard.js";
+import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import type { AgentId, TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
+import { Refusal } from "../reduce.js";
 import { actorText } from "../types/actor.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Task } from "../types/task.js";
+import { currentMood } from "../vitality/mood.js";
+import { policyOf } from "../vitality/policy.js";
+import { reviewerRefusal } from "../vitality/reviewers.js";
 import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
 import { reviewsBy } from "../vitality/work.js";
+
+/**
+ * An Agent takes a Task, by assignment or Hand-off, only while the Policy of
+ * its current Mood lets it accept one: never when it is `strained` or worse
+ * (docs/design/vitality-and-merit.md, "Allocation favors trusted, unloaded
+ * Agents").
+ */
+export const assigneeRefusal = (
+	projections: Projections,
+	agent: AgentId,
+): Refusal | undefined => {
+	const mood = currentMood(projections, agent);
+	return policyOf(mood).mayAcceptTasks
+		? undefined
+		: new Refusal(`${agent} is ${mood} and may not accept a Task`);
+};
 
 /** Why a Task the sample picks for Review may not complete without a reviewer. */
 export const sampledRefusal = (
@@ -25,8 +45,9 @@ export const sampledRefusal = (
 /**
  * Review follows the Trust tier (docs/design/vitality-and-merit.md): a Task
  * skips Review only when the sample for its assignee's tier does not pick
- * it, and a Task completes after Review only once the reviewer it names has
- * recorded a Review, and only by that reviewer.
+ * it, goes UnderReview only to a reviewer that the assignee's role allows,
+ * and completes after Review only once that reviewer has recorded a Review,
+ * and only by that reviewer.
  */
 const reviewRefusal = (
 	projections: Projections,
@@ -43,6 +64,11 @@ const reviewRefusal = (
 		);
 		return sampled ? sampledRefusal(task.id, state.assignee, tier) : undefined;
 	}
+	if (review.tag === "Required" && state.tag === "InProgress") {
+		return reasonOf(
+			reviewerRefusal(projections, task.id, state.assignee, review.reviewer),
+		);
+	}
 	if (review.tag === "Reviewed" && state.tag === "UnderReview") {
 		if (reviewsBy(projections.work, task.id, state.reviewer).length === 0) {
 			return `${task.id} has no Review by ${actorText(state.reviewer)}, its reviewer`;
@@ -55,15 +81,25 @@ const reviewRefusal = (
 };
 
 /**
- * The Review rules on completion. The Task state machine itself is the Task
- * Projection's, which refuses every Event it cannot express.
+ * The Review rules on completion, and the Mood rule on whoever takes a Task.
+ * The Task state machine itself is the Task Projection's, which refuses
+ * every Event it cannot express.
  */
 const taskRules: AppendGuard = (projections, event) => {
-	if (event.kind !== "TaskCompleted") return undefined;
-	const task = projections.tasks.tasks.get(event.payload.task_id);
-	return task === undefined
-		? undefined
-		: reviewRefusal(projections, task, event);
+	switch (event.kind) {
+		case "TaskAssigned":
+			return reasonOf(assigneeRefusal(projections, event.payload.assignee));
+		case "TaskHandedOff":
+			return reasonOf(assigneeRefusal(projections, event.payload.to));
+		case "TaskCompleted": {
+			const task = projections.tasks.tasks.get(event.payload.task_id);
+			return task === undefined
+				? undefined
+				: reviewRefusal(projections, task, event);
+		}
+		default:
+			return undefined;
+	}
 };
 
 export const taskGuards: readonly AppendGuard[] = [taskRules];
