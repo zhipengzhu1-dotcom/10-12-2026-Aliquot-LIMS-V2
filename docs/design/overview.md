@@ -198,6 +198,8 @@ declare function moodOf(v: Vitality, restInEffect: boolean, hasTaskInProgress: b
 declare function policyOf(m: Mood): Policy;
 ```
 
+One module, the Vitality lifecycle (`vitality/lifecycle.ts`), appends every Vitality Event. It samples a live Agent's Vitality from the Ledger and returns the sample and the seq it appended. A sample names no cause, because the end of a Turn lies outside Vitality. It orders Rest for an Agent or ends it, and returns the seq. A Rest order names the Agent's previous `VitalitySampled` or `RestOrdered` as its cause: the Vitality it acts on, or the Rest it ends. A Rest order that the Rest guard would refuse is refused before the verb builds an Event, in the same words.
+
 ### 7. Merit and Trust tier
 
 A Review scores a completed Task on five dimensions. Merit is the rolling mean. The Trust tier is a Projection of Merit, tenure and approved `PromoteToMentor` Gates. One approved Gate covers one Promotion to Mentor.

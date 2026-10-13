@@ -13,9 +13,9 @@ import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { Score } from "../types/merit.js";
 import type { Policy, Vitality } from "../types/vitality.js";
+import { orderRest, sample } from "./lifecycle.js";
 import { type AgentVitality, vitalityProjection } from "./projection.js";
 import { trustOf } from "./trust.js";
-import { sampleVitality } from "./vitality.js";
 import { mean, scoresOf } from "./work.js";
 
 /**
@@ -132,18 +132,19 @@ export const vitalityCommands: CommandTable = {
 			);
 			return withLedger(ctx.home, true, (ledger) => {
 				const now = new Date();
-				for (const d of liveAgents(ledger.projections.org, only)) {
-					const v = sampleVitality(ledger.projections, d.id, {
+				const agents =
+					only === undefined
+						? liveAgents(ledger.projections.org, undefined).map((d) => d.id)
+						: [only];
+				for (const agent of agents) {
+					const { vitality } = sample(ledger, {
+						actor: OPERATOR,
+						agent,
 						now,
 						energyBudgetTokens,
 						tokensUsedInWindow,
 					});
-					ledger.append({
-						actor: OPERATOR,
-						kind: "VitalitySampled",
-						payload: v,
-					});
-					ctx.stdout.write(`Sampled ${d.id}: ${vector(v)}\n`);
+					ctx.stdout.write(`Sampled ${agent}: ${vector(vitality)}\n`);
 				}
 				return 0;
 			});
@@ -172,16 +173,10 @@ export const vitalityCommands: CommandTable = {
 				);
 			}
 			const action = values.begin ? "begin" : "end";
+			const actor = parseActor(values.as);
+			const reason = required(values.reason, "--reason");
 			withLedger(ctx.home, true, (ledger) =>
-				ledger.append({
-					actor: parseActor(values.as),
-					kind: "RestOrdered",
-					payload: {
-						agent_id: id,
-						action,
-						reason: required(values.reason, "--reason"),
-					},
-				}),
+				orderRest(ledger, { actor, agent_id: id, action, reason }),
 			);
 			ctx.stdout.write(`Rest ${action}s for ${id}\n`);
 			return 0;
