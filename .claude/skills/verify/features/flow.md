@@ -21,11 +21,11 @@ The Flow view at `#/flow` draws one swimlane per stage of the toy workflow and o
 
 Preconditions:
 
-- The baseline of [README.md](./README.md): T-1 to T-5 `Done`, one Lot from seed 1.
+- The baseline of [README.md](./README.md): T-1 to T-6 `Done`, one per stage, one Lot from seed 1; the board has seven lanes, `data-lane="1"` to `"6"` and `data-lane="none"` for a Task with no Run.
 
 - **Whole drive.** Run `scripts/drive.sh "$RUN" flow`.
 - **Lanes.** `scripts/api.sh "$RUN" get stages` gives the stage count n. `scripts/browser.mjs "$RUN" flow/ui goto '#/flow' count '[data-lane]' <n+1> wait '[data-task="T-1"]'`.
-- **Lot filter.** `scripts/api.sh "$RUN" get lots` names the Lot, such as `LT-268123`. `choose 'form.filter select[name=lot]' LT-268123 click 'form.filter button' wait 'form.filter option[selected][value="LT-268123"]' wait '[data-task="T-5"]'`. Every stage's Task carries the Lot, so all five cards stay.
+- **Lot filter.** `scripts/api.sh "$RUN" get lots` names the Lot, such as `LT-268123`. `choose 'form.filter select[name=lot]' LT-268123 click 'form.filter button' wait 'form.filter option[selected][value="LT-268123"]' wait '[data-task="T-6"]' count '[data-task]' 6`. Every stage's Task carries the Lot, so all six cards stay; T-6 is the last card in the last lane, so waiting on it proves the whole board redrew.
 - **Event panel.** `click '[data-task="T-1"]' wait 'aside.panel li[data-seq]' wait 'svg.arrows path' save 'aside.panel' panel.txt`. The panel lists `TaskProposed` through `TaskCompleted` for T-1 with `cause <seq>` on each.
 - **Task filter.** `goto '#/flow?task=T-2' wait '[data-task="T-2"]' gone '[data-task="T-1"]'`.
 - **Proof.** The screenshot sequence, `panel.txt`, and no Ledger row appended (the view only reads): `sqlite3 "$RUN/home/ledger.sqlite" 'select max(seq) from events'` is unchanged.

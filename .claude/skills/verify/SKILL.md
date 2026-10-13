@@ -27,7 +27,7 @@ scripts/launch.sh            # or --port <n>; the default 0 lets the system choo
 RUN=<the path after RUN=>
 ```
 
-It needs Docker up. It runs `pnpm -C conductor install --frozen-lockfile` and `pnpm -C conductor build`, makes a run directory under `$ALIQUOT_VERIFY_ROOT` (default `${TMPDIR:-/tmp}/aliquot-verify`), and seeds `home/` with `org seed`, `workflow run fixtures/submission-form-seed1.docx` (stages 1 to 5 in the Sandbox) and `intake fixtures/submission-form-seed2.docx`. Then it starts `tools/aliquot --home <run>/home serve --port <port> --no-schedule` and waits for the `Serving` line. It records the launcher pid and the pid that holds the Ledger's writer lock in `<run>/run.env`. Every command it ran is in `proof/launch.log`; serve's output is `proof/serve.log`.
+It needs Docker up. It runs `pnpm -C conductor install --frozen-lockfile` and `pnpm -C conductor build`, makes a run directory under `$ALIQUOT_VERIFY_ROOT` (default `${TMPDIR:-/tmp}/aliquot-verify`), and seeds `home/` with `org seed`, `workflow run fixtures/submission-form-seed1.docx` (stages 1 to 6 in the Sandbox, Tasks T-1 to T-6) and `intake fixtures/submission-form-seed2.docx`. Then it starts `tools/aliquot --home <run>/home serve --port <port> --no-schedule` and waits for the `Serving` line. It records the launcher pid and the pid that holds the Ledger's writer lock in `<run>/run.env`. Every command it ran is in `proof/launch.log`; serve's output is `proof/serve.log`.
 
 Isolation is one run directory, one home and one port per launch, so two runs never share state. The helpers refuse a directory without `run.env`: drive only homes you launched.
 

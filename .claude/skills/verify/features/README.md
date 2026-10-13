@@ -4,7 +4,7 @@ This directory is the maintained source for proving what the Operator sees and d
 
 ## Baseline preconditions
 
-- `scripts/launch.sh` made the run: a fresh home under `$ALIQUOT_VERIFY_ROOT` (default `${TMPDIR:-/tmp}/aliquot-verify`), seeded with `org seed` (eight Agents on `Probation`), `workflow run fixtures/submission-form-seed1.docx` (Tasks T-1 to T-5, all `Done`, one Lot), `intake fixtures/submission-form-seed2.docx` (one Submission Form with no Task), and `room seed` with one Message by Odile in `RM-lab`.
+- `scripts/launch.sh` made the run: a fresh home under `$ALIQUOT_VERIFY_ROOT` (default `${TMPDIR:-/tmp}/aliquot-verify`), seeded with `org seed` (eight Agents on `Probation`), `workflow run fixtures/submission-form-seed1.docx` (Tasks T-1 to T-6, one per stage, all `Done`, one Lot), `intake fixtures/submission-form-seed2.docx` (one Submission Form with no Task), and `room seed` with one Message by Odile in `RM-lab`.
 - `serve` runs with `--no-schedule` on a port the system chose. `scripts/doctor.sh "$RUN"` prints `doctor: ok`.
 - No Gate is open, no Agent is paused, resting or retired, and every Agent is at definition version 1.
 - Never drive a home that `launch.sh` did not create. The helpers refuse a directory without `run.env`.
@@ -40,6 +40,6 @@ Each feature file starts with an H1 title and one paragraph describing the behav
 ## Further surfaces, no feature file yet
 
 - The command line. `tools/aliquot --home <abs path> <command>` drives every domain (`org`, `task`, `gate`, `vitality`, `training`, `room`, `sandbox`, `workflow`, `intake`, `turn`, `ledger`). Drive it by command and exit code. It writes only while `serve` is stopped. README.md has a section per domain.
-- The Sandbox. `workflow run <fixture>` runs Python Scripts in Docker, stages 1 to 5. `launch.sh` runs it once, and `launch.log` holds its output. `sandbox runs` and `sandbox lineage <artifact id>` read what it did.
+- The Sandbox. `workflow run <fixture>` runs Python Scripts in Docker, stages 1 to 6. `launch.sh` runs it once, and `launch.log` holds its output. `sandbox runs` and `sandbox lineage <artifact id>` read what it did.
 - The Scheduler. `serve` without `--no-schedule` runs a Tick every `--tick` and starts Turns; `/api/scheduler` reports the last Tick. A verify run never starts it on the real model: that starts live Turns on the Operator's subscription (gate G3). A proof of a scheduled Turn needs `ALIQUOT_SCRIPTED_MODEL=<json file>` (README "Turns") and a drive that does not exist yet.
 - The Rooms, Scripts and Performance views (`#/rooms`, `#/scripts`, `#/performance`). Rooms and Scripts show their JSON as it came; Performance draws Merit, the rubric means, the Energy budget and `reviews.csv`.
