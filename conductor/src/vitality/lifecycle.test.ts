@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import { AgentId, type Seq } from "../ids.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
+import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import type { Actor } from "../types/actor.js";
 import { orderRest, sample } from "./lifecycle.js";
 
@@ -16,14 +17,35 @@ beforeEach(() => {
 });
 afterEach(() => s.close());
 
-const sampleOf = (agent: AgentId) =>
+const sampleOf = (agent: AgentId, causation_id?: Seq) =>
 	sample(s.ledger, {
 		actor: operator,
+		causation_id,
 		agent,
 		now: s.now(),
 		energyBudgetTokens: 8000,
-		tokensUsedInWindow: 300,
 	});
+
+/** A finished Turn of `agent` that spends 300 tokens of the Energy budget. */
+const turn = (agent: AgentId) => {
+	const { turn: started } = startTurn(s.ledger, {
+		agent,
+		model: "claude-opus-5-5",
+		energyBudgetTokens: 8000,
+	});
+	return finishTurn(s.ledger, {
+		turn_id: started.started.turn_id,
+		usage: {
+			input_tokens: 200,
+			output_tokens: 100,
+			cache_creation_tokens: 0,
+			cache_read_tokens: 0,
+			cost_usd: 0.01,
+		},
+		outcome: { tag: "Completed" },
+		tool_calls: 1,
+	});
+};
 
 const rest = (agent: AgentId, action: "begin" | "end") =>
 	orderRest(s.ledger, {
@@ -37,6 +59,7 @@ const stored = (seq: Seq) => s.events().find((e) => e.seq === seq);
 
 describe("the Vitality lifecycle", () => {
 	it("samples a live Agent's Vitality from the Ledger, naming no cause, and returns the sample and the seq it appended", () => {
+		turn(rin);
 		const { vitality, seq } = sampleOf(rin);
 
 		expect(vitality, "300 tokens of a 1000-token share").toEqual({
@@ -53,6 +76,17 @@ describe("the Vitality lifecycle", () => {
 			payload: vitality,
 		});
 		expect(stored(seq)).not.toHaveProperty("causation_id");
+	});
+
+	it("names the TurnFinished a sample is taken at the end of as its cause", () => {
+		const finished = turn(rin);
+		const { seq } = sampleOf(rin, finished.seq);
+
+		expect(stored(seq)).toMatchObject({
+			kind: "VitalitySampled",
+			causation_id: finished.seq,
+			payload: { agent: rin, fatigue: 0.3 },
+		});
 	});
 
 	it("names the Agent's previous Vitality Event as the cause of each Rest order, but none for a sample, and returns the order and the seq it appended", () => {

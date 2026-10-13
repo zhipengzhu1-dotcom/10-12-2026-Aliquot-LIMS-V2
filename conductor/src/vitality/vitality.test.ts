@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
+import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import { orderRest } from "./lifecycle.js";
 import { restInEffect, sampleVitality } from "./vitality.js";
 
@@ -24,12 +25,32 @@ beforeEach(() => {
 });
 afterEach(() => s.close());
 
-const sample = (opts: { tokensUsedInWindow?: number } = {}) =>
+const sample = () =>
 	sampleVitality(s.ledger.projections, rin, {
 		now: s.now(),
 		energyBudgetTokens: 8000,
-		...opts,
 	});
+
+/** A Turn of `agent` that spends `counted` tokens of the Energy budget and reads 5000 from cache. */
+const turn = (agent: AgentId, counted: number) => {
+	const { turn: started } = startTurn(s.ledger, {
+		agent,
+		model: "claude-opus-5-5",
+		energyBudgetTokens: 8000,
+	});
+	finishTurn(s.ledger, {
+		turn_id: started.started.turn_id,
+		usage: {
+			input_tokens: counted - 20,
+			output_tokens: 15,
+			cache_creation_tokens: 5,
+			cache_read_tokens: 5000,
+			cost_usd: 0.01,
+		},
+		outcome: { tag: "Completed" },
+		tool_calls: 2,
+	});
+};
 
 describe("sampleVitality", () => {
 	it("measures an idle Agent as calm", () => {
@@ -53,19 +74,31 @@ describe("sampleVitality", () => {
 		expect(sample().load).toBeCloseTo(2 / 3);
 	});
 
-	it("divides tokens in the window by the Agent's share of the Energy budget", () => {
+	it("divides the tokens of the Agent's Turns in the window by its share of the Energy budget", () => {
+		turn(rin, 300);
+		turn(ines, 4000); // someone else's
 		// 8 Agents, none resting: the share is 8000 / 8 = 1000 tokens.
-		expect(sample({ tokensUsedInWindow: 300 }).fatigue).toBeCloseTo(0.3);
+		expect(sample().fatigue).toBeCloseTo(0.3);
 		rest(ines, "begin");
 		rest(bram, "begin");
 		// 6 Agents not resting: the share is 8000 / 6.
-		expect(sample({ tokensUsedInWindow: 300 }).fatigue).toBeCloseTo(
-			300 / (8000 / 6),
-		);
+		expect(sample().fatigue).toBeCloseTo(300 / (8000 / 6));
 		rest(bram, "end");
-		expect(sample({ tokensUsedInWindow: 300 }).fatigue).toBeCloseTo(
-			300 / (8000 / 7),
-		);
+		expect(sample().fatigue).toBeCloseTo(300 / (8000 / 7));
+	});
+
+	it("counts only the Turns that finished in the trailing 5 hours", () => {
+		turn(rin, 500);
+		s.advanceDays(2 / 24);
+		turn(rin, 300);
+		expect(sample().fatigue, "both Turns").toBeCloseTo(0.8);
+		s.advanceDays(3 / 24);
+		expect(
+			sample().fatigue,
+			"the first Turn finished 5 hours ago and falls out",
+		).toBeCloseTo(0.3);
+		s.advanceDays(2 / 24);
+		expect(sample().fatigue, "the second falls out too").toBe(0);
 	});
 });
 
