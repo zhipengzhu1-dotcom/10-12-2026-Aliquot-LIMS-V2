@@ -81,11 +81,11 @@ Off CI, a test that needs a missing prerequisite skips with a notice: the Docker
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
-No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `room`, `gate`, `sandbox`, `vitality`, `stage1`), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
+No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `training`, `room`, `gate`, `sandbox`, `vitality`, `stage1`), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 
-The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, and Turns) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
+The Ledger keeps every Projection (Org, Tasks, Gates, Rooms, Trust tier, work, Scripts, Runs, Artifacts, Turns, and Training) in `conductor/src/projections.ts`. It builds them once when it opens and advances them by each Event it appends, and every command reads them there. A refusal reads `<Kind> refused: <reason>`, such as `AgentPaused refused: A-odile is not in the Org`. A Ledger that holds an Event its Projections cannot apply does not open, and the error names the corrupt `seq`.
 
 Verify the hash chain. The command exits 0 when every Event is intact, and otherwise exits 1 and names the first broken `seq`. It reads only the chain, so it also works on a Ledger too corrupt to open.
 
@@ -132,7 +132,7 @@ pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
 pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
 ```
 
-These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)).
+These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)). Granting a Skill is a Revision that adds its id to `skills`. The Ledger refuses a definition whose `skills` names an id that no `training skill publish` has published, and the refusal names the id (see [Training](#training)).
 
 Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
 
@@ -164,7 +164,33 @@ pnpm -C conductor cli --home /tmp/aliquot task complete T-1   # Done after the O
 pnpm -C conductor cli --home /tmp/aliquot task list
 ```
 
-`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. `task complete` takes `--output <artifact id>` once for each output. The other commands are `task handoff <id> <agent> --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
+`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. `task complete` takes `--output <artifact id>` once for each output. The other commands are `task handoff <id> <agent> --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee, with a `help` line under the Task for each Help request on it.
+
+A Help request is a `HelpRequested` Event, appended by the Task lifecycle. The assignee of a live Task requests help on it from the Operator or a live Agent, with the question on stdin. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Ledger refuses a Help request from anyone but the assignee, and on a Task that is `Proposed`, `Done`, `Failed` or `Escalated`. A reply is a Message in a Room.
+
+```sh
+echo "Which column holds the TAT code?" | pnpm -C conductor cli --home /tmp/aliquot task help T-1 --to A-pia --as A-odile
+```
+
+## Training
+
+Training is how an Agent improves: Skills, Revisions, Memory notes, and Coaching. Revisions belong to the Org (see [Org](#org)). The Training lifecycle, `conductor/src/training/lifecycle.ts`, appends `MemoryNoted`, `SkillPublished` and `HumanCoached`, and the Training Projection keeps each Agent's Memory notes and Coaching, and every version of each Skill.
+
+- `training note <agent> --task <task id> --applies-to <a,b>` notes a Memory note, read from stdin, as that Agent. The Ledger refuses a note by anyone but that Agent, and a note on a Task the Agent was never assigned. The note names the Task's previous Event as its cause.
+- `training skill publish <skill id> --title <t> [file]` publishes the next version of a Skill, with the body from the file or stdin. The first version is 1, the actor is its author, and each later version names the version before it as its cause.
+- `training skill show <skill id> [--version <n>]` prints the latest version of a Skill, or the version that `--version` names. `training skills` lists every Skill at its latest version.
+- `training coach <agent> [--task <task id>]` gives the Agent Coaching, read from stdin, as the Operator. The Ledger refuses Coaching from anyone else, so `--as` is refused. With `--task`, the Coaching names the Task's previous Event as its cause.
+- `training notes <agent>` prints the Agent's Memory notes and Coaching in seq order.
+
+`training skill publish` and `training coach` write as the Operator unless `--as A-<id>` names an Agent.
+
+```sh
+pnpm -C conductor cli --home /tmp/aliquot training skill publish parse-submission-form --title "Parse a Submission Form" parse-form.md
+pnpm -C conductor cli --home /tmp/aliquot org revise A-odile odile-v2.json   # grants parse-submission-form
+echo "The TAT code sits in the last column" | pnpm -C conductor cli --home /tmp/aliquot training note A-odile --task T-1 --applies-to "Submission Form"
+echo "Check the TAT code first" | pnpm -C conductor cli --home /tmp/aliquot training coach A-odile --task T-1
+pnpm -C conductor cli --home /tmp/aliquot training notes A-odile
+```
 
 ## Rooms
 

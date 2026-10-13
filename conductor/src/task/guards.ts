@@ -1,9 +1,11 @@
-import type { AppendGuard } from "../append-guard.js";
+import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { canonicalJson } from "../hash.js";
 import type { AgentId, TaskId } from "../ids.js";
+import { liveAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
-import { actorText } from "../types/actor.js";
+import { Refusal } from "../reduce.js";
+import { type Actor, actorText } from "../types/actor.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Task } from "../types/task.js";
 import { REVIEW_ONE_IN, reviewSampleOf } from "../vitality/trust.js";
@@ -54,11 +56,25 @@ const reviewRefusal = (
 	return undefined;
 };
 
+/** Help is requested of the Operator or of a live Agent. */
+export const helpTargetRefusal = (
+	projections: Projections,
+	to: Actor,
+): Refusal | undefined => {
+	if (to.tag === "Operator") return undefined;
+	const live = liveAgent(projections.org, to.id);
+	return live instanceof Refusal ? live : undefined;
+};
+
 /**
- * The Review rules on completion. The Task state machine itself is the Task
- * Projection's, which refuses every Event it cannot express.
+ * The Review rules on completion, and whom help is requested of. The Task
+ * state machine itself, and who may request help, are the Task Projection's,
+ * which refuses every Event it cannot express.
  */
 const taskRules: AppendGuard = (projections, event) => {
+	if (event.kind === "HelpRequested") {
+		return reasonOf(helpTargetRefusal(projections, event.payload.to));
+	}
 	if (event.kind !== "TaskCompleted") return undefined;
 	const task = projections.tasks.tasks.get(event.payload.task_id);
 	return task === undefined

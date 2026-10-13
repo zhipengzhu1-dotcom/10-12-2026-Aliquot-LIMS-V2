@@ -82,19 +82,20 @@ Only a domain's lifecycle module appends Events, and no command appends a raw on
 | Lifecycle module | Event kinds |
 |---|---|
 | `org/lifecycle.ts` | `AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired` |
-| `task/lifecycle.ts` | `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `ReviewRecorded` |
+| `task/lifecycle.ts` | `TaskProposed`, `TaskAssigned`, `TaskStarted`, `TaskHandedOff`, `TaskCompleted`, `TaskFailed`, `TaskEscalated`, `ReviewRecorded`, `HelpRequested` |
 | `gate/lifecycle.ts` | `GateRequested`, `GateDecided`; only the Task lifecycle's `block` requests a Gate that blocks a Task |
 | `room/lifecycle.ts` | `RoomOpened`, `MessageSent` |
 | `sandbox/lifecycle.ts` | `ScriptRegistered`, `ScriptRevised`, `RunStarted`, `RunFinished`, `ArtifactStored` |
 | `vitality/lifecycle.ts` | `VitalitySampled`, `RestOrdered` |
 | `turn/lifecycle.ts` | `TurnStarted`, `TurnFinished`, always as the Conductor (ADR-0013) |
 | `stage1/lifecycle.ts` | `EvaluationRecorded` |
+| `training/lifecycle.ts` | `MemoryNoted`, `SkillPublished`, `HumanCoached` |
 
-The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). No lifecycle appends `HelpRequested`, `HumanCoached`, `MemoryNoted` or `SkillPublished` yet. Those kinds are reserved for a later slice, and no command writes them. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
+The Ledger itself appends the Conductor's tier Revisions, as follow-ons and catch-ups (ADR-0011). Every kind has a lifecycle that appends it; none is reserved. Biome refuses an append call, and an `append` destructured from a Ledger or read by a computed key, in any non-test module except a `lifecycle.ts`, the Ledger's `ledger.ts`, and the test scenario in `test-support/`.
 
 ### 2. Agent definition
 
-An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it.
+An Agent definition is a versioned document. A change is a Revision Event, never an edit in place. `trust_tier` always equals the projected Trust tier: the Ledger refuses a Recruitment or a Revision that records any other tier, whoever authors it. Granting a Skill is a Revision that adds its id to `skills`, and the Ledger refuses a Recruitment or a Revision whose `skills` names an id that no `SkillPublished` has published, naming that id.
 
 One module, the Org lifecycle (`org/lifecycle.ts`), appends every Agent Event that the Operator or an Agent causes: it recruits, revises, pauses, resumes, and retires an Agent, and the seed recruits the starting roster through it. Each verb returns the Agent as the Event left it and the seq it appended. Each verb names the Event's cause in `causation_id`: the Agent's previous Org Event, which the Org Projection keeps, so a Recruitment names none, and for a retirement the `GateDecided` that approved its `RetireAgent` Gate, which the Gate Projection keeps. A caller names a cause only when it lies outside the Org; a retirement takes none, since its cause is always the approving decision. `retire` refuses an Agent that is not live, an actor other than the Operator, and a Gate that is unknown, undecided, rejected, of another kind or naming another Agent, before it builds the Event, through the predicate the Org guard uses. A retirement's reason defaults to the one in its `RetireAgent` Gate's payload, and is refused when neither gives one. The Conductor's tier Revisions stay Ledger follow-ons (ADR-0011).
 
@@ -125,6 +126,8 @@ type AgentDefinition = {
 A Task moves through a state machine. A Hand-off is a transition back to `Assigned` with a new assignee, not a state of its own. A Task that the Trust tier rules do not select for Review goes from `InProgress` straight to `Done`. A `Done` Task keeps its assignee, so the Task Projection alone says whose work a Review scores.
 
 One module, the Task lifecycle (`task/lifecycle.ts`), appends every Task Event: it proposes, assigns, starts, hands off, escalates, completes, reviews, and fails a Task, and blocks one on a Gate it requests. Each verb mints the ids it needs from the Projections and returns the new Task and the seq it appended. Each verb also names the Event's cause in `causation_id`, from the Projections. The cause is the Task's previous Event, which the Task Projection keeps, or for a completion after Review the reviewer's `ReviewRecorded`. A caller names a cause only when it lies outside the Task, as the stage 1 tracer names the `EvaluationRecorded` it completes a Task on. A verb that the Projections already refuse, such as a Hand-off of a Task that is not `InProgress`, is refused before the verb builds an Event, in the same words. Completing a Task decides its Review: the verb asks the Trust tier whether the sample picks the Task. If it does, the Task goes `UnderReview` with the named reviewer, and a completion that names none is refused as sampled for Review. If it does not, the Review is skipped, and a named reviewer is unused. So `task complete <id>` takes only `--reviewer` and `--output`, and on a Task `UnderReview` it completes the Task after Review.
+
+A Help request is a `HelpRequested` Event with payload `{ task_id, to: Actor, question }`, by the assignee of a live Task (`Assigned`, `InProgress`, `UnderReview` or `Blocked`), to the Operator or a live Agent. The Task keeps its state, and the Event names the Task's previous Event as its cause. The Task Projection refuses a Help request from anyone but the assignee, and on a Task with no assignee or that is no longer live. It keeps each Task's Help requests as `{ seq, from, to, question }[]`, and every Agent each Task has been assigned to, which the Training guard reads for a Memory note. A reply is a Message in a Room, not an Event kind of its own.
 
 ```ts
 type TaskState =
@@ -287,12 +290,22 @@ type GateDecision = {
 
 ### 9. Skill and Memory note
 
-A Skill is a versioned Markdown procedure that any Agent can be granted. A Memory note is a private lesson that one Agent reads before similar Tasks. Both are Events, so Training is auditable.
+A Skill is a versioned Markdown procedure that any Agent can be granted. A Memory note is a private lesson that one Agent reads before similar Tasks. Coaching is the Operator's guidance to one Agent. All three are Events, so Training is auditable.
+
+One module, the Training lifecycle (`training/lifecycle.ts`), appends `MemoryNoted`, `SkillPublished` and `HumanCoached`. Each verb decides its refusals before it builds the Event, through the predicate the Training guard uses, and returns what it recorded with the seq it appended.
+
+- A Memory note is the Agent's own, on a Task the Agent has been assigned at some point, which the Task Projection keeps. The Ledger refuses a note by any other actor, and a note on a Task the Agent was never assigned. The note names the Task's previous Event, the outcome it learned from, as its cause.
+- Publishing a Skill id appends its next version, starting at 1, with the actor as `author`. A version after the first names the version before it as its cause. The Ledger refuses a version that skips one, an author other than the actor, and a later version that names any other cause. A Skill id is a name the publisher chooses.
+- Coaching is a `HumanCoached` Event with payload `{ agent_id, task_id?, note }`, by the Operator only, to an Agent in the Org. With a Task, it names the Task's previous Event as its cause.
+
+The Training Projection (`training/projection.ts`) keeps each Agent's Memory notes and Coaching, and every version of each Skill, each with its seq.
 
 ```ts
 type Skill = { id: SkillId; version: number; title: string; body_md: string; author: Actor };
 
 type MemoryNote = { agent: AgentId; task_id: TaskId; lesson: string; applies_to: string[] };
+
+type Coaching = { agent_id: AgentId; task_id?: TaskId; note: string };
 ```
 
 ### 10. Room and Message

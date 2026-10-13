@@ -12,6 +12,7 @@ import {
 	fail,
 	handOff,
 	propose,
+	requestHelp,
 	review,
 	start,
 } from "./lifecycle.js";
@@ -320,5 +321,92 @@ describe("the other Task verbs", () => {
 			causation_id: cause,
 			payload: { gate_id: "G-1", kind: "Deploy" },
 		});
+	});
+});
+
+describe("a Help request", () => {
+	const question = "Which column holds the TAT code?";
+
+	it("is the assignee's, keeps the Task's state, names the Task's previous Event as its cause, and joins the Task's Help requests", () => {
+		const task_id = started(rin);
+		const cause = ledger.all().at(-1)?.seq as Seq;
+
+		const first = requestHelp(ledger, {
+			actor: asRin,
+			task_id,
+			to: operator,
+			question,
+		});
+		const second = requestHelp(ledger, {
+			actor: asRin,
+			task_id,
+			to: pia,
+			question: "Is a blank TAT Regular?",
+		});
+
+		expect(first.task.state).toEqual({ tag: "InProgress", assignee: rin });
+		expect(ledger.all().find((e) => e.seq === first.seq)).toMatchObject({
+			actor: asRin,
+			task_id,
+			causation_id: cause,
+			kind: "HelpRequested",
+		});
+		expect(ledger.projections.tasks.help.get(task_id)).toEqual([
+			{ seq: first.seq, from: rin, to: operator, question },
+			{
+				seq: second.seq,
+				from: rin,
+				to: pia,
+				question: "Is a blank TAT Regular?",
+			},
+		]);
+	});
+
+	it("is refused from anyone but the assignee, on a Task that is not live, and of an Agent not in the Org", () => {
+		const task_id = started(rin);
+		const before = ledger.all().length;
+
+		expect(() =>
+			requestHelp(ledger, { actor: pia, task_id, to: operator, question }),
+		).toThrow(
+			new AppendRefused(
+				"HelpRequested refused: only A-rin, the assignee of T-1, requests help on it; the actor is A-pia",
+			),
+		);
+		expect(() =>
+			ledger.append({
+				actor: operator,
+				task_id,
+				kind: "HelpRequested",
+				payload: { task_id, to: pia, question },
+			}),
+		).toThrow(
+			new AppendRefused(
+				"HelpRequested refused: only A-rin, the assignee of T-1, requests help on it; the actor is Operator",
+			),
+		);
+		expect(() =>
+			requestHelp(ledger, {
+				actor: asRin,
+				task_id,
+				to: { tag: "Agent", id: AgentId.parse("A-nobody") },
+				question,
+			}),
+		).toThrow(
+			new AppendRefused(
+				"HelpRequested refused: A-nobody is not a live Agent in the Org",
+			),
+		);
+		fail(ledger, { actor: operator, task_id, reason: "form unreadable" });
+		expect(() =>
+			requestHelp(ledger, { actor: asRin, task_id, to: operator, question }),
+		).toThrow(
+			new AppendRefused(
+				"HelpRequested refused: T-1 is Failed, expected Assigned, InProgress, UnderReview or Blocked",
+			),
+		);
+		expect(ledger.all(), "only the failure is appended").toHaveLength(
+			before + 1,
+		);
 	});
 });

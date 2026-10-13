@@ -111,10 +111,16 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "Tasks grouped by state in a listing",
 	},
 	{ phrase: "ask", in: "org/seed.ts", reason: "a Persona's quirk text" },
-	{
+	...["types/skill.ts", "training/commands.ts"].map((file) => ({
 		phrase: "lesson",
-		in: "types/skill.ts",
+		in: file,
 		reason: "the Memory note field the glossary names",
+	})),
+	{
+		phrase: "coach",
+		in: "training/commands.ts",
+		reason:
+			"the `training coach` command, by which the Operator gives Coaching",
 	},
 	{ phrase: "ticket", in: "events.ts", reason: "a GitHub issue, not a Task" },
 	{

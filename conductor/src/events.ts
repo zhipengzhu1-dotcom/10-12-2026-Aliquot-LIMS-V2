@@ -102,9 +102,9 @@ const BODIES = [
 	body(
 		"HelpRequested",
 		z.strictObject({
-			agent_id: AgentId,
-			task_id: TaskId.optional(),
-			blocker: z.string(),
+			task_id: TaskId,
+			to: Actor,
+			question: z.string().min(1),
 		}),
 	),
 	body("ScriptRegistered", Script),
@@ -150,7 +150,14 @@ const BODIES = [
 			lifetime_s: z.number().int().positive(),
 		}),
 	),
-	body("HumanCoached", z.strictObject({ agent_id: AgentId, note: z.string() })),
+	body(
+		"HumanCoached",
+		z.strictObject({
+			agent_id: AgentId,
+			task_id: TaskId.optional(),
+			note: z.string().min(1),
+		}),
+	),
 	body("MemoryNoted", MemoryNote),
 	body("SkillPublished", Skill),
 	body(

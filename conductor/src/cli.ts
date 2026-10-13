@@ -12,6 +12,7 @@ import { roomCommands } from "./room/commands.js";
 import { sandboxCommands } from "./sandbox/commands.js";
 import { stage1Commands } from "./stage1/commands.js";
 import { taskCommands } from "./task/commands.js";
+import { trainingCommands } from "./training/commands.js";
 import { turnCommands } from "./turn/commands.js";
 import { vitalityCommands } from "./vitality/commands.js";
 
@@ -20,6 +21,7 @@ const domains: Readonly<Record<string, CommandTable>> = {
 	ledger: ledgerCommands,
 	org: orgCommands,
 	task: taskCommands,
+	training: trainingCommands,
 	room: roomCommands,
 	gate: gateCommands,
 	sandbox: sandboxCommands,
