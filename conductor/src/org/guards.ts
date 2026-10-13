@@ -184,8 +184,15 @@ const orgGuard: AppendGuard = (projections, event) => {
 				tierRefusal(projections.trust, definition.id, definition.trust_tier)
 			);
 		}
-		case "AgentPaused":
-			return retiredRefusal(projections, event.payload.agent_id);
+		case "AgentPaused": {
+			const { agent_id } = event.payload;
+			return (
+				retiredRefusal(projections, agent_id) ??
+				(projections.org.agents.get(agent_id)?.paused
+					? `${agent_id} is already paused`
+					: undefined)
+			);
+		}
 		case "AgentRetired":
 			return reasonOf(
 				retirementGate(
