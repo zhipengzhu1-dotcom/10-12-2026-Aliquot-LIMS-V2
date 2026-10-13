@@ -16,11 +16,8 @@ import type { Event } from "../events.js";
 import { sha256Hex } from "../hash.js";
 import { AgentId, ArtifactId, RunId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
-import { fold } from "../reduce.js";
-import { lineageOf, projectArtifacts } from "../sandbox/artifacts.js";
+import { lineageOf } from "../sandbox/artifacts.js";
 import { scriptsRoot } from "../sandbox/image.js";
-import { projectRuns } from "../sandbox/runs.js";
-import { TaskProjection } from "../task/projection.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
 import { scenario, scores } from "../vitality/scenario.js";
 import { stage1Commands } from "./commands.js";
@@ -66,16 +63,16 @@ const run = async (name: "run" | "run-all", args: string[]) => {
 const readLedger = () => {
 	const ledger = openLedger({ home, writer: false });
 	try {
-		return { events: ledger.all(), verify: ledger.verify() };
+		return {
+			events: ledger.all(),
+			verify: ledger.verify(),
+			taskState: (id: string) =>
+				ledger.projections.tasks.tasks.get(TaskId.parse(id))?.state,
+		};
 	} finally {
 		ledger.close();
 	}
 };
-
-const taskState = (events: Event[], id: string) =>
-	fold(events, TaskProjection.reduce, TaskProjection.init).tasks.get(
-		TaskId.parse(id),
-	)?.state;
 
 /** Follow causation_id back from `from` until an Event has none. */
 const causes = (events: Event[], from: Event): Event[] => {
@@ -125,9 +122,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 		expect(result.code).toBe(0);
 		expect(result.stdout).toMatch(/T-1 Done/);
-		const { events, verify } = readLedger();
+		const { events, verify, taskState } = readLedger();
 		expect(verify.ok).toBe(true);
-		expect(taskState(events, "T-1")).toEqual({ tag: "Done" });
+		expect(taskState("T-1")).toEqual({ tag: "Done", assignee: "A-rin" });
 
 		const completed = events.filter((e) => e.kind === "TaskCompleted").at(-1);
 		if (!completed) throw new Error("no TaskCompleted");
@@ -184,11 +181,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 	it("revises the owner's Trust tier right after the tracer's Review earns it", async () => {
 		// Rin has 9 reviewed Tasks, so the tracer's Review of T-10 is the 10th.
-		rmSync(home, { recursive: true, force: true });
-		const s = scenario();
+		const s = scenario(undefined, { home });
 		for (let i = 0; i < 9; i++) s.reviewed(AgentId.parse("A-rin"), scores(3));
-		s.ledger.close();
-		home = s.home;
+		s.close();
 
 		const result = await run("run", [fixture]);
 
@@ -215,10 +210,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 		const ledger = openLedger({ home, writer: false });
 		try {
-			const projection = projectArtifacts(ledger);
-			const finished = projectRuns(ledger).runs.get(
-				RunId.parse("R-1"),
-			)?.finished;
+			const projection = ledger.projections.artifacts;
+			const finished = ledger.projections.runs.runs.get(RunId.parse("R-1"))
+				?.finished?.run;
 			const output = finished?.outputs.find(
 				(id) => projection.artifacts.get(id)?.filename === "submission.json",
 			);
@@ -241,14 +235,14 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 		expect(result.code).toBe(1);
 		expect(result.stdout).toMatch(/T-1 Failed/);
-		const { events, verify } = readLedger();
+		const { events, verify, taskState } = readLedger();
 		expect(verify.ok).toBe(true);
 		const evaluation = events.find((e) => e.kind === "EvaluationRecorded");
 		expect(evaluation?.payload).toMatchObject({
 			passed: false,
 			findings: ["Sample: Lot is missing"],
 		});
-		expect(taskState(events, "T-1")).toMatchObject({
+		expect(taskState("T-1")).toMatchObject({
 			tag: "Failed",
 			reason: expect.stringContaining("Sample: Lot is missing"),
 		});
@@ -264,11 +258,11 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const result = await run("run-all", [dir]);
 
 		expect(result.code).toBe(1);
-		const { events, verify } = readLedger();
+		const { events, verify, taskState } = readLedger();
 		expect(verify.ok).toBe(true);
-		expect(taskState(events, "T-1")).toEqual({ tag: "Done" });
-		expect(taskState(events, "T-2")?.tag).toBe("Failed");
-		expect(taskState(events, "T-3")).toBeUndefined();
+		expect(taskState("T-1")).toEqual({ tag: "Done", assignee: "A-rin" });
+		expect(taskState("T-2")?.tag).toBe("Failed");
+		expect(taskState("T-3")).toBeUndefined();
 		// One registration serves every Fixture in the batch.
 		expect(
 			events.filter(

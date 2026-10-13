@@ -10,13 +10,19 @@ import { join } from "node:path";
 import { sha256Hex } from "../hash.js";
 import { ArtifactId, type Seq, Sha256, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
-import { fold, type Projection } from "../reduce.js";
+import { type Projection, Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type {
 	Artifact,
 	ArtifactFilename,
 	StoredArtifact,
 } from "../types/artifact.js";
+
+/** One ArtifactStored: the record it wrote, and its seq. */
+export type Production = {
+	readonly seq: Seq;
+	readonly record: StoredArtifact;
+};
 
 /**
  * Identity is per content, and each production has its own record.
@@ -26,21 +32,34 @@ import type {
  */
 export type ArtifactProjection = {
 	readonly artifacts: ReadonlyMap<ArtifactId, StoredArtifact>;
-	readonly productions: ReadonlyMap<ArtifactId, readonly StoredArtifact[]>;
+	readonly productions: ReadonlyMap<ArtifactId, readonly Production[]>;
 };
 
+/**
+ * The same bytes may be recorded again, once per Run that produces them;
+ * the Operator stores them once.
+ */
 export const artifactProjection: Projection<ArtifactProjection> = {
 	init: { artifacts: new Map(), productions: new Map() },
 	reduce: (state, event) => {
 		if (event.kind !== "ArtifactStored") return state;
-		const { id } = event.payload;
+		const record = event.payload;
+		const { id, produced_by } = record;
+		if (state.artifacts.has(id)) {
+			if (produced_by.tag !== "Run") {
+				return new Refusal(`${id} is already stored`);
+			}
+			if (productionOf(state, id, produced_by)) {
+				return new Refusal(`${produced_by.id} already stored ${id}`);
+			}
+		}
 		return {
 			artifacts: state.artifacts.has(id)
 				? state.artifacts
-				: new Map(state.artifacts).set(id, event.payload),
+				: new Map(state.artifacts).set(id, record),
 			productions: new Map(state.productions).set(id, [
 				...(state.productions.get(id) ?? []),
-				event.payload,
+				{ seq: event.seq, record },
 			]),
 		};
 	},
@@ -49,15 +68,15 @@ export const artifactProjection: Projection<ArtifactProjection> = {
 const sameProducer = (a: Producer, b: Producer) =>
 	a.tag === "Run" ? b.tag === "Run" && a.id === b.id : b.tag === "Operator";
 
-/** The record a given producer wrote for `id`, if it wrote one. */
+/** The production of `id` by a given producer, if it stored one. */
 export const productionOf = (
 	projection: ArtifactProjection,
 	id: ArtifactId,
 	producedBy: Producer,
-): StoredArtifact | undefined =>
+): Production | undefined =>
 	projection.productions
 		.get(id)
-		?.find((record) => sameProducer(record.produced_by, producedBy));
+		?.find((p) => sameProducer(p.record.produced_by, producedBy));
 
 /**
  * The Lineage of one production of `id`: the record `producedBy` wrote, or
@@ -70,12 +89,9 @@ export const lineageOf = (
 	producedBy?: Producer,
 ): readonly ArtifactId[] | undefined =>
 	(producedBy
-		? productionOf(projection, id, producedBy)
+		? productionOf(projection, id, producedBy)?.record
 		: projection.artifacts.get(id)
 	)?.lineage;
-
-export const projectArtifacts = (ledger: Ledger): ArtifactProjection =>
-	fold(ledger.events(), artifactProjection.reduce, artifactProjection.init);
 
 /** Who produced an Artifact: a Run or the Operator. */
 export type Producer = Artifact["produced_by"];
@@ -150,11 +166,11 @@ export const openArtifacts = ({
 			const digest = sha256Hex(bytes);
 			const id = ArtifactId.parse(digest);
 			writeBlob(id, bytes);
-			const projection = projectArtifacts(ledger);
+			const projection = ledger.projections.artifacts;
 			const canonical = projection.artifacts.get(id);
 			if (canonical) {
 				const own = productionOf(projection, id, meta.produced_by);
-				if (own) return own;
+				if (own) return own.record;
 				if (meta.produced_by.tag === "Operator") return canonical;
 			}
 			const event = ledger.append({

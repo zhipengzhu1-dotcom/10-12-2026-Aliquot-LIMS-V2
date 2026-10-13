@@ -1,10 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import type { NewEvent } from "../events.js";
-import { type Ledger, openLedger } from "../ledger.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
 
 const operator = { tag: "Operator" } as const;
 const digest = (c: string) => c.repeat(64);
@@ -12,18 +9,13 @@ const form = digest("a");
 const parsed = digest("b");
 const stdout = digest("c");
 
-let home: string;
 let ledger: Ledger;
 
 beforeEach(() => {
-	home = mkdtempSync(join(tmpdir(), "aliquot-sandbox-guards-"));
-	ledger = openLedger({ home, writer: true });
+	ledger = openMemoryLedger();
 });
 
-afterEach(() => {
-	ledger.close();
-	rmSync(home, { recursive: true, force: true });
-});
+afterEach(() => ledger.close());
 
 const append = (body: Omit<NewEvent, "actor">) =>
 	ledger.append({ actor: operator, ...body } as NewEvent);

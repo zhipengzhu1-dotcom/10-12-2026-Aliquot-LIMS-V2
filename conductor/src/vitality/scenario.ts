@@ -1,8 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { Event, NewEvent } from "../events.js";
-import { projectGates } from "../gate/projection.js";
 import { gateDecision, requestGate } from "../gate/request.js";
 import {
 	AgentId,
@@ -15,8 +11,14 @@ import {
 	Sha256,
 	TaskId,
 } from "../ids.js";
-import { type Ledger, type LedgerOptions, openLedger } from "../ledger.js";
+import {
+	type Ledger,
+	type LedgerOptions,
+	openLedger,
+	openMemoryLedger,
+} from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
+import type { Storage } from "../storage.js";
 import type { Actor } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import type { Review, Score } from "../types/merit.js";
@@ -45,21 +47,25 @@ const operator: Actor = { tag: "Operator" };
 const artifact = ArtifactId.parse("a".repeat(64));
 
 /**
- * A seeded Ledger in a temp home with a settable clock, and verbs that walk
- * Tasks through the real Task state machine. For tests and demos only.
+ * A seeded Ledger with a settable clock, and verbs that walk Tasks through
+ * the real Task state machine: in memory, on `storage` when given, or in
+ * SQLite under `home` for a test that hands the home to the command line.
+ * For tests and demos only.
  */
 export const scenario = (
 	start = "2026-10-01T00:00:00.000Z",
-	options: Pick<LedgerOptions, "followOns"> = {},
+	options: Pick<LedgerOptions, "followOns"> & {
+		storage?: Storage;
+		home?: string;
+	} = {},
 ) => {
-	const home = mkdtempSync(join(tmpdir(), "aliquot-vitality-"));
 	let now = new Date(start);
-	const ledger: Ledger = openLedger({
-		home,
-		writer: true,
-		clock: () => now,
-		...options,
-	});
+	const { home, storage, ...rest } = options;
+	const opened = { writer: true, clock: () => now, ...rest };
+	const ledger: Ledger =
+		home === undefined
+			? openMemoryLedger({ ...opened, ...(storage && { storage }) })
+			: openLedger({ ...opened, home });
 	seedOrg(ledger);
 	// One stored Artifact and one registered Script, so Runs pass the Sandbox guards.
 	ledger.append({
@@ -168,7 +174,7 @@ export const scenario = (
 	};
 
 	const completeSkipped = (agent: AgentId, id: TaskId) => {
-		const { tier } = reviewSampleOf(ledger.all(), agent, id);
+		const { tier } = reviewSampleOf(ledger.projections.trust, agent, id);
 		on(
 			id,
 			{
@@ -209,7 +215,7 @@ export const scenario = (
 	 */
 	const worked = (agent: AgentId, s: Scores): TaskId => {
 		const id = task(agent);
-		if (reviewSampleOf(ledger.all(), agent, id).sampled) {
+		if (reviewSampleOf(ledger.projections.trust, agent, id).sampled) {
 			completeReviewed(agent, id, s);
 		} else {
 			completeSkipped(agent, id);
@@ -262,9 +268,9 @@ export const scenario = (
 		gate_id: GateId,
 		meaning: "approve" | "reject" = "approve",
 	): Event => {
-		const open = projectGates(ledger.events()).gates.get(gate_id);
+		const open = ledger.projections.gates.gates.get(gate_id);
 		if (open === undefined) throw new Error(`${gate_id} was not stored`);
-		return append(gateDecision(open, now, meaning, "Checked"));
+		return append(gateDecision(open, meaning, "Checked"));
 	};
 
 	/** A Gate the Operator requests and decides at the current time. */
@@ -291,7 +297,6 @@ export const scenario = (
 		});
 
 	return {
-		home,
 		ledger,
 		append,
 		requested,
@@ -313,10 +318,7 @@ export const scenario = (
 		advanceDays: (days: number) => {
 			now = new Date(now.getTime() + days * 86_400_000);
 		},
-		close: () => {
-			ledger.close();
-			rmSync(home, { recursive: true, force: true });
-		},
+		close: () => ledger.close(),
 	};
 };
 

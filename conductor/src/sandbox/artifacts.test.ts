@@ -3,14 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RunId, ScriptId, Sha256 } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
-import { fold } from "../reduce.js";
-import {
-	artifactProjection,
-	lineageOf,
-	openArtifacts,
-	projectArtifacts,
-} from "./artifacts.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
+import { lineageOf, openArtifacts } from "./artifacts.js";
 
 const operator = { tag: "Operator" } as const;
 const form = {
@@ -24,9 +18,10 @@ const form = {
 let home: string;
 let ledger: Ledger;
 
+// The blobs are files under `home`; the Ledger that records them is in memory.
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-artifacts-"));
-	ledger = openLedger({ home, writer: true });
+	ledger = openMemoryLedger();
 });
 
 afterEach(() => {
@@ -70,7 +65,7 @@ describe("blob store", () => {
 });
 
 describe("artifact projection", () => {
-	it("folds ArtifactStored Events into Artifacts with their filename and Lineage", () => {
+	it("projects ArtifactStored Events into Artifacts with their filename and Lineage", () => {
 		const artifacts = openArtifacts({ ledger, home });
 		const input = artifacts.store(
 			Buffer.from("form"),
@@ -89,11 +84,7 @@ describe("artifact projection", () => {
 			{ actor: operator },
 		);
 
-		const { artifacts: byId } = fold(
-			ledger.all(),
-			artifactProjection.reduce,
-			artifactProjection.init,
-		);
+		const { artifacts: byId } = ledger.projections.artifacts;
 
 		expect([...byId.keys()]).toEqual([input.id, output.id]);
 		expect(byId.get(input.id)).toMatchObject({
@@ -162,9 +153,12 @@ describe("productions", () => {
 		expect(byOperator).toEqual(input);
 		expect(storedEvents()).toHaveLength(2);
 
-		const projection = projectArtifacts(ledger);
+		const projection = ledger.projections.artifacts;
 		expect(projection.artifacts.get(input.id)).toEqual(input);
-		expect(projection.productions.get(input.id)).toEqual([input, copy]);
+		expect(projection.productions.get(input.id)).toEqual([
+			{ seq: 1, record: input },
+			{ seq: 4, record: copy },
+		]);
 		expect(lineageOf(projection, input.id)).toEqual([]);
 		expect(lineageOf(projection, input.id, { tag: "Run", id: run })).toEqual([
 			input.id,

@@ -1,7 +1,6 @@
-import type { Event } from "../events.js";
 import type { IsoTime, RoomId, Seq } from "../ids.js";
 import type { OrgState } from "../org/projection.js";
-import { fold, type Projection } from "../reduce.js";
+import { type Projection, Refusal } from "../reduce.js";
 import { type Actor, actorText, type EventActor } from "../types/actor.js";
 import type { Room } from "../types/room.js";
 
@@ -33,12 +32,16 @@ export const RoomProjection: Projection<RoomState> = {
 		switch (event.kind) {
 			case "RoomOpened": {
 				const { room } = event.payload;
-				if (state.rooms.has(room.id)) return state;
+				if (state.rooms.has(room.id)) {
+					return new Refusal(`${room.id} is already open`);
+				}
 				return { ...state, rooms: new Map(state.rooms).set(room.id, room) };
 			}
 			case "MessageSent": {
 				const { room_id, body } = event.payload;
-				if (!state.rooms.has(room_id)) return state;
+				if (!state.rooms.has(room_id)) {
+					return new Refusal(`${room_id} is not an open Room`);
+				}
 				const message: Message = {
 					seq: event.seq,
 					ts: event.ts,
@@ -56,9 +59,6 @@ export const RoomProjection: Projection<RoomState> = {
 		}
 	},
 };
-
-export const roomState = (events: Iterable<Event>): RoomState =>
-	fold(events, RoomProjection.reduce, RoomProjection.init);
 
 /**
  * The one membership rule, for saying and for reading alike. The Operator

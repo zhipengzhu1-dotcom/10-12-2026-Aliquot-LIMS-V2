@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
-import { meritOf } from "./merit.js";
 import { type Scenario, scenario, scores } from "./scenario.js";
+import { trustOf } from "./trust.js";
 
 const rin = AgentId.parse("A-rin");
 const ines = AgentId.parse("A-ines");
@@ -13,9 +13,13 @@ beforeEach(() => {
 });
 afterEach(() => s.close());
 
-describe("meritOf", () => {
+/** Rin's Merit, tenure and window, as the Trust tier Projection holds them. */
+const meritOf = (agent: AgentId) =>
+	trustOf(s.ledger.projections.trust, agent).standing;
+
+describe("Merit", () => {
 	it("has no Merit before the first Review", () => {
-		expect(meritOf(s.events(), rin)).toEqual({
+		expect(meritOf(rin)).toEqual({
 			merit: undefined,
 			reviewedTasks: 0,
 			window: [],
@@ -28,7 +32,7 @@ describe("meritOf", () => {
 		s.reviewed(rin, scores(3, { quality: 1, timeliness: 2 }));
 		s.reviewed(ines, scores(0));
 
-		const { merit, reviewedTasks, window } = meritOf(s.events(), rin);
+		const { merit, reviewedTasks, window } = meritOf(rin);
 		// 20 Tasks x 5 dimensions = 100 scores, 3 below the maximum of 300.
 		expect(merit).toBeCloseTo(297 / 100);
 		expect(reviewedTasks).toBe(25);
@@ -41,7 +45,7 @@ describe("meritOf", () => {
 		const skipped = s.skipped(rin);
 		s.review(skipped, scores(0), thorne); // the Auditor samples it anyway
 
-		expect(meritOf(s.events(), rin)).toMatchObject({
+		expect(meritOf(rin)).toMatchObject({
 			merit: 2,
 			reviewedTasks: 10,
 		});
@@ -51,7 +55,7 @@ describe("meritOf", () => {
 		const t = s.reviewed(rin, scores(3));
 		s.review(t, scores(1), thorne);
 
-		const { merit, reviewedTasks, window } = meritOf(s.events(), rin);
+		const { merit, reviewedTasks, window } = meritOf(rin);
 		expect(merit).toBe(2);
 		expect(reviewedTasks).toBe(1);
 		expect(window.map((r) => r.reviewer)).toEqual([

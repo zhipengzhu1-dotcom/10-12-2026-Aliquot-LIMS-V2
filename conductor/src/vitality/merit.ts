@@ -1,7 +1,6 @@
-import type { Event } from "../events.js";
-import type { AgentId, TaskId } from "../ids.js";
+import type { TaskId } from "../ids.js";
 import type { Review } from "../types/merit.js";
-import { mean, scoresOf, workOf } from "./work.js";
+import { mean, scoresOf } from "./work.js";
 
 /** Merit is taken over this many of the Agent's most recently reviewed Tasks. */
 export const MERIT_WINDOW_TASKS = 20;
@@ -33,10 +32,3 @@ export const standingOf = (reviews: readonly Review[]): Standing => {
 		window,
 	};
 };
-
-/**
- * Merit over the last 20 reviewed Tasks the Agent was the assignee of.
- * Tasks the Trust tier rules skipped for Review do not count.
- */
-export const meritOf = (events: Iterable<Event>, agent: AgentId): Standing =>
-	standingOf(workOf(events, agent).reviews.map((r) => r.review));

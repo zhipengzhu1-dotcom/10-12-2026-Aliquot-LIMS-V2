@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type AgentId, ScriptId, type Sha256 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
-import { fold, type Projection } from "../reduce.js";
+import { type Projection, Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { ArtifactType } from "../types/artifact.js";
 import type { Script, ScriptRef } from "../types/script.js";
@@ -12,21 +12,42 @@ export type ScriptProjection = {
 	readonly scripts: ReadonlyMap<ScriptId, readonly Script[]>;
 };
 
+/**
+ * A Script is registered once, at version 1, and each revision is the next
+ * version.
+ */
 export const scriptProjection: Projection<ScriptProjection> = {
 	init: { scripts: new Map() },
-	reduce: (state, event) =>
-		event.kind === "ScriptRegistered" || event.kind === "ScriptRevised"
-			? {
-					scripts: new Map(state.scripts).set(event.payload.id, [
-						...(state.scripts.get(event.payload.id) ?? []),
-						event.payload,
-					]),
-				}
-			: state,
+	reduce: (state, event) => {
+		if (event.kind !== "ScriptRegistered" && event.kind !== "ScriptRevised") {
+			return state;
+		}
+		const script = event.payload;
+		const versions = state.scripts.get(script.id) ?? [];
+		const latest = versions.at(-1)?.version;
+		if (event.kind === "ScriptRegistered") {
+			if (latest !== undefined) {
+				return new Refusal(
+					`${script.id} is already registered (latest version ${latest}); use ScriptRevised`,
+				);
+			}
+			if (script.version !== 1) {
+				return new Refusal(
+					`${script.id} must start at version 1, got ${script.version}`,
+				);
+			}
+		} else if (latest === undefined) {
+			return new Refusal(`${script.id} is not registered`);
+		} else if (script.version !== latest + 1) {
+			return new Refusal(
+				`${script.id} is at version ${latest}, so the revision must be version ${latest + 1}, got ${script.version}`,
+			);
+		}
+		return {
+			scripts: new Map(state.scripts).set(script.id, [...versions, script]),
+		};
+	},
 };
-
-export const projectScripts = (ledger: Ledger): ScriptProjection =>
-	fold(ledger.events(), scriptProjection.reduce, scriptProjection.init);
 
 export const findScript = (
 	state: ScriptProjection,
@@ -70,7 +91,7 @@ export const registerScript = (options: RegisterScript): Script => {
 		throw new Error(`${options.scriptDir} has no entrypoint ${entrypoint}`);
 	}
 	const id = ScriptId.parse(`S-${name}`);
-	const latest = projectScripts(ledger).scripts.get(id)?.at(-1);
+	const latest = ledger.projections.scripts.scripts.get(id)?.at(-1);
 	const script: Script = {
 		id,
 		version: (latest?.version ?? 0) + 1,

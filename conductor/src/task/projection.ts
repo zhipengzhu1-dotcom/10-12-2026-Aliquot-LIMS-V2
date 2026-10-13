@@ -1,15 +1,10 @@
 import type { Event, PayloadOf } from "../events.js";
-import { type GateId, nextId, TaskId } from "../ids.js";
-import type { Projection } from "../reduce.js";
+import { type AgentId, type GateId, nextId, TaskId } from "../ids.js";
+import { type Projection, Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { Task, TaskState } from "../types/task.js";
 
 export type TaskView = { readonly tasks: ReadonlyMap<TaskId, Task> };
-
-/** Why an Event cannot move a Task. Returned, never thrown. */
-export class TransitionError {
-	constructor(readonly message: string) {}
-}
 
 type Tag = TaskState["tag"];
 type StateOf<T extends Tag> = Extract<TaskState, { tag: T }>;
@@ -39,7 +34,7 @@ const isIn = <F extends Tag>(
 	state: TaskState,
 ): state is StateOf<F> => (from as readonly Tag[]).includes(state.tag);
 
-/** The Task state machine: every legal move, keyed by the name refusals use. */
+/** The Task state machine: every legal move. */
 const RULES = {
 	TaskAssigned: rule(
 		["Proposed", "Assigned"],
@@ -57,19 +52,18 @@ const RULES = {
 			? { tag: "Assigned", assignee: p.to }
 			: `is assigned to ${s.assignee}, not ${p.from}`,
 	),
-	"TaskCompleted (review Required)": rule(
-		["InProgress"],
-		(s, reviewer: Actor) => ({
-			tag: "UnderReview",
-			assignee: s.assignee,
-			reviewer,
-		}),
-	),
-	"TaskCompleted (review Skipped)": rule(["InProgress"], () => ({
-		tag: "Done",
+	CompletedForReview: rule(["InProgress"], (s, reviewer: Actor) => ({
+		tag: "UnderReview",
+		assignee: s.assignee,
+		reviewer,
 	})),
-	"TaskCompleted (review Reviewed)": rule(["UnderReview"], () => ({
+	CompletedSkippingReview: rule(["InProgress"], (s) => ({
 		tag: "Done",
+		assignee: s.assignee,
+	})),
+	CompletedAfterReview: rule(["UnderReview"], (s) => ({
+		tag: "Done",
+		assignee: s.assignee,
 	})),
 	TaskFailed: rule(LIVE_TAGS, (_, p: PayloadOf<"TaskFailed">) => ({
 		tag: "Failed",
@@ -96,20 +90,24 @@ const orList = (tags: readonly string[]) =>
 		? tags.join("")
 		: `${tags.slice(0, -1).join(", ")} or ${tags.at(-1)}`;
 
+/**
+ * The next state, or why `subject` cannot move: its state, or the rule's own
+ * reason. `context` ends a refusal that the state alone would not explain.
+ */
 const fire = <F extends Tag, P>(
-	name: string,
 	subject: string,
 	r: Rule<F, P>,
 	state: TaskState,
 	input: P,
-): TaskState | TransitionError => {
-	const refuse = (reason: string) =>
-		new TransitionError(`${name} refused: ${subject} ${reason}`);
+	context: string,
+): TaskState | Refusal => {
 	if (!isIn(r.from, state)) {
-		return refuse(`is ${state.tag}, expected ${orList(r.from)}`);
+		return new Refusal(
+			`${subject} is ${state.tag}, expected ${orList(r.from)}${context}`,
+		);
 	}
 	const next = r.to(state, input);
-	return typeof next === "string" ? refuse(next) : next;
+	return typeof next === "string" ? new Refusal(`${subject} ${next}`) : next;
 };
 
 /** The Task an Event speaks about, if any. */
@@ -137,52 +135,41 @@ export const taskIdOf = (event: Event): TaskId | undefined => {
 export const transition = (
 	state: TaskState,
 	event: Event,
-): TaskState | TransitionError => {
+): TaskState | Refusal => {
 	const subject = taskIdOf(event) ?? "the Task";
-	const go = <F extends Tag, P>(name: string, r: Rule<F, P>, input: P) =>
-		fire(name, subject, r, state, input);
+	const go = <F extends Tag, P>(r: Rule<F, P>, input: P, context = "") =>
+		fire(subject, r, state, input, context);
 	switch (event.kind) {
 		case "TaskAssigned":
-			return go(event.kind, RULES.TaskAssigned, event.payload);
+			return go(RULES.TaskAssigned, event.payload);
 		case "TaskStarted":
-			return go(event.kind, RULES.TaskStarted, undefined);
+			return go(RULES.TaskStarted, undefined);
 		case "TaskHandedOff":
-			return go(event.kind, RULES.TaskHandedOff, event.payload);
+			return go(RULES.TaskHandedOff, event.payload);
 		case "TaskCompleted": {
 			const review = event.payload.review;
+			const context = ` for review ${review.tag}`;
 			switch (review.tag) {
 				case "Required":
-					return go(
-						"TaskCompleted (review Required)",
-						RULES["TaskCompleted (review Required)"],
-						review.reviewer,
-					);
+					return go(RULES.CompletedForReview, review.reviewer, context);
 				case "Skipped":
-					return go(
-						"TaskCompleted (review Skipped)",
-						RULES["TaskCompleted (review Skipped)"],
-						undefined,
-					);
+					return go(RULES.CompletedSkippingReview, undefined, context);
 				case "Reviewed":
-					return go(
-						"TaskCompleted (review Reviewed)",
-						RULES["TaskCompleted (review Reviewed)"],
-						undefined,
-					);
+					return go(RULES.CompletedAfterReview, undefined, context);
 			}
 			break;
 		}
 		case "TaskFailed":
-			return go(event.kind, RULES.TaskFailed, event.payload);
+			return go(RULES.TaskFailed, event.payload);
 		case "TaskEscalated":
-			return go(event.kind, RULES.TaskEscalated, event.payload);
+			return go(RULES.TaskEscalated, event.payload);
 		case "GateRequested":
-			return go(event.kind, RULES.GateRequested, event.payload.gate_id);
+			return go(RULES.GateRequested, event.payload.gate_id);
 		case "GateDecided":
-			return go(event.kind, RULES.GateDecided, event.payload.gate_id);
+			return go(RULES.GateDecided, event.payload.gate_id);
 	}
-	return new TransitionError(
-		`${event.kind} refused: ${subject} is ${state.tag}, and ${event.kind} does not move a Task`,
+	return new Refusal(
+		`${subject} is ${state.tag}, and ${event.kind} does not move a Task`,
 	);
 };
 
@@ -194,7 +181,7 @@ const withTask = (view: TaskView, task: Task): TaskView => {
 
 const move = (view: TaskView, task: Task, event: Event) => {
 	const state = transition(task.state, event);
-	if (state instanceof TransitionError) return state;
+	if (state instanceof Refusal) return state;
 	const outputs =
 		event.kind === "TaskCompleted"
 			? [...task.outputs, ...event.payload.outputs]
@@ -209,7 +196,7 @@ const move = (view: TaskView, task: Task, event: Event) => {
 export const applyTaskEvent = (
 	view: TaskView,
 	event: Event,
-): TaskView | TransitionError => {
+): TaskView | Refusal => {
 	if (event.kind === "GateDecided") {
 		const blocked = [...view.tasks.values()].find(
 			(t) =>
@@ -222,9 +209,7 @@ export const applyTaskEvent = (
 	const task = view.tasks.get(id);
 	if (event.kind === "TaskProposed") {
 		if (task) {
-			return new TransitionError(
-				`TaskProposed refused: ${id} already exists and is ${task.state.tag}`,
-			);
+			return new Refusal(`${id} already exists and is ${task.state.tag}`);
 		}
 		const { task_id, ...fields } = event.payload;
 		return withTask(view, {
@@ -235,19 +220,22 @@ export const applyTaskEvent = (
 		});
 	}
 	if (!task) {
-		return new TransitionError(`${event.kind} refused: ${id} does not exist`);
+		return new Refusal(`${id} does not exist`);
 	}
 	return move(view, task, event);
 };
 
-/** Tasks from the Ledger. Events the state machine refuses change nothing. */
+/** Tasks from the Ledger, moved by the Task state machine. */
 export const TaskProjection: Projection<TaskView> = {
 	init: { tasks: new Map() },
-	reduce: (view, event) => {
-		const next = applyTaskEvent(view, event);
-		return next instanceof TransitionError ? view : next;
-	},
+	reduce: applyTaskEvent,
 };
+
+/** The Agent a Task is assigned to, or was when it was done. */
+export const assigneeOf = (task: Task | undefined): AgentId | undefined =>
+	task !== undefined && "assignee" in task.state
+		? task.state.assignee
+		: undefined;
 
 /** The id after the highest `T-<n>` in the view: `T-1` for an empty one. */
 export const nextTaskId = (view: TaskView): TaskId =>

@@ -1,129 +1,113 @@
-import { spawnSync } from "node:child_process";
-import {
-	existsSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { NewEvent } from "./events.js";
-import { AppendRefused } from "./guards.js";
-import { canonicalJson, sha256Hex } from "./hash.js";
-import { AgentId, RoomId, Seq, TaskId } from "./ids.js";
-import { type Ledger, LedgerLocked, openLedger } from "./ledger.js";
+import { AppendRefused, type FollowOn } from "./guards.js";
+import {
+	AgentId,
+	ArtifactId,
+	GateId,
+	RoomId,
+	RunId,
+	ScriptId,
+	Seq,
+	Sha256,
+	TaskId,
+} from "./ids.js";
+import {
+	type Ledger,
+	LedgerCorrupt,
+	type LedgerOptions,
+	openMemoryLedger,
+} from "./ledger.js";
+import { LAB_ROOM } from "./room/seed.js";
+import { memoryStorage, type Storage } from "./storage.js";
+import { forge } from "./test-support/forge.js";
+import { scenario, scores } from "./vitality/scenario.js";
 
+const operator = { tag: "Operator" } as const;
+const lab = RoomId.parse("RM-lab");
 const odile = AgentId.parse("A-odile");
 
-const paused = (reason: string): NewEvent => ({
-	actor: { tag: "Operator" },
-	kind: "AgentPaused",
-	payload: { agent_id: odile, reason },
+const opened: NewEvent = {
+	actor: operator,
+	kind: "RoomOpened",
+	payload: { room: LAB_ROOM },
+};
+
+const said = (
+	body: string,
+	envelope: Pick<NewEvent, "task_id" | "causation_id" | "actor"> = {
+		actor: operator,
+	},
+): NewEvent => ({
+	...envelope,
+	kind: "MessageSent",
+	payload: { room_id: lab, body },
 });
 
-/** A mix of kinds, with and without the optional envelope fields. */
+/** Messages in the Lab Room, with and without the optional envelope fields. */
 const sampleEvent = (i: number): NewEvent => {
-	const task_id = TaskId.parse(`T-${i}`);
 	switch (i % 3) {
 		case 0:
-			return paused(`pause ${i}`);
+			return said(`note ${i}`);
 		case 1:
-			return {
-				actor: { tag: "Agent", id: odile },
-				task_id,
-				kind: "TaskStarted",
-				payload: { task_id },
-			};
+			return said(`note ${i}`, {
+				actor: operator,
+				task_id: TaskId.parse(`T-${i}`),
+			});
 		default:
-			return {
-				actor: { tag: "Operator" },
-				task_id,
-				causation_id: Seq.parse(i - 1),
-				kind: "MessageSent",
-				payload: { room_id: RoomId.parse("RM-lab"), body: `note ${i}` },
-			};
+			return said(`reply ${i}`, {
+				actor: operator,
+				causation_id: Seq.parse(i),
+			});
 	}
 };
 
-const appendSamples = (l: Ledger, n: number) => {
-	for (let i = 1; i <= n; i++) l.append(sampleEvent(i));
+/** A Ledger with the Lab Room open and `n` sample Messages after it. */
+const withSamples = (n: number, options: Partial<LedgerOptions> = {}) => {
+	const ledger = openMemoryLedger(options);
+	ledger.append(opened);
+	for (let i = 1; i <= n; i++) ledger.append(sampleEvent(i));
+	return ledger;
 };
 
-/** Change the SQLite file behind the Ledger's back, as a tamperer would. */
-const tamper = (sql: string) => {
-	const db = new DatabaseSync(join(home, "ledger.sqlite"));
-	db.exec(sql);
-	db.close();
-};
+const bodies = (l: Ledger) =>
+	l.all().map((e) => (e.kind === "MessageSent" ? e.payload.body : e.kind));
 
 // The refusal tests hand the Ledger values the type system would reject, the
 // way JSON from the command line arrives.
 const untyped = (value: unknown) => value as NewEvent;
 
-let home: string;
-let ledger: Ledger | undefined;
-
-beforeEach(() => {
-	home = mkdtempSync(join(tmpdir(), "aliquot-ledger-"));
-});
-
-afterEach(() => {
-	ledger?.close();
-	ledger = undefined;
-	rmSync(home, { recursive: true, force: true });
-});
-
-// These tests cover the Ledger's mechanics; domain guards would refuse the
-// sample Events, which name Agents and Tasks that were never created.
-const openWriter = () => {
-	ledger = openLedger({ home, writer: true, guards: [] });
-	return ledger;
-};
-
 describe("Ledger append", () => {
-	it("refuses an Event with an unknown kind and writes nothing", () => {
-		const l = openWriter();
-		l.append(paused("first"));
+	it("refuses an Event with an unknown kind, naming it, and writes nothing", () => {
+		const l = withSamples(0);
+		const append = () =>
+			l.append(untyped({ actor: operator, kind: "AgentDanced", payload: {} }));
 
-		expect(() =>
-			l.append(
-				untyped({
-					actor: { tag: "Operator" },
-					kind: "AgentDanced",
-					payload: {},
-				}),
-			),
-		).toThrow(AppendRefused);
-
-		expect(l.all().map((e) => e.kind)).toEqual(["AgentPaused"]);
+		expect(append).toThrow(AppendRefused);
+		expect(append).toThrow(/^AgentDanced refused: not a valid Event: /);
+		expect(bodies(l)).toEqual(["RoomOpened"]);
 	});
 
 	it.each([
-		["a missing payload field", { agent_id: "A-odile" }],
-		["a malformed AgentId", { agent_id: "odile", reason: "r" }],
-		["an unknown payload field", { agent_id: "A-odile", reason: "r", x: 1 }],
+		["a missing payload field", { room_id: "RM-lab" }],
+		["a malformed RoomId", { room_id: "lab", body: "b" }],
+		["an unknown payload field", { room_id: "RM-lab", body: "b", x: 1 }],
 	])("refuses a payload with %s and writes nothing", (_, payload) => {
-		const l = openWriter();
-
+		const l = withSamples(0);
 		const append = () =>
-			l.append(
-				untyped({ actor: { tag: "Operator" }, kind: "AgentPaused", payload }),
-			);
+			l.append(untyped({ actor: operator, kind: "MessageSent", payload }));
 
 		expect(append).toThrow(AppendRefused);
-		expect(append).toThrow(/payload/);
-
-		expect(l.all()).toEqual([]);
+		expect(append).toThrow(
+			/^MessageSent refused: not a valid Event: .*payload/s,
+		);
+		expect(bodies(l)).toEqual(["RoomOpened"]);
 	});
 
 	it("numbers Events from 1 and chains each to the previous hash", () => {
-		const l = openWriter();
-		const first = l.append(paused("one"));
-		const second = l.append(paused("two"));
+		const l = openMemoryLedger();
+		const first = l.append(opened);
+		const second = l.append(said("two"));
 
 		expect(first.seq).toBe(1);
 		expect(first.prev_hash).toBe("0".repeat(64));
@@ -133,233 +117,226 @@ describe("Ledger append", () => {
 	});
 
 	it("stamps each Event with the injected clock", () => {
-		ledger = openLedger({
-			home,
-			writer: true,
+		const l = openMemoryLedger({
 			clock: () => new Date("2026-10-12T09:30:00Z"),
-			guards: [],
 		});
 
-		expect(ledger.append(paused("timed")).ts).toBe("2026-10-12T09:30:00.000Z");
+		expect(l.append(opened).ts).toBe("2026-10-12T09:30:00.000Z");
 	});
 
-	it("runs every guard before writing, and a refusal writes nothing", () => {
-		const seen: number[] = [];
-		ledger = openLedger({
-			home,
-			writer: true,
-			guards: [
-				(ctx) => {
-					seen.push(ctx.events.length);
-				},
-				(_, event) => {
-					if (event.kind === "AgentPaused" && event.payload.reason === "no") {
-						throw new AppendRefused("reason 'no' is refused");
-					}
-				},
-			],
-		});
-		ledger.append(paused("yes"));
+	it("words a guard's refusal as <Kind> refused: <reason> and writes nothing", () => {
+		const l = withSamples(1);
 
-		expect(() => ledger?.append(paused("no"))).toThrow(
-			"reason 'no' is refused",
+		expect(() =>
+			l.append(said("hello", { actor: { tag: "Agent", id: odile } })),
+		).toThrow(
+			new AppendRefused(
+				"MessageSent refused: A-odile is not a member of RM-lab",
+			),
 		);
-		expect(ledger.all().map((e) => e.seq)).toEqual([1]);
-		expect(seen).toEqual([0, 1]);
+		expect(l.all().map((e) => e.seq)).toEqual([1, 2]);
+	});
+
+	it("refuses an Event a Projection cannot apply, in the same words, and writes nothing", () => {
+		const l = withSamples(1);
+
+		expect(() =>
+			l.append({
+				actor: operator,
+				kind: "MessageSent",
+				payload: { room_id: RoomId.parse("RM-nowhere"), body: "hello" },
+			}),
+		).toThrow(
+			new AppendRefused("MessageSent refused: RM-nowhere is not an open Room"),
+		);
+		expect(l.all().map((e) => e.seq)).toEqual([1, 2]);
 	});
 
 	it("writes the follow-ons after their cause in the same append, and a refused follow-on rolls back the cause", () => {
-		const l = openLedger({
-			home,
-			writer: true,
-			guards: [
-				(_, event) => {
-					if (event.kind === "AgentPaused" && event.payload.reason === "no") {
-						throw new AppendRefused("reason 'no' is refused");
-					}
-				},
-			],
-			followOns: [
-				(events, cause) =>
-					cause.kind === "AgentPaused" &&
-					cause.payload.reason.startsWith("echo")
-						? [
-								paused(
-									cause.payload.reason === "echo no"
-										? "no"
-										: `after ${events.at(-1)?.seq}`,
-								),
-							]
-						: [],
-			],
-		});
-		ledger = l;
-		const reasons = () =>
-			l
-				.all()
-				.map((e) => (e.kind === "AgentPaused" ? e.payload.reason : e.kind));
+		const echo: FollowOn = (ledger, cause) =>
+			cause.kind === "MessageSent" && cause.payload.body.startsWith("echo")
+				? [
+						cause.payload.body === "echo no"
+							? said("no", { actor: { tag: "Agent", id: odile } })
+							: said(`after ${ledger.rooms.messages.at(-1)?.seq}`),
+					]
+				: [];
+		const l = openMemoryLedger({ followOns: [echo] });
+		l.append(opened);
 
-		l.append(paused("first"));
-		expect(l.append(paused("echo")).seq).toBe(2);
-		expect(reasons()).toEqual(["first", "echo", "after 2"]);
+		expect(l.append(said("echo")).seq).toBe(2);
+		expect(bodies(l)).toEqual(["RoomOpened", "echo", "after 2"]);
 
-		expect(() => l.append(paused("echo no"))).toThrow("reason 'no' is refused");
-		expect(reasons()).toEqual(["first", "echo", "after 2"]);
+		expect(() => l.append(said("echo no"))).toThrow(
+			"MessageSent refused: A-odile is not a member of RM-lab",
+		);
+		expect(bodies(l)).toEqual(["RoomOpened", "echo", "after 2"]);
+		expect(l.projections.rooms.messages.map((m) => m.body)).toEqual([
+			"echo",
+			"after 2",
+		]);
 
-		const next = l.append(paused("next"));
+		const next = l.append(said("next"));
 		expect(next).toMatchObject({ seq: 4, prev_hash: l.all()[2]?.hash });
 		expect(l.verify()).toEqual({ ok: true, count: 4 });
 	});
 });
 
-describe("Ledger verify", () => {
-	it("passes on a freshly written Ledger of 120 Events", () => {
-		const l = openWriter();
-		appendSamples(l, 120);
+describe("Ledger Projections", () => {
+	it("advances its Projections by each append, and a Ledger opened on the same Events builds the same ones", () => {
+		const storage = memoryStorage();
+		const s = scenario(undefined, { storage });
+		const rin = AgentId.parse("A-rin");
+		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
+		const t = s.task(rin);
+		s.run(t, 1, 0.4);
+		s.gate("PromoteToMentor", { agent_id: rin }, "reject");
+		s.retire(AgentId.parse("A-bram"), "Replaced");
+		s.append(opened);
+		s.append(said("Rin is Trusted now"));
 
-		expect(l.verify()).toEqual({ ok: true, count: 120 });
-	});
+		const reader = openMemoryLedger({ storage, writer: false });
 
-	it("passes on an empty Ledger", () => {
-		expect(openWriter().verify()).toEqual({ ok: true, count: 0 });
-	});
-
-	it("names the edited seq when one payload is changed in SQLite", () => {
-		const l = openWriter();
-		appendSamples(l, 120);
-		tamper(
-			`UPDATE events SET payload = json_set(payload, '$.reason', 'forged') WHERE seq = 57`,
-		);
-
-		expect(l.verify()).toEqual({
-			ok: false,
-			seq: 57,
-			reason: "hash does not match the Event's contents",
+		expect(reader.projections).toEqual(s.ledger.projections);
+		expect(s.ledger.projections.trust.agents.get(rin)?.tier).toBe("Trusted");
+		expect(s.ledger.projections.tasks.tasks.get(t)?.state).toEqual({
+			tag: "InProgress",
+			assignee: rin,
 		});
 	});
 
-	it("names the next seq when an edited row's hash is also recomputed", () => {
-		const l = openWriter();
-		appendSamples(l, 120);
-		const db = new DatabaseSync(join(home, "ledger.sqlite"));
-		const row = db.prepare("SELECT * FROM events WHERE seq = 57").get() as {
-			ts: string;
-			actor: string;
-			kind: string;
-			payload: string;
-			prev_hash: string;
-		};
-		const payload = { ...JSON.parse(row.payload), reason: "forged" };
-		const hash = sha256Hex(
-			canonicalJson({
-				seq: 57,
-				ts: row.ts,
-				actor: JSON.parse(row.actor),
-				kind: row.kind,
-				payload,
-				prev_hash: row.prev_hash,
-			}),
+	it("leaves its Projections as they were when an append is refused", () => {
+		const l = withSamples(3);
+		const before = l.projections;
+
+		expect(() => l.append(opened)).toThrow(
+			"RoomOpened refused: RM-lab is already open",
 		);
-		db.prepare("UPDATE events SET payload = ?, hash = ? WHERE seq = 57").run(
-			canonicalJson(payload),
-			hash,
-		);
-		db.close();
-
-		expect(l.verify()).toEqual({
-			ok: false,
-			seq: 58,
-			reason: "prev_hash does not match the hash of seq 57",
-		});
-	});
-
-	it("names the missing seq when one row is deleted in SQLite", () => {
-		const l = openWriter();
-		appendSamples(l, 120);
-		tamper("DELETE FROM events WHERE seq = 57");
-
-		expect(l.verify()).toEqual({
-			ok: false,
-			seq: 57,
-			reason: "seq 57 is missing; the next row is seq 58",
-		});
-	});
-
-	it("names the seq whose stored JSON no longer parses", () => {
-		const l = openWriter();
-		appendSamples(l, 10);
-		tamper("UPDATE events SET actor = '{not json' WHERE seq = 4");
-
-		expect(l.verify()).toMatchObject({ ok: false, seq: 4 });
+		expect(l.projections).toBe(before);
 	});
 });
 
-describe("Ledger single writer", () => {
-	const lockPath = () => join(home, "ledger.sqlite.lock");
+describe("a corrupt Ledger", () => {
+	const T1 = TaskId.parse("T-1");
+	const artifact = ArtifactId.parse("a".repeat(64));
+	const stored: NewEvent = {
+		actor: operator,
+		kind: "ArtifactStored",
+		payload: {
+			id: artifact,
+			sha256: Sha256.parse(artifact),
+			media_type: "text/plain",
+			artifact_type: "Other",
+			produced_by: { tag: "Operator" },
+			lineage: [],
+		},
+	};
 
-	it("refuses a second writer while the first is open, naming the holder", () => {
-		openWriter();
+	const corrupt = (events: NewEvent[]): Storage => {
+		const storage = memoryStorage();
+		forge(storage, [opened, said("first"), ...events]);
+		return storage;
+	};
 
-		const second = () => openLedger({ home, writer: true });
+	it.each<[string, NewEvent[], string]>([
+		[
+			"a Task Event the Task state machine cannot express",
+			[{ actor: operator, kind: "TaskStarted", payload: { task_id: T1 } }],
+			"TaskStarted refused: T-1 does not exist",
+		],
+		[
+			"a Revision of an Agent not in the Org",
+			[
+				{
+					actor: operator,
+					kind: "AgentPaused",
+					payload: { agent_id: odile, reason: "r" },
+				},
+			],
+			"AgentPaused refused: A-odile is not in the Org",
+		],
+		[
+			"a second RoomOpened for one Room",
+			[opened],
+			"RoomOpened refused: RM-lab is already open",
+		],
+		[
+			"a decision on a Gate never requested",
+			[
+				{
+					actor: operator,
+					kind: "GateDecided",
+					payload: {
+						gate_id: GateId.parse("G-1"),
+						decided_by: operator,
+						payload_hash: Sha256.parse("b".repeat(64)),
+						meaning: "approve",
+						reason: "r",
+					},
+				},
+			],
+			"GateDecided refused: no Gate G-1 was requested",
+		],
+		[
+			"a revision of a Script never registered",
+			[
+				{
+					actor: operator,
+					kind: "ScriptRevised",
+					payload: {
+						id: ScriptId.parse("S-copy"),
+						version: 2,
+						name: "copy",
+						owner_agent: odile,
+						input_types: [],
+						output_types: [],
+						entrypoint: "main.py",
+						fixtures: [],
+						image_digest: Sha256.parse("b".repeat(64)),
+					},
+				},
+			],
+			"ScriptRevised refused: S-copy is not registered",
+		],
+		[
+			"a RunFinished with no RunStarted",
+			[
+				stored,
+				{
+					actor: operator,
+					kind: "RunFinished",
+					payload: {
+						id: RunId.parse("R-1"),
+						script: { id: ScriptId.parse("S-copy"), version: 1 },
+						inputs: [],
+						outputs: [],
+						exit_code: 0,
+						stdout_ref: artifact,
+						stderr_ref: artifact,
+						duration_ms: 1,
+					},
+				},
+			],
+			"RunFinished refused: R-1 has no RunStarted",
+		],
+		[
+			"the Operator storing the same bytes twice",
+			[stored, stored],
+			`ArtifactStored refused: ${artifact} is already stored`,
+		],
+	])(
+		"reports %s as corrupt, naming its seq, to a reader and a writer",
+		(_, events, refusal) => {
+			const storage = corrupt(events);
+			const seq = 2 + events.length;
+			const message = `:memory: is corrupt at seq ${seq}: ${refusal}`;
 
-		expect(second).toThrow(LedgerLocked);
-		expect(second).toThrow(`${lockPath()} held by pid ${process.pid}`);
-	});
-
-	it("lets a second writer open after the first closes", () => {
-		openWriter().append(paused("before"));
-		ledger?.close();
-
-		ledger = openLedger({ home, writer: true, guards: [] });
-		ledger.append(paused("after"));
-
-		expect(ledger.all().map((e) => e.seq)).toEqual([1, 2]);
-		ledger.close();
-		ledger = undefined;
-		expect(existsSync(lockPath())).toBe(false);
-	});
-
-	it("takes over a lock left by a process that no longer runs", () => {
-		const exited = spawnSync(process.execPath, ["-e", ""]);
-		writeFileSync(lockPath(), String(exited.pid));
-
-		openWriter().append(paused("recovered"));
-
-		expect(ledger?.all()).toHaveLength(1);
-		expect(readFileSync(lockPath(), "utf8")).toBe(String(process.pid));
-		expect(readdirSync(home).filter((f) => f.includes(".stale-"))).toEqual([]);
-	});
-
-	it("leaves a stale lock alone while another process is taking it over", () => {
-		const exited = spawnSync(process.execPath, ["-e", ""]);
-		writeFileSync(lockPath(), String(exited.pid));
-		writeFileSync(`${lockPath()}.takeover`, String(process.pid));
-
-		expect(() => openLedger({ home, writer: true })).toThrow(
-			`${lockPath()} held by pid ${process.pid}`,
-		);
-		expect(readFileSync(lockPath(), "utf8")).toBe(String(exited.pid));
-
-		writeFileSync(`${lockPath()}.takeover`, String(exited.pid));
-		expect(() => openLedger({ home, writer: true })).toThrow(
-			`${lockPath()}.takeover was left by pid ${exited.pid}, which stopped while taking over`,
-		);
-	});
-
-	it("lets a reader verify while a writer holds the Ledger, but not append", () => {
-		openWriter().append(paused("one"));
-		const reader = openLedger({ home, writer: false });
-		try {
-			expect(reader.verify()).toEqual({ ok: true, count: 1 });
-			expect(() => reader.append(paused("two"))).toThrow(/read-only/);
-		} finally {
-			reader.close();
-		}
-	});
-
-	it("refuses to open a reader where no Ledger exists", () => {
-		expect(() => openLedger({ home, writer: false })).toThrow(
-			`no Ledger at ${join(home, "ledger.sqlite")}`,
-		);
-	});
+			for (const writer of [false, true]) {
+				const open = () => openMemoryLedger({ storage, writer });
+				expect(open).toThrow(LedgerCorrupt);
+				expect(open).toThrow(message);
+			}
+			expect([...storage.rows()]).toHaveLength(seq);
+		},
+	);
 });

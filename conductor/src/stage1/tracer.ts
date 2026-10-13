@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
-import type { Event, EventBody, PayloadOf } from "../events.js";
+import type { EventBody, PayloadOf } from "../events.js";
 import { sha256Hex } from "../hash.js";
 import {
 	type AgentId,
@@ -15,26 +15,17 @@ import {
 	type TaskId,
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
-import { orgState } from "../org/projection.js";
+import { revisedBetween } from "../org/projection.js";
 import { seedOrg } from "../org/seed.js";
-import { fold } from "../reduce.js";
-import {
-	openArtifacts,
-	productionOf,
-	projectArtifacts,
-} from "../sandbox/artifacts.js";
+import type { Projections } from "../projections.js";
+import { openArtifacts, productionOf } from "../sandbox/artifacts.js";
 import { guessMediaType, runScript } from "../sandbox/runner.js";
-import {
-	projectScripts,
-	registerScript,
-	scriptDir,
-} from "../sandbox/scripts.js";
-import { LIVE_TAGS, nextTaskId, TaskProjection } from "../task/projection.js";
+import { registerScript, scriptDir } from "../sandbox/scripts.js";
+import { LIVE_TAGS, nextTaskId } from "../task/projection.js";
 import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
-import { revisionsCausedBy } from "../vitality/projection.js";
 import { reviewSampleOf } from "../vitality/trust.js";
 import { evaluateSubmission, type SubmissionEvaluation } from "./evaluate.js";
 
@@ -69,8 +60,8 @@ export const ensureScript = (options: {
 	image: Sha256;
 }): Script => {
 	const { ledger, home, source, owner, image } = options;
-	const latest = projectScripts(ledger)
-		.scripts.get(ScriptId.parse(`S-${SCRIPT_NAME}`))
+	const latest = ledger.projections.scripts.scripts
+		.get(ScriptId.parse(`S-${SCRIPT_NAME}`))
 		?.at(-1);
 	if (
 		latest &&
@@ -104,16 +95,15 @@ type Completion = Extract<
  * Supervisor, for a Specialist), or the Operator when it has none.
  */
 export const reviewOf = (
-	events: readonly Event[],
+	ledger: Projections,
 	task_id: TaskId,
 	owner: AgentId,
 ): Completion => {
-	const { tier, sampled } = reviewSampleOf(events, owner, task_id);
+	const { tier, sampled } = reviewSampleOf(ledger.trust, owner, task_id);
 	if (!sampled) {
 		return { tag: "Skipped", reason: `not sampled for Review at tier ${tier}` };
 	}
-	const supervisor =
-		orgState(events).agents.get(owner)?.definition.supervisor_id;
+	const supervisor = ledger.org.agents.get(owner)?.definition.supervisor_id;
 	return {
 		tag: "Required",
 		reviewer: supervisor ? { tag: "Agent", id: supervisor } : OPERATOR,
@@ -147,11 +137,11 @@ const evaluateRun = (
 			`${run.id} exited ${run.exit_code}; its stderr is Artifact ${run.stderr_ref}`,
 		);
 	}
-	const projection = projectArtifacts(ledger);
+	const projection = ledger.projections.artifacts;
 	const record = run.outputs.find(
 		(id) =>
-			productionOf(projection, id, { tag: "Run", id: run.id })?.filename ===
-			RECORD_FILENAME,
+			productionOf(projection, id, { tag: "Run", id: run.id })?.record
+				.filename === RECORD_FILENAME,
 	);
 	if (!record) return failed(`${run.id} wrote no ${RECORD_FILENAME}`);
 	let parsed: unknown;
@@ -198,18 +188,12 @@ export const runStage1 = async (options: {
 		},
 		{ actor: OPERATOR },
 	);
-	const events = ledger.all();
-	const stored = events.find(
-		(e) =>
-			e.kind === "ArtifactStored" &&
-			e.payload.id === fixture.id &&
-			e.payload.produced_by.tag === "Operator",
-	);
+	const stored = productionOf(ledger.projections.artifacts, fixture.id, {
+		tag: "Operator",
+	});
 	if (!stored) throw new Error(`no ArtifactStored for ${fixture.id}`);
 
-	const task_id = nextTaskId(
-		fold(events, TaskProjection.reduce, TaskProjection.init),
-	);
+	const task_id = nextTaskId(ledger.projections.tasks);
 	let cause: Seq = stored.seq;
 	const step = (actor: Actor, body: EventBody) => {
 		const event = ledger.append({
@@ -222,11 +206,7 @@ export const runStage1 = async (options: {
 		return event;
 	};
 	const state = (): TaskState => {
-		const task = fold(
-			ledger.events(),
-			TaskProjection.reduce,
-			TaskProjection.init,
-		).tasks.get(task_id);
+		const task = ledger.projections.tasks.tasks.get(task_id);
 		if (!task) throw new Error(`${task_id} vanished`);
 		return task.state;
 	};
@@ -261,30 +241,20 @@ export const runStage1 = async (options: {
 			causation_id: cause,
 			timeoutMs: options.timeoutMs,
 		});
-		const finished = ledger
-			.all()
-			.filter((e) => e.kind === "RunFinished" && e.payload.id === run.id)
-			.at(-1);
+		const finished = ledger.projections.runs.runs.get(run.id)?.finished;
 		if (!finished) throw new Error(`no RunFinished for ${run.id}`);
 		cause = finished.seq;
 
 		const { record, evaluation } = evaluateRun(ledger, home, run);
 		const eval_id = EvaluationId.parse(
-			nextId(
-				"E",
-				ledger
-					.all()
-					.flatMap((e) =>
-						e.kind === "EvaluationRecorded" ? [e.payload.eval_id] : [],
-					),
-			),
+			nextId("E", ledger.projections.work.evaluations.keys()),
 		);
 		step(OPERATOR, {
 			kind: "EvaluationRecorded",
 			payload: { eval_id, run_id: run.id, task_id, ...evaluation },
 		});
 		if (evaluation.passed) {
-			const review = reviewOf(ledger.all(), task_id, owner);
+			const review = reviewOf(ledger.projections, task_id, owner);
 			step(ownerActor, {
 				kind: "TaskCompleted",
 				payload: { task_id, outputs: record ? [record] : [], review },
@@ -293,7 +263,8 @@ export const runStage1 = async (options: {
 				const { reviewer } = review;
 				// The tracer has no reviewing Agent yet, so the Review stands in
 				// for one: a passed Evaluation scores 3 on every dimension.
-				const recorded = step(reviewer, {
+				const before = ledger.projections.org;
+				step(reviewer, {
 					kind: "ReviewRecorded",
 					payload: {
 						task_id,
@@ -306,11 +277,11 @@ export const runStage1 = async (options: {
 						note: `Evaluation ${eval_id} passed with score ${evaluation.score.toFixed(3)}; 3 on every dimension`,
 					},
 				});
+				revisions.push(...revisedBetween(before, ledger.projections.org));
 				step(reviewer, {
 					kind: "TaskCompleted",
 					payload: { task_id, outputs: [], review: { tag: "Reviewed" } },
 				});
-				revisions.push(...revisionsCausedBy(ledger.all(), recorded.seq));
 			}
 		} else {
 			step(ownerActor, {
@@ -348,8 +319,8 @@ export const runStage1 = async (options: {
 
 /** Recruit the starting roster when the Ledger has no Agents yet. */
 export const ensureOwner = (ledger: Ledger, owner: AgentId): void => {
-	if (orgState(ledger.events()).agents.size === 0) seedOrg(ledger);
-	if (!orgState(ledger.events()).agents.has(owner)) {
+	if (ledger.projections.org.agents.size === 0) seedOrg(ledger);
+	if (!ledger.projections.org.agents.has(owner)) {
 		throw new Error(`${owner} is not an Agent in the Org`);
 	}
 };

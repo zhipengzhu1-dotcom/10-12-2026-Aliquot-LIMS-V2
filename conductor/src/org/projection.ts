@@ -1,6 +1,5 @@
-import type { Event } from "../events.js";
 import type { AgentId } from "../ids.js";
-import { fold, type Projection } from "../reduce.js";
+import { type Projection, Refusal } from "../reduce.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 
 /** One Agent as the Org Projection sees it: its current definition and status. */
@@ -19,24 +18,33 @@ const withAgent = (
 	state: OrgState,
 	id: AgentId,
 	change: (agent: AgentState) => AgentState,
-): OrgState => {
+): OrgState | Refusal => {
 	const agent = state.agents.get(id);
-	if (agent === undefined) return state;
+	if (agent === undefined) return new Refusal(notInOrg(id));
 	return { agents: new Map(state.agents).set(id, change(agent)) };
 };
+
+export const notInOrg = (id: AgentId) => `${id} is not in the Org`;
 
 export const OrgProjection: Projection<OrgState> = {
 	init: { agents: new Map() },
 	reduce: (state, event) => {
 		switch (event.kind) {
-			case "AgentRecruited":
+			case "AgentRecruited": {
+				const { id } = event.payload;
+				if (state.agents.has(id)) {
+					return new Refusal(
+						`${id} is already in the Org; change it with a Revision`,
+					);
+				}
 				return {
-					agents: new Map(state.agents).set(event.payload.id, {
+					agents: new Map(state.agents).set(id, {
 						definition: event.payload,
 						paused: false,
 						retired: false,
 					}),
 				};
+			}
 			case "AgentDefinitionRevised": {
 				const { definition } = event.payload;
 				return withAgent(state, definition.id, (a) => ({ ...a, definition }));
@@ -62,8 +70,19 @@ export const OrgProjection: Projection<OrgState> = {
 	},
 };
 
-export const orgState = (events: Iterable<Event>): OrgState =>
-	fold(events, OrgProjection.reduce, OrgProjection.init);
+/**
+ * The definitions `after` holds at a later version than `before`, in
+ * Recruitment order: the Revisions written between the two.
+ */
+export const revisedBetween = (
+	before: OrgState,
+	after: OrgState,
+): AgentDefinition[] =>
+	[...after.agents.values()]
+		.map((a) => a.definition)
+		.filter(
+			(d) => d.version > (before.agents.get(d.id)?.definition.version ?? 0),
+		);
 
 /**
  * The reporting tree: the Operator at the root, live Agents below, and the

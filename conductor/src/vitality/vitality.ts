@@ -1,8 +1,14 @@
-import type { Event } from "../events.js";
 import type { AgentId, TaskId } from "../ids.js";
-import { orgState } from "../org/projection.js";
+import type { Projections } from "../projections.js";
 import type { Vitality } from "../types/vitality.js";
-import { type DatedReview, mean, openTasks, scoresOf, workOf } from "./work.js";
+import {
+	type DatedReview,
+	mean,
+	openTasks,
+	scoresOf,
+	type WorkState,
+	workOf,
+} from "./work.js";
 
 export type SampleOptions = {
 	readonly now: Date;
@@ -17,29 +23,19 @@ export type SampleOptions = {
 };
 
 /** The latest RestOrdered for the Agent is a `begin`. */
-export const restInEffect = (
-	events: Iterable<Event>,
-	agent: AgentId,
-): boolean => {
-	let resting = false;
-	for (const e of events) {
-		if (e.kind === "RestOrdered" && e.payload.agent_id === agent) {
-			resting = e.payload.action === "begin";
-		}
-	}
-	return resting;
-};
+export const restInEffect = (work: WorkState, agent: AgentId): boolean =>
+	work.resting.has(agent);
 
 /**
- * Compute a Vitality sample from Events already in the Ledger, per the Field
+ * Compute a Vitality sample from the Ledger's Projections, per the Field
  * table of docs/design/vitality-and-merit.md.
  */
 export const sampleVitality = (
-	events: readonly Event[],
+	ledger: Projections,
 	agent: AgentId,
 	options: SampleOptions,
 ): Vitality => {
-	const org = orgState(events);
+	const { org, work } = ledger;
 	const definition = org.agents.get(agent)?.definition;
 	if (definition === undefined) throw new Error(`${agent} is not in the Org`);
 	if (!(options.energyBudgetTokens > 0)) {
@@ -48,15 +44,15 @@ export const sampleVitality = (
 		);
 	}
 	const notResting = [...org.agents.values()].filter(
-		(a) => !a.retired && !restInEffect(events, a.definition.id),
+		(a) => !a.retired && !restInEffect(work, a.definition.id),
 	).length;
 	const share = options.energyBudgetTokens / Math.max(1, notResting);
 	return {
 		agent,
-		load: openTasks(events, agent).open / definition.capacity,
+		load: openTasks(ledger.tasks, agent).open / definition.capacity,
 		fatigue: (options.tokensUsedInWindow ?? 0) / share,
-		...fromRecentWork(events, agent),
-		morale: morale(workOf(events, agent).reviews, options.now),
+		...fromRecentWork(work, agent),
+		morale: morale(workOf(work, agent).reviews, options.now),
 	};
 };
 
@@ -64,35 +60,27 @@ const RECENT_TASKS = 10;
 const DAY_MS = 86_400_000;
 
 /** `friction` and `confidence` over the Agent's last 10 Tasks. */
-const fromRecentWork = (events: readonly Event[], agent: AgentId) => {
-	const recent = new Set(workOf(events, agent).tasks.slice(-RECENT_TASKS));
+const fromRecentWork = (work: WorkState, agent: AgentId) => {
+	const recent = workOf(work, agent).tasks.slice(-RECENT_TASKS);
 	let failedRuns = 0;
 	let lowReviews = 0;
+	for (const task of recent) {
+		failedRuns += work.failedRuns.get(task) ?? 0;
+		lowReviews += (work.reviews.get(task) ?? []).filter((r) =>
+			scoresOf(r.review).some((x) => x <= 1),
+		).length;
+	}
+	const recentSet = new Set(recent);
 	const evaluation = new Map<TaskId, number>();
-	for (const e of events) {
-		if (e.kind === "RunFinished") {
-			if (e.task_id && recent.has(e.task_id) && e.payload.exit_code !== 0) {
-				failedRuns += 1;
-			}
-		} else if (e.kind === "ReviewRecorded") {
-			if (
-				recent.has(e.payload.task_id) &&
-				scoresOf(e.payload).some((x) => x <= 1)
-			) {
-				lowReviews += 1;
-			}
-		} else if (e.kind === "EvaluationRecorded") {
-			if (recent.has(e.payload.task_id)) {
-				evaluation.set(e.payload.task_id, e.payload.score);
-			}
-		}
+	for (const e of work.evaluations.values()) {
+		if (recentSet.has(e.task_id)) evaluation.set(e.task_id, e.score);
 	}
 	const scores = [...evaluation.values()];
 	return {
 		friction:
-			recent.size === 0
+			recent.length === 0
 				? 0
-				: Math.min(1, (failedRuns + lowReviews) / recent.size),
+				: Math.min(1, (failedRuns + lowReviews) / recent.length),
 		confidence: scores.length === 0 ? 1 : mean(scores),
 	};
 };

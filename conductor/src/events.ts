@@ -34,7 +34,9 @@ const TaskReview = z.discriminatedUnion("tag", [
 	z.strictObject({ tag: z.literal("Reviewed") }),
 ]);
 
-export const EventBody = z.discriminatedUnion("kind", [
+// Every kind but GateDecided, whose body differs between the caller and the
+// Ledger: see `EventBody` and `NewEvent` below.
+const BODIES = [
 	body("AgentRecruited", AgentDefinition),
 	body(
 		"AgentDefinitionRevised",
@@ -146,10 +148,14 @@ export const EventBody = z.discriminatedUnion("kind", [
 			lifetime_s: z.number().int().positive(),
 		}),
 	),
-	body("GateDecided", GateDecision),
 	body("HumanCoached", z.strictObject({ agent_id: AgentId, note: z.string() })),
 	body("MemoryNoted", MemoryNote),
 	body("SkillPublished", Skill),
+] as const;
+
+export const EventBody = z.discriminatedUnion("kind", [
+	...BODIES,
+	body("GateDecided", GateDecision),
 ]);
 export type EventBody = z.infer<typeof EventBody>;
 export type EventKind = EventBody["kind"];
@@ -174,7 +180,10 @@ const recorded = {
 // Every level refuses unknown keys: payload schemas are strict, and the
 // preprocess step refuses unknown top-level keys before the envelope and the
 // kind's payload are checked.
-const withBody = <S extends z.ZodRawShape>(shape: S) => {
+const withBody = <S extends z.ZodRawShape, B extends z.ZodType>(
+	shape: S,
+	bodies: B,
+) => {
 	const allowed = new Set([...Object.keys(shape), "kind", "payload"]);
 	return z.preprocess(
 		(input, ctx) => {
@@ -188,14 +197,24 @@ const withBody = <S extends z.ZodRawShape>(shape: S) => {
 			}
 			return input;
 		},
-		z.intersection(z.object(shape), EventBody),
+		z.intersection(z.object(shape), bodies),
 	);
 };
 
-/** What a caller hands to `Ledger.append`. The Ledger assigns the rest. */
-export const NewEvent = withBody(envelope);
+/**
+ * What a caller hands to `Ledger.append`. The Ledger assigns the rest, and
+ * stamps a GateDecided's `decided_at` with the Event's own `ts`, so the
+ * signature time is the time the decision is recorded (ADR-0006).
+ */
+export const NewEvent = withBody(
+	envelope,
+	z.discriminatedUnion("kind", [
+		...BODIES,
+		body("GateDecided", GateDecision.omit({ decided_at: true })),
+	]),
+);
 export type NewEvent = z.infer<typeof NewEvent>;
 
 /** One numbered entry in the Ledger. */
-export const Event = withBody({ ...recorded, ...envelope });
+export const Event = withBody({ ...recorded, ...envelope }, EventBody);
 export type Event = z.infer<typeof Event>;

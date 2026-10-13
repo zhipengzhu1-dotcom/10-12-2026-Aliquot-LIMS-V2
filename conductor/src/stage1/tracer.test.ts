@@ -13,7 +13,7 @@ afterEach(() => s.close());
 
 describe("the stage 1 tracer's Review", () => {
 	it("sends a Probation Specialist's Task to its Supervisor for Review", () => {
-		expect(reviewOf(s.events(), TaskId.parse("T-1"), rin)).toEqual({
+		expect(reviewOf(s.ledger.projections, TaskId.parse("T-1"), rin)).toEqual({
 			tag: "Required",
 			reviewer: { tag: "Agent", id: "A-pia" },
 		});
@@ -22,11 +22,13 @@ describe("the stage 1 tracer's Review", () => {
 	it("skips Review when the sample for a Trusted owner leaves the Task out", () => {
 		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
 
-		expect(reviewOf(s.events(), TaskId.parse("T-11"), rin)).toEqual({
+		expect(reviewOf(s.ledger.projections, TaskId.parse("T-11"), rin)).toEqual({
 			tag: "Skipped",
 			reason: "not sampled for Review at tier Trusted",
 		});
-		expect(reviewOf(s.events(), TaskId.parse("T-15"), rin)).toMatchObject({
+		expect(
+			reviewOf(s.ledger.projections, TaskId.parse("T-15"), rin),
+		).toMatchObject({
 			tag: "Required",
 		});
 	});

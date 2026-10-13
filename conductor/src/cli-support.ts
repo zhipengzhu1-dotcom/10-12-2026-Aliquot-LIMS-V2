@@ -66,20 +66,14 @@ export const parseActor = (
 
 /**
  * Open the Ledger, hand it to `use`, and close it when `use` returns, throws,
- * or (for a Promise) settles. `clock` stamps each Event's `ts`; the wall
- * clock when absent.
+ * or (for a Promise) settles.
  */
 export const withLedger = <T>(
 	home: string,
 	writer: boolean,
 	use: (ledger: Ledger) => T,
-	clock?: () => Date,
 ): T => {
-	const ledger = openLedger({
-		home,
-		writer,
-		...(clock === undefined ? {} : { clock }),
-	});
+	const ledger = openLedger({ home, writer });
 	let result: T;
 	try {
 		result = use(ledger);

@@ -102,7 +102,7 @@ describe("aliquot task", () => {
 			["TaskCompleted", "T-1", { tag: "Agent", id: "A-rin" }],
 		]);
 		expect(ok("task", "list")).toBe(
-			"Done (1)\n  T-1  Parse the Submission Form  TAT Rush1to2Days  priority 2\n",
+			"Done (1)\n  T-1  Parse the Submission Form  TAT Rush1to2Days  priority 2  assignee A-odile\n",
 		);
 	});
 
@@ -144,7 +144,7 @@ describe("aliquot task", () => {
 		);
 		expect(skip.status).toBe(1);
 		expect(skip.stderr).toBe(
-			"AppendRefused: TaskCompleted (review Skipped) refused: A-odile is on Probation; every Task is reviewed\n",
+			"AppendRefused: TaskCompleted refused: A-odile is on Probation; every Task is reviewed\n",
 		);
 		ok(
 			"task",
@@ -168,7 +168,7 @@ describe("aliquot task", () => {
 				"Assigned (1)",
 				"  T-1  Parse the Submission Form  TAT Rush1to2Days  priority 2  assignee A-rin",
 				"Done (1)",
-				"  T-3  Check the Receiving Log  TAT Rush3to4Days  priority 3",
+				"  T-3  Check the Receiving Log  TAT Rush3to4Days  priority 3  assignee A-odile",
 				"",
 			].join("\n"),
 		);

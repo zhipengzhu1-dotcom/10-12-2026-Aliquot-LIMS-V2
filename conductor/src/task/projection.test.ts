@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import type { NewEvent } from "../events.js";
@@ -9,17 +6,13 @@ import {
 	AgentId,
 	ArtifactId,
 	GateId,
-	IsoTime,
 	RubricId,
 	Sha256,
 	TaskId,
 } from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
-import { fold } from "../reduce.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { scenario, scores } from "../vitality/scenario.js";
 import { reviewSampled } from "../vitality/trust.js";
-import { taskGuards } from "./guards.js";
-import { TaskProjection } from "./projection.js";
 
 const operator = { tag: "Operator" } as const;
 const odile = AgentId.parse("A-odile");
@@ -67,13 +60,13 @@ const gateRequested = (task_id: TaskId | undefined): NewEvent => ({
 		lifetime_s: 3600,
 	},
 });
-const gateDecided = (gate_id = G1): NewEvent => ({
+const gateDecided = (task_id: TaskId | undefined): NewEvent => ({
 	actor: operator,
+	...(task_id && { task_id }),
 	kind: "GateDecided",
 	payload: {
-		gate_id,
+		gate_id: G1,
 		decided_by: operator,
-		decided_at: IsoTime.parse("2026-10-12T10:00:00.000Z"),
 		payload_hash: payloadHash,
 		meaning: "approve",
 		reason: "looks right",
@@ -95,21 +88,15 @@ const proposed = (task_id = T1): NewEvent => ({
 	},
 });
 
-let home: string;
 let ledger: Ledger;
 
 beforeEach(() => {
-	home = mkdtempSync(join(tmpdir(), "aliquot-task-"));
-	ledger = openLedger({ home, writer: true, guards: taskGuards });
+	ledger = openMemoryLedger();
 });
 
-afterEach(() => {
-	ledger.close();
-	rmSync(home, { recursive: true, force: true });
-});
+afterEach(() => ledger.close());
 
-const tasks = () =>
-	fold(ledger.all(), TaskProjection.reduce, TaskProjection.init).tasks;
+const tasks = () => ledger.projections.tasks.tasks;
 
 describe("TaskProjection", () => {
 	it("folds TaskProposed into a Proposed Task carrying its TAT class and priority", () => {
@@ -147,7 +134,7 @@ describe("TaskProjection", () => {
 			{ tag: "InProgress", assignee: "A-odile" },
 			{ tag: "UnderReview", assignee: "A-odile", reviewer: operator },
 			{ tag: "UnderReview", assignee: "A-odile", reviewer: operator },
-			{ tag: "Done" },
+			{ tag: "Done", assignee: "A-odile" },
 		]);
 		expect(ledger.all()).toHaveLength(6);
 		expect(tasks().get(T1)?.outputs).toEqual([output]);
@@ -191,11 +178,10 @@ describe("TaskProjection", () => {
 			});
 
 			expect(reviewSampled(t, "Trusted")).toBe(false);
-			expect(
-				fold(s.events(), TaskProjection.reduce, TaskProjection.init).tasks.get(
-					t,
-				),
-			).toMatchObject({ state: { tag: "Done" }, outputs: [output] });
+			expect(s.ledger.projections.tasks.tasks.get(t)).toMatchObject({
+				state: { tag: "Done", assignee: rin },
+				outputs: [output],
+			});
 		} finally {
 			s.close();
 		}
@@ -213,7 +199,7 @@ describe("TaskProjection beyond the happy path", () => {
 		inProgress();
 		ledger.append(gateRequested(T1));
 		const blocked = tasks().get(T1)?.state;
-		ledger.append(gateDecided());
+		ledger.append(gateDecided(T1));
 
 		expect(blocked).toEqual({
 			tag: "Blocked",
@@ -229,7 +215,7 @@ describe("TaskProjection beyond the happy path", () => {
 	it("leaves Tasks alone for a Gate that names no Task", () => {
 		inProgress();
 		ledger.append(gateRequested(undefined));
-		ledger.append(gateDecided());
+		ledger.append(gateDecided(undefined));
 
 		expect(tasks().get(T1)?.state.tag).toBe("InProgress");
 	});
@@ -250,24 +236,9 @@ describe("TaskProjection beyond the happy path", () => {
 		});
 		expect(tasks().get(T2)?.state).toEqual({ tag: "Escalated", to: operator });
 	});
-
-	it("gives deep-equal Task maps from two folds of the same Ledger", () => {
-		inProgress();
-		ledger.append(gateRequested(T1));
-		ledger.append(gateDecided());
-		ledger.append(completed({ tag: "Required", reviewer: operator }));
-		const events = ledger.all();
-
-		const first = fold(events, TaskProjection.reduce, TaskProjection.init);
-		const second = fold(events, TaskProjection.reduce, TaskProjection.init);
-
-		expect(second).not.toBe(first);
-		expect(second).toEqual(first);
-		expect(first.tasks.size).toBe(1);
-	});
 });
 
-describe("taskGuards", () => {
+describe("the Task state machine at append", () => {
 	it("refuses starting a Task that is not Assigned, naming its state, and writes nothing", () => {
 		ledger.append(proposed());
 
@@ -286,10 +257,10 @@ describe("taskGuards", () => {
 		expect(() =>
 			ledger.append(completed({ tag: "Skipped", reason: "Trusted tier" })),
 		).toThrow(
-			"TaskCompleted (review Skipped) refused: T-1 is Assigned, expected InProgress",
+			"TaskCompleted refused: T-1 is Assigned, expected InProgress for review Skipped",
 		);
 		expect(() => ledger.append(completed({ tag: "Reviewed" }))).toThrow(
-			"TaskCompleted (review Reviewed) refused: T-1 is Assigned, expected UnderReview",
+			"TaskCompleted refused: T-1 is Assigned, expected UnderReview for review Reviewed",
 		);
 	});
 

@@ -1,28 +1,20 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import type { NewEvent } from "../events.js";
-import { type Ledger, openLedger } from "../ledger.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
 
 const operator = { tag: "Operator" } as const;
 const digest = (c: string) => c.repeat(64);
 const form = digest("a");
 const log = digest("c");
 
-let home: string;
 let ledger: Ledger;
 
 beforeEach(() => {
-	home = mkdtempSync(join(tmpdir(), "aliquot-stage1-guards-"));
-	ledger = openLedger({ home, writer: true });
+	ledger = openMemoryLedger();
 });
 
-afterEach(() => {
-	ledger.close();
-	rmSync(home, { recursive: true, force: true });
-});
+afterEach(() => ledger.close());
 
 const append = (body: Omit<NewEvent, "actor">) =>
 	ledger.append({ actor: operator, ...body } as NewEvent);
@@ -125,7 +117,7 @@ describe("stage 1 guards on EvaluationRecorded", () => {
 		propose("T-1");
 
 		expect(() => append(evaluation("R-9") as never)).toThrow(
-			new AppendRefused("EvaluationRecorded: R-9 has not started"),
+			new AppendRefused("EvaluationRecorded refused: R-9 has not started"),
 		);
 	});
 
@@ -134,7 +126,7 @@ describe("stage 1 guards on EvaluationRecorded", () => {
 		propose("T-1");
 
 		expect(() => append(evaluation() as never)).toThrow(
-			new AppendRefused("EvaluationRecorded: R-1 has not finished"),
+			new AppendRefused("EvaluationRecorded refused: R-1 has not finished"),
 		);
 	});
 
@@ -143,7 +135,7 @@ describe("stage 1 guards on EvaluationRecorded", () => {
 		finishRun();
 
 		expect(() => append(evaluation("R-1", "T-7") as never)).toThrow(
-			new AppendRefused("EvaluationRecorded: T-7 does not exist"),
+			new AppendRefused("EvaluationRecorded refused: T-7 does not exist"),
 		);
 	});
 
@@ -159,7 +151,7 @@ describe("stage 1 guards on EvaluationRecorded", () => {
 
 		expect(() => append(evaluation() as never)).toThrow(
 			new AppendRefused(
-				"EvaluationRecorded: T-1 is Failed, so it takes no Evaluation",
+				"EvaluationRecorded refused: T-1 is Failed, so it takes no Evaluation",
 			),
 		);
 	});

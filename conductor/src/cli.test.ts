@@ -90,7 +90,9 @@ describe("aliquot ledger", () => {
 		const verified = runCli(["--home", home, "ledger", "verify"]);
 
 		expect(refused.status).toBe(1);
-		expect(refused.stderr).toMatch(/^AppendRefused: invalid Event/);
+		expect(refused.stderr).toMatch(
+			/^AppendRefused: AgentDanced refused: not a valid Event: /,
+		);
 		expect(refused.stderr).toContain("AgentDanced");
 		expect(verified.stdout).toBe("Ledger verified: 1 Event, chain intact\n");
 	});

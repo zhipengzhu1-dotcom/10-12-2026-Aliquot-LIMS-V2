@@ -1,23 +1,216 @@
-import type { Event } from "../events.js";
-import type { AgentId, Seq, TaskId } from "../ids.js";
-import { fold } from "../reduce.js";
-import { TaskProjection } from "../task/projection.js";
+import type { Event, PayloadOf } from "../events.js";
+import type { AgentId, EvaluationId, Seq, TaskId } from "../ids.js";
+import type { Projections } from "../projections.js";
+import type { Projection } from "../reduce.js";
+import { assigneeOf, type TaskView } from "../task/projection.js";
 import type { Review } from "../types/merit.js";
+import type { Vitality } from "../types/vitality.js";
+
+/** A Review of a Task, with when it was recorded. */
+export type DatedReview = {
+	readonly review: Review;
+	readonly seq: Seq;
+	readonly ts: string;
+};
+
+/**
+ * One Agent's work: the Tasks last assigned or handed off to it, each with
+ * the seq of that assignment, and the Reviews counted toward its Merit, in
+ * Ledger order.
+ */
+export type AgentWork = {
+	readonly assigned: ReadonlyMap<TaskId, Seq>;
+	readonly reviews: readonly DatedReview[];
+};
+
+/** What the Ledger says about the society's work, as Vitality reads it. */
+export type WorkState = {
+	readonly agents: ReadonlyMap<AgentId, AgentWork>;
+	/** Every Review of each Task, in Ledger order. */
+	readonly reviews: ReadonlyMap<TaskId, readonly DatedReview[]>;
+	/** Tasks completed with Review skipped. */
+	readonly skipped: ReadonlySet<TaskId>;
+	/** Agents whose latest RestOrdered is a `begin`. */
+	readonly resting: ReadonlySet<AgentId>;
+	/** Each Agent's latest VitalitySampled. */
+	readonly samples: ReadonlyMap<AgentId, Vitality>;
+	/** How many Runs for each Task finished with a nonzero exit code. */
+	readonly failedRuns: ReadonlyMap<TaskId, number>;
+	/** Every Evaluation, in Ledger order. */
+	readonly evaluations: ReadonlyMap<
+		EvaluationId,
+		PayloadOf<"EvaluationRecorded">
+	>;
+};
+
+const NO_WORK: AgentWork = { assigned: new Map(), reviews: [] };
+
+const withWork = (
+	agents: ReadonlyMap<AgentId, AgentWork>,
+	agent: AgentId,
+	change: (work: AgentWork) => AgentWork,
+) => new Map(agents).set(agent, change(agents.get(agent) ?? NO_WORK));
+
+/** `task` leaves its previous assignee's work and joins `to`'s at `seq`. */
+const reassigned = (
+	agents: ReadonlyMap<AgentId, AgentWork>,
+	tasks: TaskView,
+	task: TaskId,
+	to: AgentId,
+	seq: Seq,
+) => {
+	const from = assigneeOf(tasks.tasks.get(task));
+	const left =
+		from === undefined || from === to
+			? agents
+			: withWork(agents, from, (w) => {
+					const assigned = new Map(w.assigned);
+					assigned.delete(task);
+					return { ...w, assigned };
+				});
+	return withWork(left, to, (w) => ({
+		...w,
+		assigned: new Map(w.assigned).set(task, seq),
+	}));
+};
+
+/**
+ * The Agent a ReviewRecorded counts toward, with the Review: the Task's
+ * assignee, unless the Trust tier rules skipped the Task for Review (an
+ * Auditor may still add one), so that such a Review never counts toward
+ * Merit.
+ */
+export const countedReview = (
+	ledger: Projections,
+	event: Event,
+): { readonly agent: AgentId; readonly review: DatedReview } | undefined => {
+	if (event.kind !== "ReviewRecorded") return undefined;
+	const { task_id } = event.payload;
+	const agent = assigneeOf(ledger.tasks.tasks.get(task_id));
+	if (agent === undefined || ledger.work.skipped.has(task_id)) return undefined;
+	return {
+		agent,
+		review: { review: event.payload, seq: event.seq, ts: event.ts },
+	};
+};
+
+export const WorkProjection: Projection<WorkState> = {
+	init: {
+		agents: new Map(),
+		reviews: new Map(),
+		skipped: new Set(),
+		resting: new Set(),
+		samples: new Map(),
+		failedRuns: new Map(),
+		evaluations: new Map(),
+	},
+	reduce: (state, event, ledger) => {
+		switch (event.kind) {
+			case "TaskAssigned": {
+				const { task_id, assignee } = event.payload;
+				return {
+					...state,
+					agents: reassigned(
+						state.agents,
+						ledger.tasks,
+						task_id,
+						assignee,
+						event.seq,
+					),
+				};
+			}
+			case "TaskHandedOff": {
+				const { task_id, to } = event.payload;
+				return {
+					...state,
+					agents: reassigned(
+						state.agents,
+						ledger.tasks,
+						task_id,
+						to,
+						event.seq,
+					),
+				};
+			}
+			case "TaskCompleted": {
+				const { task_id, review } = event.payload;
+				return review.tag === "Skipped"
+					? { ...state, skipped: new Set(state.skipped).add(task_id) }
+					: state;
+			}
+			case "ReviewRecorded": {
+				const { task_id } = event.payload;
+				const dated = { review: event.payload, seq: event.seq, ts: event.ts };
+				const counted = countedReview(ledger, event);
+				return {
+					...state,
+					reviews: new Map(state.reviews).set(task_id, [
+						...(state.reviews.get(task_id) ?? []),
+						dated,
+					]),
+					agents:
+						counted === undefined
+							? state.agents
+							: withWork(state.agents, counted.agent, (w) => ({
+									...w,
+									reviews: [...w.reviews, counted.review],
+								})),
+				};
+			}
+			case "RestOrdered": {
+				const { agent_id, action } = event.payload;
+				const resting = new Set(state.resting);
+				if (action === "begin") resting.add(agent_id);
+				else resting.delete(agent_id);
+				return { ...state, resting };
+			}
+			case "VitalitySampled":
+				return {
+					...state,
+					samples: new Map(state.samples).set(
+						event.payload.agent,
+						event.payload,
+					),
+				};
+			case "RunFinished": {
+				const { task_id } = event;
+				if (task_id === undefined || event.payload.exit_code === 0) {
+					return state;
+				}
+				return {
+					...state,
+					failedRuns: new Map(state.failedRuns).set(
+						task_id,
+						(state.failedRuns.get(task_id) ?? 0) + 1,
+					),
+				};
+			}
+			case "EvaluationRecorded":
+				return {
+					...state,
+					evaluations: new Map(state.evaluations).set(
+						event.payload.eval_id,
+						event.payload,
+					),
+				};
+			default:
+				return state;
+		}
+	},
+};
 
 /**
  * The Agent's open Tasks (Assigned, InProgress or Blocked) and how many of
  * them are InProgress. An UnderReview Task is not open for its assignee: the
- * work is with the reviewer. Every Task-state read in vitality/ goes through
- * here, so a change to how Task state is projected is one edit.
+ * work is with the reviewer.
  */
 export const openTasks = (
-	events: Iterable<Event>,
+	tasks: TaskView,
 	agent: AgentId,
 ): { open: number; inProgress: number } => {
-	const { tasks } = fold(events, TaskProjection.reduce, TaskProjection.init);
 	let open = 0;
 	let inProgress = 0;
-	for (const { state } of tasks.values()) {
+	for (const { state } of tasks.tasks.values()) {
 		if (
 			(state.tag === "Assigned" ||
 				state.tag === "InProgress" ||
@@ -31,71 +224,16 @@ export const openTasks = (
 	return { open, inProgress };
 };
 
-/** The assignment an Event makes: TaskAssigned or TaskHandedOff. */
-const assignmentOf = (e: Event): [TaskId, AgentId] | undefined => {
-	if (e.kind === "TaskAssigned") return [e.payload.task_id, e.payload.assignee];
-	if (e.kind === "TaskHandedOff") return [e.payload.task_id, e.payload.to];
-	return undefined;
-};
-
-/** The Agent the Task was last assigned or handed off to. */
-export const lastAssignee = (
-	events: Iterable<Event>,
-	task: TaskId,
-): AgentId | undefined => {
-	let assignee: AgentId | undefined;
-	for (const e of events) {
-		const assignment = assignmentOf(e);
-		if (assignment?.[0] === task) assignee = assignment[1];
-	}
-	return assignee;
-};
-
-/** A Review of a Task, with when it was recorded. */
-export type DatedReview = {
-	readonly review: Review;
-	readonly seq: Seq;
-	readonly ts: string;
-};
-
 /**
- * What the Ledger says about one Agent's work: its Tasks, most recently
- * assigned last, and the Reviews of Tasks it was the assignee of when the
- * Review was recorded, in Ledger order. A Task the Trust tier rules skipped
- * for Review stays in `tasks` but its Reviews (an Auditor may still add one)
- * are left out of `reviews`, so they never count toward Merit.
+ * One Agent's work: its Tasks, most recently assigned last, and the Reviews
+ * counted toward its Merit, in Ledger order.
  */
 export const workOf = (
-	events: Iterable<Event>,
+	work: WorkState,
 	agent: AgentId,
-): { tasks: TaskId[]; reviews: DatedReview[] } => {
-	const assignee = new Map<TaskId, AgentId>();
-	const assignedAt = new Map<TaskId, number>();
-	const skipped = new Set<TaskId>();
-	const reviews: DatedReview[] = [];
-	for (const e of events) {
-		const assignment = assignmentOf(e);
-		if (assignment !== undefined) {
-			const [task, to] = assignment;
-			assignee.set(task, to);
-			if (to === agent) assignedAt.set(task, e.seq);
-			else assignedAt.delete(task);
-			continue;
-		}
-		switch (e.kind) {
-			case "TaskCompleted":
-				if (e.payload.review.tag === "Skipped") skipped.add(e.payload.task_id);
-				break;
-			case "ReviewRecorded": {
-				const task = e.payload.task_id;
-				if (assignee.get(task) === agent && !skipped.has(task)) {
-					reviews.push({ review: e.payload, seq: e.seq, ts: e.ts });
-				}
-				break;
-			}
-		}
-	}
-	const tasks = [...assignedAt.entries()]
+): { tasks: TaskId[]; reviews: readonly DatedReview[] } => {
+	const { assigned, reviews } = work.agents.get(agent) ?? NO_WORK;
+	const tasks = [...assigned.entries()]
 		.sort(([, a], [, b]) => a - b)
 		.map(([task]) => task);
 	return { tasks, reviews };

@@ -1,23 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import type { NewEvent } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
-import {
-	AgentId,
-	GateId,
-	IsoTime,
-	RubricId,
-	type Sha256,
-	TaskId,
-} from "../ids.js";
-import { type Ledger, openLedger } from "../ledger.js";
-import { fold } from "../reduce.js";
-import { TaskProjection } from "../task/projection.js";
+import { AgentId, GateId, RubricId, type Sha256, TaskId } from "../ids.js";
+import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { scenario, scores } from "../vitality/scenario.js";
-import { trustTierOf } from "../vitality/trust.js";
+import { trustOf } from "../vitality/trust.js";
 
 const bram = AgentId.parse("A-bram");
 const g1 = GateId.parse("G-1");
@@ -41,7 +29,6 @@ const request = (
 });
 
 const decide = (
-	decided_at: string,
 	overrides: { payload_hash?: Sha256; actor?: NewEvent["actor"] } = {},
 	gate_id = g1,
 ): NewEvent => ({
@@ -50,7 +37,6 @@ const decide = (
 	payload: {
 		gate_id,
 		decided_by: { tag: "Operator" },
-		decided_at: IsoTime.parse(decided_at),
 		payload_hash: overrides.payload_hash ?? hashOf(payload),
 		meaning: "approve",
 		reason: "checked the diff",
@@ -61,7 +47,6 @@ const decide = (
 // way JSON from the command line arrives.
 const untyped = (value: unknown) => value as NewEvent;
 
-let home: string;
 let now: Date;
 let ledger: Ledger;
 
@@ -70,15 +55,11 @@ const at = (iso: string) => {
 };
 
 beforeEach(() => {
-	home = mkdtempSync(join(tmpdir(), "aliquot-gate-"));
 	now = new Date("2026-10-12T09:00:00.000Z");
-	ledger = openLedger({ home, writer: true, clock: () => now });
+	ledger = openMemoryLedger({ clock: () => now });
 });
 
-afterEach(() => {
-	ledger.close();
-	rmSync(home, { recursive: true, force: true });
-});
+afterEach(() => ledger.close());
 
 const expectRefused = (event: NewEvent, reason: RegExp) => {
 	const before = ledger.all().length;
@@ -119,17 +100,14 @@ const startT3 = () => {
 	});
 };
 
-const taskState = () =>
-	fold(ledger.events(), TaskProjection.reduce, TaskProjection.init).tasks.get(
-		t3,
-	)?.state;
+const taskState = () => ledger.projections.tasks.tasks.get(t3)?.state;
 
 describe("GateDecided", () => {
 	it("is refused from any actor other than the Operator", () => {
 		ledger.append(request());
 		at("2026-10-12T09:10:00.000Z");
 		expectRefused(
-			decide("2026-10-12T09:10:00.000Z", { actor: { tag: "Agent", id: bram } }),
+			decide({ actor: { tag: "Agent", id: bram } }),
 			/only the Operator/,
 		);
 	});
@@ -137,7 +115,7 @@ describe("GateDecided", () => {
 	it("is refused when decided_by names anyone but the Operator", () => {
 		ledger.append(request());
 		at("2026-10-12T09:10:00.000Z");
-		const event = decide("2026-10-12T09:10:00.000Z");
+		const event = decide();
 		expectRefused(
 			untyped({
 				...event,
@@ -148,29 +126,23 @@ describe("GateDecided", () => {
 	});
 
 	it("is refused for a Gate that was never requested", () => {
-		expectRefused(decide("2026-10-12T09:00:00.000Z"), /no Gate G-1/);
+		expectRefused(decide(), /no Gate G-1/);
 	});
 
 	it("is refused for a Gate that is already decided", () => {
 		ledger.append(request());
 		at("2026-10-12T09:10:00.000Z");
-		ledger.append(decide("2026-10-12T09:10:00.000Z"));
+		ledger.append(decide());
 		at("2026-10-12T09:20:00.000Z");
-		expectRefused(
-			decide("2026-10-12T09:20:00.000Z"),
-			/G-1 is already Approved/,
-		);
+		expectRefused(decide(), /G-1 is already Approved/);
 	});
 
 	it("is refused once the Gate's lifetime has ended, judged by the Event's own ts", () => {
 		ledger.append(request(g1, payload, 3600));
 		at("2026-10-12T10:00:00.000Z");
-		expectRefused(
-			decide("2026-10-12T10:00:00.000Z"),
-			/G-1 expired at 2026-10-12T10:00:00.000Z/,
-		);
+		expectRefused(decide(), /G-1 expired at 2026-10-12T10:00:00.000Z/);
 		at("2026-10-12T09:59:59.999Z");
-		expect(ledger.append(decide("2026-10-12T09:59:59.999Z")).seq).toBe(2);
+		expect(ledger.append(decide()).seq).toBe(2);
 	});
 
 	it("is refused when its payload_hash is not the hash of the requested payload", () => {
@@ -178,7 +150,7 @@ describe("GateDecided", () => {
 		at("2026-10-12T09:10:00.000Z");
 		const changed = { ...payload, version: "1.2.1" };
 		expectRefused(
-			decide("2026-10-12T09:10:00.000Z", { payload_hash: hashOf(changed) }),
+			decide({ payload_hash: hashOf(changed) }),
 			/payload_hash .* does not match/,
 		);
 	});
@@ -190,33 +162,50 @@ describe("GateDecided", () => {
 		ledger.append(request(g2, changed));
 		at("2026-10-12T09:10:00.000Z");
 		expectRefused(
-			decide("2026-10-12T09:10:00.000Z", { payload_hash: hashOf(payload) }, g2),
+			decide({ payload_hash: hashOf(payload) }, g2),
 			/payload_hash .* does not match/,
 		);
 		const approved = ledger.append(
-			decide("2026-10-12T09:10:00.000Z", { payload_hash: hashOf(changed) }, g2),
+			decide({ payload_hash: hashOf(changed) }, g2),
 		);
 		expect(approved.payload).toMatchObject({ gate_id: "G-2" });
 	});
 
-	it("is refused when decided_at is not the Event's own ts", () => {
+	it("is signed at the Event's own ts: the Ledger stamps decided_at and refuses one from the caller", () => {
 		ledger.append(request());
 		at("2026-10-12T09:10:00.000Z");
-		expectRefused(decide("2026-10-12T09:05:00.000Z"), /decided_at/);
+		const event = decide();
+		expectRefused(
+			untyped({
+				...event,
+				payload: { ...event.payload, decided_at: "2026-10-12T09:05:00.000Z" },
+			}),
+			/GateDecided refused: not a valid Event: .*decided_at/s,
+		);
+
+		const decided = ledger.append(event);
+		expect(decided.ts).toBe("2026-10-12T09:10:00.000Z");
+		expect(decided.payload).toMatchObject({
+			decided_at: "2026-10-12T09:10:00.000Z",
+			payload_hash: hashOf(payload),
+		});
+		expect(ledger.projections.gates.gates.get(g1)?.decision).toEqual(
+			decided.payload,
+		);
 	});
 
 	it("is refused when its task_id is not the Task that requested the Gate", () => {
 		startT3();
 		ledger.append({ ...request(), task_id: t3 });
 		at("2026-10-12T09:10:00.000Z");
-		const event = decide("2026-10-12T09:10:00.000Z");
+		const event = decide();
 		expectRefused(
 			{ ...event, task_id: TaskId.parse("T-4") },
-			/task_id T-4 is not the Task that requested Gate G-1, T-3/,
+			/task_id T-4 is not the Task that requested G-1, T-3/,
 		);
 		expectRefused(
 			event,
-			/task_id \(none\) is not the Task that requested Gate G-1, T-3/,
+			/task_id \(none\) is not the Task that requested G-1, T-3/,
 		);
 		expect(ledger.append({ ...event, task_id: t3 }).seq).toBe(5);
 	});
@@ -224,7 +213,7 @@ describe("GateDecided", () => {
 	it("is accepted from the Operator with the payload's hash", () => {
 		ledger.append(request());
 		at("2026-10-12T09:10:00.000Z");
-		const event = ledger.append(decide("2026-10-12T09:10:00.000Z"));
+		const event = ledger.append(decide());
 		expect(event).toMatchObject({
 			seq: 2,
 			actor: { tag: "Operator" },
@@ -278,9 +267,11 @@ describe("GateRequested", () => {
 			s.requested("PromoteToMentor", { agent_id: "A-ines" });
 
 			for (let i = 0; i < 20; i++) s.reviewed(rin, scores(3));
-			expect(trustTierOf(s.events(), rin).tier).toBe("Mentor");
+			expect(trustOf(s.ledger.projections.trust, rin).tier).toBe("Mentor");
 			s.decided(pending);
-			expect(trustTierOf(s.events(), rin).unusedMentorGates).toEqual([pending]);
+			expect(
+				trustOf(s.ledger.projections.trust, rin).unusedMentorGates,
+			).toEqual([pending]);
 			expect(promote).toThrow(/GateRequested refused: A-rin holds G-/);
 		} finally {
 			s.close();
@@ -309,7 +300,7 @@ describe("a Task that requests a Gate", () => {
 
 		at("2026-10-12T09:10:00.000Z");
 		const decided = ledger.append({
-			...decide("2026-10-12T09:10:00.000Z"),
+			...decide(),
 			task_id: t3,
 		});
 		expect(decided).toMatchObject({

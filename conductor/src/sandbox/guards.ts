@@ -1,145 +1,84 @@
-import { type AppendGuard, AppendRefused } from "../append-guard.js";
-import { fold } from "../reduce.js";
-import { artifactProjection, productionOf } from "./artifacts.js";
-import { runProjection } from "./runs.js";
-import { findScript, scriptProjection } from "./scripts.js";
+import type { AppendGuard } from "../append-guard.js";
+import type { ArtifactId } from "../ids.js";
+import type { Projections } from "../projections.js";
+import { findScript } from "./scripts.js";
 
-const refuse = (message: string): never => {
-	throw new AppendRefused(message);
-};
-
-const scriptVersions: AppendGuard = (ctx, event) => {
+/** A Script's id is `S-` and its name. Its versions are the Script Projection's. */
+const scriptIds: AppendGuard = (_, event) => {
 	if (event.kind !== "ScriptRegistered" && event.kind !== "ScriptRevised") {
-		return;
+		return undefined;
 	}
 	const script = event.payload;
-	if (script.id !== `S-${script.name}`) {
-		refuse(
-			`${event.kind}: Script "${script.name}" must have id S-${script.name}, got ${script.id}`,
-		);
-	}
-	const { scripts } = fold(
-		ctx.events,
-		scriptProjection.reduce,
-		scriptProjection.init,
-	);
-	const latest = scripts.get(script.id)?.at(-1)?.version;
-	if (event.kind === "ScriptRegistered") {
-		if (latest !== undefined) {
-			refuse(
-				`ScriptRegistered: ${script.id} is already registered (latest version ${latest}); use ScriptRevised`,
-			);
-		}
-		if (script.version !== 1) {
-			refuse(
-				`ScriptRegistered: ${script.id} must start at version 1, got ${script.version}`,
-			);
-		}
-		return;
-	}
-	if (latest === undefined) {
-		refuse(`ScriptRevised: ${script.id} is not registered`);
-	} else if (script.version !== latest + 1) {
-		refuse(
-			`ScriptRevised: ${script.id} is at version ${latest}, so the revision must be version ${latest + 1}, got ${script.version}`,
-		);
-	}
+	return script.id === `S-${script.name}`
+		? undefined
+		: `Script "${script.name}" must have id S-${script.name}, got ${script.id}`;
 };
 
-const artifacts: AppendGuard = (ctx, event) => {
-	if (event.kind !== "ArtifactStored") return;
+const unknownArtifacts = (ledger: Projections, ids: readonly ArtifactId[]) =>
+	ids.filter((id) => !ledger.artifacts.artifacts.has(id));
+
+/**
+ * An Artifact is named by its sha256, made from stored Artifacts, and
+ * produced by a Run while it runs. Who may store the same bytes again is the
+ * Artifact Projection's to say.
+ */
+const artifacts: AppendGuard = (ledger, event) => {
+	if (event.kind !== "ArtifactStored") return undefined;
 	const artifact = event.payload;
 	if (String(artifact.sha256) !== String(artifact.id)) {
-		refuse(
-			`ArtifactStored: id ${artifact.id} must equal its sha256 ${artifact.sha256}`,
-		);
+		return `id ${artifact.id} must equal its sha256 ${artifact.sha256}`;
 	}
-	const projection = fold(
-		ctx.events,
-		artifactProjection.reduce,
-		artifactProjection.init,
-	);
-	const known = projection.artifacts;
-	// Identity is per content, and each production has its own record: the
-	// same bytes may be recorded again, once per Run that produces them.
-	if (known.has(artifact.id)) {
-		if (artifact.produced_by.tag !== "Run") {
-			refuse(`ArtifactStored: ${artifact.id} is already stored`);
-		} else if (productionOf(projection, artifact.id, artifact.produced_by)) {
-			refuse(
-				`ArtifactStored: ${artifact.produced_by.id} already stored ${artifact.id}`,
-			);
-		}
-	}
-	const unknown = artifact.lineage.filter((id) => !known.has(id));
+	const unknown = unknownArtifacts(ledger, artifact.lineage);
 	if (unknown.length > 0) {
-		refuse(
-			`ArtifactStored: Lineage of ${artifact.id} names unknown Artifacts ${unknown.join(", ")}`,
-		);
+		return `Lineage of ${artifact.id} names unknown Artifacts ${unknown.join(", ")}`;
 	}
 	if (artifact.produced_by.tag === "Run") {
-		const { runs } = fold(ctx.events, runProjection.reduce, runProjection.init);
-		const run = runs.get(artifact.produced_by.id);
-		if (!run)
-			refuse(`ArtifactStored: ${artifact.produced_by.id} has not started`);
-		if (run?.finished)
-			refuse(`ArtifactStored: ${artifact.produced_by.id} has already finished`);
+		const run = ledger.runs.runs.get(artifact.produced_by.id);
+		if (!run) return `${artifact.produced_by.id} has not started`;
+		if (run.finished) return `${artifact.produced_by.id} has already finished`;
 	}
+	return undefined;
 };
 
-const runs: AppendGuard = (ctx, event) => {
-	if (event.kind !== "RunStarted" && event.kind !== "RunFinished") return;
-	const { runs } = fold(ctx.events, runProjection.reduce, runProjection.init);
-	const known = fold(
-		ctx.events,
-		artifactProjection.reduce,
-		artifactProjection.init,
-	).artifacts;
-	const missing = (ids: readonly string[]) =>
-		ids.filter((id) => !known.has(id as never));
-
+/**
+ * A Run runs a registered Script version on stored Artifacts, and finishes
+ * as it started. That it starts once and finishes once is the Run
+ * Projection's to say.
+ */
+const runs: AppendGuard = (ledger, event) => {
 	if (event.kind === "RunStarted") {
 		const { run_id, script, inputs } = event.payload;
-		if (runs.has(run_id)) refuse(`RunStarted: ${run_id} has already started`);
-		const scripts = fold(
-			ctx.events,
-			scriptProjection.reduce,
-			scriptProjection.init,
-		);
-		if (!findScript(scripts, script)) {
-			refuse(`RunStarted: ${script.id} v${script.version} is not registered`);
+		if (!findScript(ledger.scripts, script)) {
+			return `${script.id} v${script.version} is not registered`;
 		}
-		const unknown = missing(inputs);
-		if (unknown.length > 0)
-			refuse(
-				`RunStarted: ${run_id} names unknown input Artifacts ${unknown.join(", ")}`,
-			);
-		return;
+		const unknown = unknownArtifacts(ledger, inputs);
+		return unknown.length > 0
+			? `${run_id} names unknown input Artifacts ${unknown.join(", ")}`
+			: undefined;
 	}
-
+	if (event.kind !== "RunFinished") return undefined;
 	const run = event.payload;
-	const record = runs.get(run.id);
-	if (!record) return refuse(`RunFinished: ${run.id} has no RunStarted`);
-	if (record.finished) refuse(`RunFinished: ${run.id} has already finished`);
-	const { started } = record;
+	const started = ledger.runs.runs.get(run.id)?.started;
+	if (started === undefined) return undefined;
 	if (
 		started.script.id !== run.script.id ||
 		started.script.version !== run.script.version ||
 		started.inputs.join() !== run.inputs.join()
 	) {
-		refuse(
-			`RunFinished: ${run.id} must name the Script version and inputs its RunStarted named`,
-		);
+		return `${run.id} must name the Script version and inputs its RunStarted named`;
 	}
-	const unknown = missing([...run.outputs, run.stdout_ref, run.stderr_ref]);
-	if (unknown.length > 0)
-		refuse(
-			`RunFinished: ${run.id} names unknown Artifacts ${unknown.join(", ")}`,
-		);
+	const unknown = unknownArtifacts(ledger, [
+		...run.outputs,
+		run.stdout_ref,
+		run.stderr_ref,
+	]);
+	return unknown.length > 0
+		? `${run.id} names unknown Artifacts ${unknown.join(", ")}`
+		: undefined;
 };
 
 export const sandboxGuards: readonly AppendGuard[] = [
-	scriptVersions,
+	scriptIds,
 	artifacts,
 	runs,
 ];

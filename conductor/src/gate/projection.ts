@@ -1,6 +1,6 @@
-import type { Event, PayloadOf } from "../events.js";
+import type { PayloadOf } from "../events.js";
 import type { AgentId, GateId, IsoTime, Sha256, TaskId } from "../ids.js";
-import { fold, type Projection } from "../reduce.js";
+import { type Projection, Refusal } from "../reduce.js";
 import type { EventActor } from "../types/actor.js";
 import type { GateDecision, GateKind, GateState } from "../types/gate.js";
 
@@ -21,12 +21,22 @@ export type Gates = {
 	readonly gates: ReadonlyMap<GateId, Gate>;
 };
 
+/**
+ * Each Gate is requested once and decided at most once, and its decision is
+ * signed at the time it is recorded (ADR-0006).
+ */
 export const GateProjection: Projection<Gates> = {
 	init: { gates: new Map() },
 	reduce: (state, event) => {
 		switch (event.kind) {
 			case "GateRequested": {
 				const p = event.payload;
+				const existing = state.gates.get(p.gate_id);
+				if (existing !== undefined) {
+					return new Refusal(
+						`${p.gate_id} already exists, requested at ${existing.requested_at}`,
+					);
+				}
 				const gate: Gate = {
 					id: p.gate_id,
 					kind: p.kind,
@@ -40,8 +50,21 @@ export const GateProjection: Projection<Gates> = {
 				return { gates: new Map(state.gates).set(gate.id, gate) };
 			}
 			case "GateDecided": {
-				const gate = state.gates.get(event.payload.gate_id);
-				if (gate === undefined) return state;
+				const d = event.payload;
+				const gate = state.gates.get(d.gate_id);
+				if (gate === undefined) {
+					return new Refusal(`no Gate ${d.gate_id} was requested`);
+				}
+				if (gate.decision !== undefined) {
+					return new Refusal(
+						`${gate.id} is already ${gateState(gate, new Date(event.ts))}`,
+					);
+				}
+				if (d.decided_at !== event.ts) {
+					return new Refusal(
+						`decided_at ${d.decided_at} is not the time the decision is recorded, ${event.ts}`,
+					);
+				}
 				return {
 					gates: new Map(state.gates).set(gate.id, {
 						...gate,
@@ -70,9 +93,6 @@ export const gateState = (gate: Gate, now: Date): GateState => {
 	}
 	return now.getTime() >= expiresAt(gate).getTime() ? "Expired" : "Open";
 };
-
-export const projectGates = (events: Iterable<Event>): Gates =>
-	fold(events, GateProjection.reduce, GateProjection.init);
 
 /** A string field of a Gate payload that is a JSON object, if it has one. */
 export const payloadText = (

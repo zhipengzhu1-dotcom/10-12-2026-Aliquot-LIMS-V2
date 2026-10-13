@@ -1,7 +1,6 @@
 import { RoomId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Room } from "../types/room.js";
-import { roomState } from "./projection.js";
 
 export const LAB_ROOM: Room = {
 	id: RoomId.parse("RM-lab"),
@@ -14,7 +13,7 @@ export const LAB_ROOM: Room = {
 
 /** Open the Lab Room unless it is already open. Returns whether it opened it. */
 export const seedRooms = (ledger: Ledger): boolean => {
-	if (roomState(ledger.events()).rooms.has(LAB_ROOM.id)) return false;
+	if (ledger.projections.rooms.rooms.has(LAB_ROOM.id)) return false;
 	ledger.append({
 		actor: LAB_ROOM.opened_by,
 		kind: "RoomOpened",
