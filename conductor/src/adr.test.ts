@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, Seq } from "./ids.js";
+import { type Scenario, scenario } from "./test-support/scenario.js";
 import type { Actor, EventActor } from "./types/actor.js";
 import type { AgentDefinition } from "./types/agent-definition.js";
-import { type Scenario, scenario } from "./vitality/scenario.js";
 
 const rin = AgentId.parse("A-rin");
 const operator: Actor = { tag: "Operator" };

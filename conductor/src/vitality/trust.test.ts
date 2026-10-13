@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, TaskId } from "../ids.js";
+import {
+	type Scenario,
+	type Scores,
+	scenario,
+	scores,
+} from "../test-support/scenario.js";
 import type { Review, TrustTier } from "../types/merit.js";
 import { standingOf } from "./merit.js";
-import { type Scenario, type Scores, scenario, scores } from "./scenario.js";
 import { reviewSampled, tierOf, trustOf } from "./trust.js";
 
 const reviewsOf = (...groups: [count: number, s: Scores][]): Review[] => {

@@ -149,7 +149,9 @@ The Ledger refuses an `AgentRetired` that is not written by the Operator, or who
 
 ## Tasks
 
-A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. A Task that the Trust tier rules skip for Review goes from `InProgress` straight to `Done`. The Ledger refuses that skip unless the sample for the assignee's current Trust tier leaves the Task out (every Task on `Probation` is reviewed; 1 in 3 at `Trusted`; 1 in 5 at `Senior` and `Mentor`, picked from the hash of the Task id). It also refuses `TaskCompleted` with `review: Reviewed` until the reviewer named at `--review-required` has recorded a Review of the Task, and from anyone but that reviewer.
+A Task moves through the state machine in `conductor/src/task/projection.ts`: `Proposed`, `Assigned`, `InProgress`, `UnderReview`, `Blocked`, then `Done`, `Failed`, or `Escalated`. The Ledger refuses an Event that the machine cannot express, and the refusal names the Task and its current state. A Hand-off returns the Task to `Assigned` with the new assignee. Every Task Event is appended by the Task lifecycle, `conductor/src/task/lifecycle.ts`. It mints Task ids, names the Event that caused each Event in `causation_id` when its caller knows one, and holds the default rubric.
+
+`task complete <id>` decides the Review itself. The sample for the assignee's current Trust tier picks which Tasks get a Review: every Task on `Probation`, 1 in 3 at `Trusted`, and 1 in 5 at `Senior` and `Mentor`, picked from the hash of the Task id. A Task that the sample leaves out goes from `InProgress` straight to `Done`, with its Review skipped. A Task that the sample picks goes to `UnderReview` with the reviewer that `--reviewer` names. Without `--reviewer`, the Ledger refuses it, and the refusal says the Task was sampled for Review. `task complete` on a Task `UnderReview` completes it after Review. The Ledger refuses that until the reviewer has recorded a Review of the Task, and from anyone but that reviewer.
 
 Each command writes one Event as the Operator, unless `--as A-<id>` names an Agent.
 
@@ -158,14 +160,14 @@ pnpm -C conductor cli --home /tmp/aliquot task propose --title "Parse the Submis
   --goal "Extract every field" --tat Rush1to2Days --priority 2   # prints T-1
 pnpm -C conductor cli --home /tmp/aliquot task assign T-1 A-odile
 pnpm -C conductor cli --home /tmp/aliquot task start T-1 --as A-odile
-pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --review-required --reviewer Operator --as A-odile
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewer Operator --as A-odile   # UnderReview: Odile is on Probation
 pnpm -C conductor cli --home /tmp/aliquot vitality review T-1 --quality 3 --traceability 3 --boundary 3 \
   --collaboration 3 --timeliness 3 --note "Clean work"
-pnpm -C conductor cli --home /tmp/aliquot task complete T-1 --reviewed
+pnpm -C conductor cli --home /tmp/aliquot task complete T-1   # Done after the Operator's Review
 pnpm -C conductor cli --home /tmp/aliquot task list
 ```
 
-`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. The other commands are `task handoff <id> <agent> --reason`, `task complete <id> --skip-review --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
+`--tat` takes `Regular`, `Rush1to2Days`, or `Rush3to4Days`. `task complete` takes `--output <artifact id>` once for each output. The other commands are `task handoff <id> <agent> --reason`, `task fail <id> --reason`, and `task escalate <id> --to <Operator|agent> --reason`. `task list` groups Tasks by state and shows each Task's TAT class, priority, and assignee.
 
 ## Rooms
 

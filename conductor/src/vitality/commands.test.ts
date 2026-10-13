@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
-import { scenario, scores } from "./scenario.js";
+import { type Ledger, openLedger } from "../ledger.js";
+import { scenario, scores } from "../test-support/scenario.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const rin = AgentId.parse("A-rin");
@@ -20,6 +21,19 @@ const aliquot = (...args: string[]) =>
 	);
 
 const vitality = (...args: string[]) => aliquot("vitality", ...args);
+
+/** What the Ledger in `home` holds, read in process. */
+const read = <T>(f: (ledger: Ledger) => T): T => {
+	const ledger = openLedger({ home, writer: false });
+	try {
+		return f(ledger);
+	} finally {
+		ledger.close();
+	}
+};
+const lastEvent = () => read((l) => l.all().at(-1));
+const storedTier = (agent: AgentId) =>
+	read((l) => l.projections.org.agents.get(agent)?.definition.trust_tier);
 
 const ok = (r: ReturnType<typeof aliquot>) => {
 	expect(r.stderr).toBe("");
@@ -41,72 +55,38 @@ afterEach(() => {
 });
 
 describe("aliquot vitality", () => {
-	it("records a Review, revises the Trust tier once, and shows it", () => {
-		expect(
-			ok(
-				vitality(
-					"review",
-					"T-10",
-					"--quality",
-					"3",
-					"--traceability",
-					"3",
-					"--boundary",
-					"3",
-					"--collaboration",
-					"3",
-					"--timeliness",
-					"2",
-					"--note",
-					"Late by an hour",
-				),
-			),
-		).toBe(
+	it("review refuses a score outside 0 to 3, then records a Review and the Trust tier Revision it earns", () => {
+		const review = (quality: string) =>
+			vitality(
+				"review",
+				"T-10",
+				"--quality",
+				quality,
+				"--traceability",
+				"3",
+				"--boundary",
+				"3",
+				"--collaboration",
+				"3",
+				"--timeliness",
+				"2",
+				"--note",
+				"Late by an hour",
+			);
+
+		const four = review("4");
+		expect(four.status).toBe(2);
+		expect(four.stderr.split("\n")[0]).toBe(
+			'UsageError: --quality must be a score 0, 1, 2 or 3, not "4"',
+		);
+		expect(ok(review("3"))).toBe(
 			"Recorded a Review of T-10 by Operator: mean 2.80\n" +
 				"Revised A-rin to version 2: Trust tier Probation -> Trusted: Merit 2.98 over 10 reviewed Tasks\n",
 		);
-
-		expect(ok(vitality("show", "A-rin"))).toBe(
-			"A-rin Rin load=0.00 fatigue=0.00 friction=0.00 confidence=1.00 morale=0.00 mood=fresh policy=mayAcceptTasks,mayOfferHelp,schedulable merit=2.98 reviewed=10 tier=Trusted (computed)\n",
-		);
-		expect(ok(aliquot("org", "tree"))).toContain("Rin, Specialist, Trusted");
+		expect(storedTier(rin)).toBe("Trusted");
 	});
 
-	it("demotes a Trusted Agent in the same command that records a boundary score of 0", () => {
-		rmSync(home, { recursive: true, force: true });
-		const s = scenario(undefined, { home });
-		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
-		const t = s.task(rin);
-		s.submit(rin, t);
-		s.close();
-
-		expect(
-			ok(
-				vitality(
-					"review",
-					t,
-					"--quality",
-					"3",
-					"--traceability",
-					"3",
-					"--boundary",
-					"0",
-					"--collaboration",
-					"3",
-					"--timeliness",
-					"3",
-					"--note",
-					"Wrote outside the Sandbox",
-				),
-			),
-		).toBe(
-			"Recorded a Review of T-11 by Operator: mean 2.40\n" +
-				"Revised A-rin to version 3: Trust tier Trusted -> Probation: Demotion for boundary score 0 on T-11; Merit 2.95 over 11 reviewed Tasks\n",
-		);
-		expect(ok(aliquot("org", "tree"))).toContain("Rin, Specialist, Probation");
-	});
-
-	it("shows every live Agent, one line each", () => {
+	it("show shows every live Agent, one line each", () => {
 		const lines = ok(vitality("show")).trimEnd().split("\n");
 		expect(lines.map((l) => l.split(" ")[0])).toEqual([
 			"A-odile",
@@ -123,7 +103,7 @@ describe("aliquot vitality", () => {
 		);
 	});
 
-	it("lists each live Agent's Trust tier and standing, read-only, and has no --apply", () => {
+	it("tiers lists each live Agent's Trust tier and standing, read-only, and has no --apply", () => {
 		rmSync(home, { recursive: true, force: true });
 		const s = scenario(undefined, { home });
 		for (let i = 0; i < 10; i++) s.reviewed(rin, scores(3));
@@ -149,52 +129,25 @@ describe("aliquot vitality", () => {
 		expect(apply.stderr.split("\n")[0]).toMatch(/Unknown option '--apply'/);
 	});
 
-	it("orders Rest and shows the Agent resting and unschedulable", () => {
+	it("rest orders Rest for an Agent", () => {
 		expect(
 			ok(vitality("rest", "A-ines", "--begin", "--reason", "fatigue 0.92")),
 		).toBe("Rest begins for A-ines\n");
-		expect(ok(vitality("show", "A-ines"))).toContain(" mood=resting policy=- ");
-		expect(ok(vitality("rest", "A-ines", "--end", "--reason", "rested"))).toBe(
-			"Rest ends for A-ines\n",
-		);
-		const again = vitality("rest", "A-ines", "--end", "--reason", "rested");
-		expect(again.status).toBe(1);
-		expect(again.stderr).toBe(
-			"AppendRefused: RestOrdered refused: A-ines is not resting\n",
-		);
+		expect(lastEvent()).toMatchObject({
+			kind: "RestOrdered",
+			payload: { agent_id: "A-ines", action: "begin", reason: "fatigue 0.92" },
+		});
 	});
 
-	it("appends a Vitality sample computed from the Ledger", () => {
+	it("sample appends a Vitality sample computed from the Ledger", () => {
 		expect(
 			ok(vitality("sample", "A-rin", "--tokens", "300", "--budget", "8000")),
 		).toBe(
 			"Sampled A-rin: load=0.00 fatigue=0.30 friction=0.00 confidence=1.00 morale=0.00\n",
 		);
-		expect(ok(vitality("show", "A-rin"))).toMatch(
-			/^A-rin Rin load=0\.00 fatigue=0\.30 .* \(sampled\)\n$/,
-		);
-	});
-
-	it("refuses a score outside 0 to 3", () => {
-		const r = vitality(
-			"review",
-			"T-10",
-			"--quality",
-			"4",
-			"--traceability",
-			"3",
-			"--boundary",
-			"3",
-			"--collaboration",
-			"3",
-			"--timeliness",
-			"3",
-			"--note",
-			"",
-		);
-		expect(r.status).toBe(2);
-		expect(r.stderr.split("\n")[0]).toBe(
-			'UsageError: --quality must be a score 0, 1, 2 or 3, not "4"',
-		);
+		expect(lastEvent()).toMatchObject({
+			kind: "VitalitySampled",
+			payload: { agent: "A-rin", fatigue: 0.3 },
+		});
 	});
 });

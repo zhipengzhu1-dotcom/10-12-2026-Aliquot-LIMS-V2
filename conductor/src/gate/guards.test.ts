@@ -4,7 +4,7 @@ import type { NewEvent } from "../events.js";
 import { canonicalJson, sha256Hex } from "../hash.js";
 import { AgentId, GateId, RubricId, type Sha256, TaskId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
-import { scenario, scores } from "../vitality/scenario.js";
+import { scenario, scores } from "../test-support/scenario.js";
 import { trustOf } from "../vitality/trust.js";
 
 const bram = AgentId.parse("A-bram");

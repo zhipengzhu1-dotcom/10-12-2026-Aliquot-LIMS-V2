@@ -8,6 +8,7 @@ import {
 import { type CommandTable, UsageError } from "../command.js";
 import { AgentId, TaskId } from "../ids.js";
 import { type OrgState, revisedBetween } from "../org/projection.js";
+import { review as reviewTask } from "../task/lifecycle.js";
 import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { Score } from "../types/merit.js";
@@ -224,12 +225,7 @@ export const vitalityCommands: CommandTable = {
 			};
 			const revised = withLedger(ctx.home, true, (ledger) => {
 				const before = ledger.projections.org;
-				ledger.append({
-					actor: reviewer,
-					task_id,
-					kind: "ReviewRecorded",
-					payload: review,
-				});
+				reviewTask(ledger, review);
 				return revisedBetween(before, ledger.projections.org);
 			});
 			ctx.stdout.write(

@@ -115,7 +115,7 @@ const ALLOWED: readonly Exemption[] = [
 		in: "gate/guards.ts",
 		reason: "a regulatory inspector, not the Auditor",
 	},
-	...["storage.ts", "ledger.ts", "vitality/scenario.ts"].map((file) => ({
+	...["storage.ts", "ledger.ts", "test-support/scenario.ts"].map((file) => ({
 		phrase: "memory",
 		in: file,
 		reason: "process memory, the Ledger's storage for tests, not a Memory note",

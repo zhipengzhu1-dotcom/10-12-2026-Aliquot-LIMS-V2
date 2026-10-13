@@ -1,5 +1,5 @@
 import type { Event, PayloadOf } from "../events.js";
-import { type AgentId, type GateId, nextId, TaskId } from "../ids.js";
+import type { AgentId, GateId, TaskId } from "../ids.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { Task, TaskState } from "../types/task.js";
@@ -236,7 +236,3 @@ export const assigneeOf = (task: Task | undefined): AgentId | undefined =>
 	task !== undefined && "assignee" in task.state
 		? task.state.assignee
 		: undefined;
-
-/** The id after the highest `T-<n>` in the view: `T-1` for an empty one. */
-export const nextTaskId = (view: TaskView): TaskId =>
-	TaskId.parse(nextId("T", view.tasks.keys()));

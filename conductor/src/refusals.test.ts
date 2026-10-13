@@ -13,7 +13,7 @@ import {
 	Sha256,
 	TaskId,
 } from "./ids.js";
-import { type Scenario, scenario } from "./vitality/scenario.js";
+import { type Scenario, scenario } from "./test-support/scenario.js";
 
 const operator = { tag: "Operator" } as const;
 const agent = (slug: string) =>
@@ -96,7 +96,7 @@ const ROWS: Row[] = [
 				},
 			};
 		},
-		"TaskCompleted refused: A-rin is on Probation; every Task is reviewed",
+		"TaskCompleted refused: T-1 is sampled for Review, as every Task of A-rin on Probation is; its completion names a reviewer",
 	],
 	[
 		"the RoomOpened guard",

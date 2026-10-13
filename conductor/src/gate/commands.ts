@@ -15,6 +15,7 @@ import {
 } from "../command.js";
 import { canonicalJson } from "../hash.js";
 import { GateId, TaskId } from "../ids.js";
+import { block } from "../task/lifecycle.js";
 import { GateKind } from "../types/gate.js";
 import { expiresAt, type Gate, type Gates, gateState } from "./projection.js";
 import { DEFAULT_LIFETIME_S, gateDecision, requestGate } from "./request.js";
@@ -141,13 +142,11 @@ const requestCommand = async (args: string[], ctx: CommandContext) => {
 	}
 
 	return withLedger(ctx.home, true, (ledger) => {
-		const { gate_id, payload_hash } = requestGate(ledger, {
-			actor,
-			kind,
-			payload,
-			lifetime_s,
-			...(task_id === undefined ? {} : { task_id }),
-		});
+		const request = { actor, kind, payload, lifetime_s };
+		const { gate_id, payload_hash } =
+			task_id === undefined
+				? requestGate(ledger, request)
+				: block(ledger, { ...request, task_id });
 		ctx.stdout.write(`${gate_id} ${payload_hash}\n`);
 		return 0;
 	});

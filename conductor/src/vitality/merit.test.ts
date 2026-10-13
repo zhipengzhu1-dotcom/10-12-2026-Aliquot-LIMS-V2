@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId } from "../ids.js";
-import { type Scenario, scenario, scores } from "./scenario.js";
+import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import { trustOf } from "./trust.js";
 
 const rin = AgentId.parse("A-rin");
