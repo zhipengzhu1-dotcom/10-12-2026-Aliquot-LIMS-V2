@@ -101,7 +101,7 @@ const byNumber = (a: Task, b: Task) =>
 
 export const taskCommands: CommandTable = {
 	propose: {
-		args: "--title <t> --goal <g> --tat <Regular|Rush1to2Days|Rush3to4Days> --priority <n> [--rubric <id>] [--input <artifact id>]... [--parent <task id>]",
+		args: "--title <t> --goal <g> --tat <Regular|Rush1to2Days|Rush3to4Days> --priority <n> [--rubric <id>] [--input <artifact id>]... [--parent <task id>] [--as <agent>]",
 		describe: "Propose a Task and print its id",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
@@ -163,7 +163,7 @@ export const taskCommands: CommandTable = {
 		},
 	},
 	assign: {
-		args: "<task id> <agent id>",
+		args: "<task id> <agent id> [--as <agent>]",
 		describe: "Assign a Proposed or Assigned Task to an Agent",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
@@ -188,7 +188,7 @@ export const taskCommands: CommandTable = {
 		},
 	},
 	start: {
-		args: "<task id>",
+		args: "<task id> [--as <agent>]",
 		describe: "Start an Assigned Task",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
@@ -208,7 +208,7 @@ export const taskCommands: CommandTable = {
 		},
 	},
 	handoff: {
-		args: "<task id> <agent id> --reason <text>",
+		args: "<task id> <agent id> --reason <text> [--as <agent>]",
 		describe: "Hand an InProgress Task off to another Agent",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
@@ -234,7 +234,7 @@ export const taskCommands: CommandTable = {
 		},
 	},
 	complete: {
-		args: "<task id> [--reviewer <Operator|agent id>] [--output <artifact id>]...",
+		args: "<task id> [--reviewer <Operator|agent id>] [--output <artifact id>]... [--as <agent>]",
 		describe:
 			"Complete an InProgress Task, for Review when the Trust tier samples it, or close one UnderReview",
 		run: async (args, ctx) => {
@@ -274,7 +274,7 @@ export const taskCommands: CommandTable = {
 		},
 	},
 	fail: {
-		args: "<task id> --reason <text>",
+		args: "<task id> --reason <text> [--as <agent>]",
 		describe: "Fail a live Task",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
@@ -295,7 +295,7 @@ export const taskCommands: CommandTable = {
 		},
 	},
 	escalate: {
-		args: "<task id> --to <Operator|agent id> --reason <text>",
+		args: "<task id> --to <Operator|agent id> --reason <text> [--as <agent>]",
 		describe: "Escalate a live Task to the Operator or another Agent",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
