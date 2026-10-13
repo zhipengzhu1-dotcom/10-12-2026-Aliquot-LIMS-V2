@@ -27,12 +27,23 @@ describe("the interface's views", () => {
 		expect(paramsOf("#/ledger").get("before")).toBeNull();
 	});
 
+	it("routes a hash with a query to its view and reads the query as the view's filter", () => {
+		expect(viewOf("#/flow?task=T-1&open=T-1").name).toBe("flow");
+		expect(Object.fromEntries(paramsOf("#/flow?task=T-1&lot=L%2042"))).toEqual({
+			task: "T-1",
+			lot: "L 42",
+		});
+		expect([...paramsOf("#/flow")]).toEqual([]);
+	});
+
 	it("shows a view's Projection JSON with every Message body as text, not markup", () => {
 		const rooms = viewOf("#/rooms");
 
-		const page = rooms.render(rooms, {
-			rooms: { messages: [{ body: "<img src=x onerror=alert(1)>" }] },
-		});
+		const page = rooms.render(
+			rooms,
+			{ rooms: { messages: [{ body: "<img src=x onerror=alert(1)>" }] } },
+			new URLSearchParams(),
+		);
 
 		expect(page).toContain("<h2>/api/rooms</h2>");
 		expect(page).toContain("&lt;img src=x onerror=alert(1)&gt;");
