@@ -13,6 +13,7 @@ import {
 	Sha256,
 	TaskId,
 } from "./ids.js";
+import { open } from "./room/lifecycle.js";
 import {
 	type NonTaskEvent,
 	type Scenario,
@@ -120,24 +121,35 @@ const ROWS: Row[] = [
 		"RoomOpened refused: A-nobody is not in the Org",
 	],
 	[
+		"the RoomOpened guard on the opener",
+		() => ({
+			actor: rin,
+			kind: "RoomOpened",
+			payload: {
+				room: {
+					id: RoomId.parse("RM-rin"),
+					name: "Rin",
+					purpose: "",
+					membership: { tag: "Listed", agents: [rin.id] },
+					opened_by: operator,
+				},
+			},
+		}),
+		"RoomOpened refused: A-rin cannot open RM-rin on behalf of Operator",
+	],
+	[
 		"the MessageSent guard",
 		(s) => {
 			const room_id = RoomId.parse("RM-pia-ines");
-			s.appendNonTask({
-				actor: operator,
-				kind: "RoomOpened",
-				payload: {
-					room: {
-						id: room_id,
-						name: "Pia and Ines",
-						purpose: "",
-						membership: {
-							tag: "Listed",
-							agents: [agent("pia").id, agent("ines").id],
-						},
-						opened_by: operator,
-					},
+			open(s.ledger, {
+				id: room_id,
+				name: "Pia and Ines",
+				purpose: "",
+				membership: {
+					tag: "Listed",
+					agents: [agent("pia").id, agent("ines").id],
 				},
+				opened_by: operator,
 			});
 			return {
 				actor: rin,
