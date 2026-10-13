@@ -7,9 +7,12 @@ import { sha256Hex } from "../hash.js";
 import { ArtifactId } from "../ids.js";
 import type { ArtifactType } from "../types/artifact.js";
 import {
+	dueDate,
 	evaluateReceipt,
 	evaluateSubmission,
+	evaluateWorkOrder,
 	RECEIVING_LOG_COLUMNS,
+	WORK_ORDER_COLUMNS,
 } from "./evaluate.js";
 import type { StageArtifact } from "./stages.js";
 
@@ -316,5 +319,240 @@ describe("evaluateReceipt", () => {
 		expect(unreadable.findings).toEqual([
 			expect.stringMatching(/^lims\.sqlite is not a toy LIMS database: /),
 		]);
+	});
+});
+
+describe("dueDate", () => {
+	it.each([
+		["Tuesday", "2026-01-06", "Rush1to2Days", "2026-01-08"],
+		["Tuesday", "2026-01-06", "Rush3to4Days", "2026-01-12"],
+		["Tuesday", "2026-01-06", "Regular", "2026-01-20"],
+		["Monday", "2026-07-27", "Regular", "2026-08-10"],
+		["Friday", "2026-01-09", "Rush1to2Days", "2026-01-13"],
+		["Saturday", "2026-01-10", "Rush1to2Days", "2026-01-13"],
+	] as const)(
+		"counts business days after a %s, %s, for %s: %s",
+		(_, received, tat, due) => {
+			expect(dueDate(received, tat)).toBe(due);
+		},
+	);
+});
+
+const TEST = "Average capsule weight";
+const WO = "WO-2026-0001";
+const DUE = "2026-01-12";
+
+/** A database version holding `samples` rows (Lab Reference, TAT class) and `work_orders` rows. */
+const workOrderDatabase = (
+	samples: readonly (readonly [string, string])[],
+	workOrders: readonly (readonly [string, string, string, string])[] = [],
+): Buffer => {
+	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
+	try {
+		const path = join(dir, "lims.sqlite");
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TABLE samples (lab_reference TEXT PRIMARY KEY, tat_class TEXT NOT NULL); CREATE TABLE work_orders (work_order TEXT, lab_reference TEXT, test TEXT, due_date TEXT)",
+		);
+		for (const sample of samples) {
+			db.prepare("INSERT INTO samples VALUES (?, ?)").run(...sample);
+		}
+		for (const row of workOrders) {
+			db.prepare("INSERT INTO work_orders VALUES (?, ?, ?, ?)").run(...row);
+		}
+		db.close();
+		return readFileSync(path);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+const SEED1_SAMPLES = [
+	["LR-2026-0001", "Rush3to4Days"],
+	["LR-2026-0002", "Rush3to4Days"],
+] as const;
+
+/** Stage 3's Run on seed 1's Receiving Log row: two Samples, Rush3to4Days, received Tuesday 2026-01-06. */
+const workOrderRun = ({
+	due = DUE,
+	rows = [
+		["LR-2026-0001", TEST],
+		["LR-2026-0002", TEST],
+	],
+	columns = [...WORK_ORDER_COLUMNS],
+	carried = workOrderDatabase(SEED1_SAMPLES),
+	written = workOrderDatabase(
+		SEED1_SAMPLES,
+		rows.map(([ref, test]) => [WO, ref, test, due] as const),
+	),
+	readBack = true,
+}: {
+	due?: string;
+	rows?: (readonly [string, string])[];
+	columns?: string[];
+	carried?: Buffer;
+	written?: Buffer;
+	readBack?: boolean;
+} = {}) => ({
+	inputs: [
+		stageArtifact(
+			"ReceivingLogRow",
+			"receiving_log_row.xlsx",
+			Buffer.from("the xlsx bytes"),
+		),
+		stageArtifact("LimsDatabase", "lims.sqlite", carried),
+	],
+	outputs: [
+		stageArtifact("WorkOrder", "work_order.xlsx", Buffer.from("the xlsx")),
+		stageArtifact("LimsDatabase", "lims.sqlite", written),
+		...(readBack
+			? [
+					stageArtifact(
+						"Other",
+						"work_order.json",
+						Buffer.from(
+							JSON.stringify({
+								schema: "work_order/1",
+								receiving_log_row: [
+									["LR-2026-0001", "2026-01-06"],
+									["LR-2026-0002", "2026-01-06"],
+								],
+								header: {
+									"Work Order": WO,
+									Client: "Tallowby Botanicals LLC",
+									Lot: LOT,
+									"Product Code": PRODUCT_CODE,
+									Received: "2026-01-06",
+									"TAT Class": "Rush3to4Days",
+									"Due Date": due,
+								},
+								columns,
+								rows,
+							}),
+						),
+					),
+				]
+			: []),
+	],
+});
+
+// 2 per Sample (due date, a Test), 1 per Work Order row, the new number,
+// and the database's agreement.
+const workOrderChecks = (samples: number, rows: number) =>
+	2 * samples + rows + 2;
+
+describe("evaluateWorkOrder", () => {
+	it("passes the due date 4 business days after receipt for Rush3to4Days, a Test for each Sample, and work_orders rows that agree", () => {
+		expect(evaluateWorkOrder(workOrderRun())).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+	});
+
+	it("fails a due date one day off, naming each Sample and the date it should be", () => {
+		const evaluation = evaluateWorkOrder(workOrderRun({ due: "2026-01-13" }));
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.score).toBeCloseTo(
+			(workOrderChecks(2, 2) - 2) / workOrderChecks(2, 2),
+		);
+		expect(evaluation.findings).toEqual(
+			["LR-2026-0001", "LR-2026-0002"].map(
+				(ref) =>
+					`${ref}: due date 2026-01-13 is not 2026-01-12, 4 business days after 2026-01-06 for TAT class Rush3to4Days`,
+			),
+		);
+	});
+
+	it("fails a Sample on the Receiving Log row that has no Test", () => {
+		const evaluation = evaluateWorkOrder(
+			workOrderRun({ rows: [["LR-2026-0001", TEST]] }),
+		);
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.findings).toEqual([
+			"LR-2026-0002: the Work Order has no Test for it",
+		]);
+	});
+
+	it("fails a Work Order row for a Sample not on the Receiving Log row", () => {
+		const evaluation = evaluateWorkOrder(
+			workOrderRun({
+				rows: [
+					["LR-2026-0001", TEST],
+					["LR-2026-0002", TEST],
+					["LR-2026-0009", TEST],
+				],
+				written: workOrderDatabase(
+					[...SEED1_SAMPLES, ["LR-2026-0009", "Regular"]],
+					["LR-2026-0001", "LR-2026-0002", "LR-2026-0009"].map(
+						(ref) => [WO, ref, TEST, DUE] as const,
+					),
+				),
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"Work Order row 3: LR-2026-0009 is not on the Receiving Log row",
+		]);
+	});
+
+	it("fails a Sample the carried database has no samples row for", () => {
+		const evaluation = evaluateWorkOrder(
+			workOrderRun({
+				carried: workOrderDatabase([["LR-2026-0001", "Rush3to4Days"]]),
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"LR-2026-0002: the carried database has no samples row for it with a TAT class",
+		]);
+	});
+
+	it("fails a Work Order number the carried database already holds", () => {
+		const evaluation = evaluateWorkOrder(
+			workOrderRun({
+				carried: workOrderDatabase(SEED1_SAMPLES, [
+					[WO, "LR-2026-0000", TEST, "2026-01-02"],
+				]),
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"Work Order WO-2026-0001 is already in the carried database",
+		]);
+	});
+
+	it("fails work_orders rows that disagree with the document's Tests or due date", () => {
+		const evaluation = evaluateWorkOrder(
+			workOrderRun({
+				written: workOrderDatabase(SEED1_SAMPLES, [
+					[WO, "LR-2026-0001", TEST, DUE],
+					[WO, "LR-2026-0002", TEST, "2026-01-20"],
+				]),
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			`the work_orders rows for WO-2026-0001 (LR-2026-0001 ${TEST} ${DUE}; LR-2026-0002 ${TEST} 2026-01-20) do not agree with the Work Order (LR-2026-0001 ${TEST} ${DUE}; LR-2026-0002 ${TEST} ${DUE})`,
+		]);
+	});
+
+	it("scores 0 when the Run wrote no read-back or columns other than the Work Order's", () => {
+		expect(evaluateWorkOrder(workOrderRun({ readBack: false }))).toEqual({
+			score: 0,
+			passed: false,
+			findings: ["the Run has no work_order.json read-back"],
+		});
+		expect(
+			evaluateWorkOrder(workOrderRun({ columns: ["Lab Reference"] })),
+		).toEqual({
+			score: 0,
+			passed: false,
+			findings: [
+				"the Work Order's columns are Lab Reference, not Lab Reference, Test",
+			],
+		});
 	});
 });

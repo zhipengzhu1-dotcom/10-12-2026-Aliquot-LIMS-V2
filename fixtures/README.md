@@ -6,12 +6,12 @@ Every file here is synthetic. The synthetic generator in `sandbox/synth/` invent
 
 | Fixture | Generated with | Expected outcome |
 |---|---|---|
-| `submission-form-seed1.docx` | `synth --seed 1` | `submission-form-seed1.expected.json`: the record `parse_submission` must write. Stage 2 passes with two containers, received 2026-01-06. |
-| `submission-form-seed2.docx` | `synth --seed 2` | `submission-form-seed2.expected.json`. Stage 2 passes with three containers of another Client and Lot, received 2026-07-27. |
+| `submission-form-seed1.docx` | `synth --seed 1` | `submission-form-seed1.expected.json`: the record `parse_submission` must write. Stage 2 passes with two containers, received Tuesday 2026-01-06. Stage 3 passes with Work Order `WO-2026-0001`, TAT class `Rush3to4Days`, due Monday 2026-01-12. |
+| `submission-form-seed2.docx` | `synth --seed 2` | `submission-form-seed2.expected.json`. Stage 2 passes with three containers of another Client and Lot, received Monday 2026-07-27. Stage 3 passes with Work Order `WO-2026-0002`, TAT class `Regular`, due Monday 2026-08-10. |
 
-CI runs every `*.docx` here through every stage of the toy workflow with `aliquot workflow run-all fixtures`. The job fails when any Evaluation fails. The Fixtures run in name order on one home, so seed 2's stage 2 carries the toy LIMS database that seed 1's stage 2 wrote, and its Lab References continue from seed 1's: `LR-2026-0001` and `0002`, then `0003` to `0005`.
+CI runs every `*.docx` here through every stage of the toy workflow with `aliquot workflow run-all fixtures`. The job fails when any Evaluation fails. The Fixtures run in name order on one home, so seed 2's stage 2 carries the toy LIMS database that seed 1's stage 3 wrote. Its Lab References continue from seed 1's: `LR-2026-0001` and `0002`, then `0003` to `0005`. Its Work Order number continues the same way.
 
-`sandbox/tests/test_script_log_receipt.py` runs `log_receipt` on seed 1's expected record, with no database and with one that already holds a Sample from the same year.
+`sandbox/tests/test_script_log_receipt.py` runs `log_receipt` on seed 1's expected record, with no database and with one that already holds a Sample from the same year. `sandbox/tests/test_script_create_work_order.py` runs `log_receipt` and then `create_work_order` on seed 1's expected record, once with each TAT class, and checks the due date for each.
 
 ## Regenerate a Fixture
 

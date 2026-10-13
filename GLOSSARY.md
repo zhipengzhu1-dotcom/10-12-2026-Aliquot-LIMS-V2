@@ -189,7 +189,7 @@ A data source that the lab relies on as its official record. Writes to a System 
 _Avoid_: production database, real DB, LIMS
 
 **Toy LIMS database**:
-The synthetic SQLite database that stands in for the lab's LIMS tables in the toy workflow. It is an Artifact of type `LimsDatabase`, never a mutable file: a stage carries the latest version from the Ledger and outputs the next one, whose Lineage names the version before it. It is not a System of record.
+The synthetic SQLite database that stands in for the lab's LIMS tables in the toy workflow. It is an Artifact of type `LimsDatabase`, never a mutable file: a stage carries the latest version that a Run of a `Done` Task wrote and outputs the next one, whose Lineage names the version before it. A version from a Task whose Evaluation failed is never carried. It is not a System of record.
 _Avoid_: lab database, live database
 
 ### Merit
@@ -289,7 +289,7 @@ The lab's record of received containers, one row per container, with date, time,
 _Avoid_: intake sheet, receipt log
 
 **Work Order**:
-The lab document that lists the Tests and the due date for a group of Samples. A Work Order is not a Task.
+The lab document that lists the Tests and the due date for a group of Samples. A Work Order is not a Task. In the toy workflow, stage 3 writes one Work Order per Receiving Log row, as `WO-<year received>-<n>`.
 _Avoid_: job, test request
 
 **Test**:
@@ -313,7 +313,7 @@ The signed document that the lab issues to a Client with the results for one Sam
 _Avoid_: CoA, Certificate of Analysis, ROA, final report. Clients may say CoA. A certificate that a supplier ships with a raw material is a different document.
 
 **TAT**:
-Turnaround time, coded on the Submission Form: 1 is regular, 2 is rush in 1 to 2 days, and 3 is rush in 3 to 4 days.
+Turnaround time, coded on the Submission Form: 1 is regular, 2 is rush in 1 to 2 days, and 3 is rush in 3 to 4 days. Each code names a TAT class, `Regular`, `Rush1to2Days` or `Rush3to4Days`, which sets a Work Order's due date (`docs/design/overview.md`, "The due date rule").
 _Avoid_: SLA, deadline, priority (priority is a separate Task field)
 
 **Lab Reference**:

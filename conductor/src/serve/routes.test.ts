@@ -5,36 +5,30 @@ import { store } from "../sandbox/lifecycle.js";
 import { scenario, scores } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import type { ArtifactType } from "../types/artifact.js";
+import { STAGES } from "../workflow/stages.js";
 import { PROJECTION_ROUTES } from "./routes.js";
 
 const rin = AgentId.parse("A-rin");
 
 describe("the routes the Flow and Performance views read", () => {
-	it("stages serves the stage table with each stage's Script id", () => {
-		expect(PROJECTION_ROUTES.stages()).toEqual([
-			{
-				number: 1,
-				name: "Submission",
-				script: "parse_submission",
-				script_id: "S-parse_submission",
-				inputs: ["SubmissionForm"],
-				carried: [],
-				outputs: ["SubmissionRecord"],
-				worked_by: "A-rin",
-				reviewed_by: "A-pia",
-			},
-			{
-				number: 2,
-				name: "Receipt",
-				script: "log_receipt",
-				script_id: "S-log_receipt",
-				inputs: ["SubmissionRecord"],
-				carried: ["LimsDatabase"],
-				outputs: ["ReceivingLogRow", "LimsDatabase"],
-				worked_by: "A-bram",
-				reviewed_by: "A-pia",
-			},
-		]);
+	it("stages serves every row of the stage table with its Script id and without its Evaluation", () => {
+		const served = PROJECTION_ROUTES.stages();
+
+		expect(served).toHaveLength(STAGES.length);
+		expect(served).toEqual(
+			STAGES.map((stage) => ({
+				number: stage.number,
+				name: stage.name,
+				script: stage.script,
+				script_id: `S-${stage.script}`,
+				inputs: stage.inputs,
+				carried: stage.carried,
+				outputs: stage.outputs,
+				worked_by: stage.worked_by,
+				reviewed_by: stage.reviewed_by,
+			})),
+		);
+		expect(served[0]?.script_id).toBe("S-parse_submission");
 	});
 
 	it("lots serves the Lot each SubmissionRecord names, read from its bytes", () => {

@@ -79,16 +79,17 @@ describe("aliquot workflow", () => {
 			[
 				"1 Submission  script parse_submission  inputs SubmissionForm  carried none  outputs SubmissionRecord  worked by A-rin  reviewed by A-pia",
 				"2 Receipt  script log_receipt  inputs SubmissionRecord  carried LimsDatabase  outputs ReceivingLogRow,LimsDatabase  worked by A-bram  reviewed by A-pia",
+				"3 Work Order  script create_work_order  inputs ReceivingLogRow  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia",
 				"",
 			].join("\n"),
 		);
 	});
 
 	it("run refuses a --to beyond the table as a usage error", () => {
-		const result = aliquot("workflow", "run", fixture, "--to", "3");
+		const result = aliquot("workflow", "run", fixture, "--to", "4");
 
 		expect(result.status).toBe(2);
-		expect(result.stderr).toContain("--to 3 is not a stage number from 1 to 2");
+		expect(result.stderr).toContain("--to 4 is not a stage number from 1 to 3");
 	});
 
 	it("has no stage1 command left", () => {
@@ -101,7 +102,7 @@ describe("aliquot workflow", () => {
 });
 
 describe.skipIf(!requireDocker())(suite, () => {
-	it("run runs stages 1 and 2 on the Fixture, prints each Task, Run, output and Evaluation, exits 0 with both Tasks Done, and writes the README's Event chain, seq 1 to 37", () => {
+	it("run runs stages 1 to 3 on the Fixture, prints each Task, Run, output and Evaluation, exits 0 with every Task Done, and writes the README's Event chain, seq 1 to 52", () => {
 		const result = aliquot("workflow", "run", fixture);
 
 		expect(result.status, result.stderr).toBe(0);
@@ -119,7 +120,13 @@ describe.skipIf(!requireDocker())(suite, () => {
 					"    output    [0-9a-f]{64} LimsDatabase lims\\.sqlite",
 					"    output    [0-9a-f]{64} Other receipt\\.json",
 					"    output    [0-9a-f]{64} ReceivingLogRow receiving_log_row\\.xlsx",
-					"    eval      E-2 score 1\\.000, passed\n$",
+					"    eval      E-2 score 1\\.000, passed",
+					"  stage 3 Work Order: T-3 Done",
+					"    run       R-3 S-create_work_order v1, exit 0",
+					"    output    [0-9a-f]{64} LimsDatabase lims\\.sqlite",
+					"    output    [0-9a-f]{64} Other work_order\\.json",
+					"    output    [0-9a-f]{64} WorkOrder work_order\\.xlsx",
+					"    eval      E-3 score 1\\.000, passed\n$",
 				].join("\n"),
 			),
 		);
@@ -127,6 +134,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(verify.ok).toBe(true);
 		expect(taskState("T-1")).toEqual({ tag: "Done", assignee: "A-rin" });
 		expect(taskState("T-2")).toEqual({ tag: "Done", assignee: "A-bram" });
+		expect(taskState("T-3")).toEqual({ tag: "Done", assignee: "A-bram" });
 		const rin = { tag: "Agent", id: "A-rin" };
 		const bram = { tag: "Agent", id: "A-bram" };
 		const pia = { tag: "Agent", id: "A-pia" };
@@ -146,45 +154,60 @@ describe.skipIf(!requireDocker())(suite, () => {
 				task: undefined,
 				causation: undefined,
 			})),
-			...[9, 10].map((seq) => ({
+			...[9, 10, 11].map((seq) => ({
 				seq,
 				kind: "ScriptRegistered",
 				task: undefined,
 				causation: undefined,
 			})),
 			{
-				seq: 11,
+				seq: 12,
 				kind: "ArtifactStored",
 				task: undefined,
 				causation: undefined,
 			},
-			{ seq: 12, kind: "TaskProposed", task: "T-1", causation: 11 },
-			{ seq: 13, kind: "TaskAssigned", task: "T-1", causation: 12 },
-			{ seq: 14, kind: "TaskStarted", task: "T-1", causation: 13 },
-			{ seq: 15, kind: "RunStarted", task: "T-1", causation: 14 },
-			{ seq: 16, kind: "ArtifactStored", task: "T-1", causation: 15 },
-			{ seq: 17, kind: "ArtifactStored", task: "T-1", causation: 15 },
-			{ seq: 18, kind: "ArtifactStored", task: "T-1", causation: 15 },
-			{ seq: 19, kind: "RunFinished", task: "T-1", causation: 15 },
-			{ seq: 20, kind: "EvaluationRecorded", task: "T-1", causation: 19 },
-			{ seq: 21, kind: "TaskCompleted", task: "T-1", causation: 20 },
-			{ seq: 22, kind: "ReviewRecorded", task: "T-1", causation: 21 },
-			{ seq: 23, kind: "TaskCompleted", task: "T-1", causation: 22 },
-			{ seq: 24, kind: "TaskProposed", task: "T-2", causation: 23 },
-			{ seq: 25, kind: "TaskAssigned", task: "T-2", causation: 24 },
-			{ seq: 26, kind: "TaskStarted", task: "T-2", causation: 25 },
-			{ seq: 27, kind: "RunStarted", task: "T-2", causation: 26 },
-			...[28, 29, 30, 31, 32].map((seq) => ({
+			{ seq: 13, kind: "TaskProposed", task: "T-1", causation: 12 },
+			{ seq: 14, kind: "TaskAssigned", task: "T-1", causation: 13 },
+			{ seq: 15, kind: "TaskStarted", task: "T-1", causation: 14 },
+			{ seq: 16, kind: "RunStarted", task: "T-1", causation: 15 },
+			{ seq: 17, kind: "ArtifactStored", task: "T-1", causation: 16 },
+			{ seq: 18, kind: "ArtifactStored", task: "T-1", causation: 16 },
+			{ seq: 19, kind: "ArtifactStored", task: "T-1", causation: 16 },
+			{ seq: 20, kind: "RunFinished", task: "T-1", causation: 16 },
+			{ seq: 21, kind: "EvaluationRecorded", task: "T-1", causation: 20 },
+			{ seq: 22, kind: "TaskCompleted", task: "T-1", causation: 21 },
+			{ seq: 23, kind: "ReviewRecorded", task: "T-1", causation: 22 },
+			{ seq: 24, kind: "TaskCompleted", task: "T-1", causation: 23 },
+			{ seq: 25, kind: "TaskProposed", task: "T-2", causation: 24 },
+			{ seq: 26, kind: "TaskAssigned", task: "T-2", causation: 25 },
+			{ seq: 27, kind: "TaskStarted", task: "T-2", causation: 26 },
+			{ seq: 28, kind: "RunStarted", task: "T-2", causation: 27 },
+			...[29, 30, 31, 32, 33].map((seq) => ({
 				seq,
 				kind: "ArtifactStored",
 				task: "T-2",
-				causation: 27,
+				causation: 28,
 			})),
-			{ seq: 33, kind: "RunFinished", task: "T-2", causation: 27 },
-			{ seq: 34, kind: "EvaluationRecorded", task: "T-2", causation: 33 },
-			{ seq: 35, kind: "TaskCompleted", task: "T-2", causation: 34 },
-			{ seq: 36, kind: "ReviewRecorded", task: "T-2", causation: 35 },
-			{ seq: 37, kind: "TaskCompleted", task: "T-2", causation: 36 },
+			{ seq: 34, kind: "RunFinished", task: "T-2", causation: 28 },
+			{ seq: 35, kind: "EvaluationRecorded", task: "T-2", causation: 34 },
+			{ seq: 36, kind: "TaskCompleted", task: "T-2", causation: 35 },
+			{ seq: 37, kind: "ReviewRecorded", task: "T-2", causation: 36 },
+			{ seq: 38, kind: "TaskCompleted", task: "T-2", causation: 37 },
+			{ seq: 39, kind: "TaskProposed", task: "T-3", causation: 38 },
+			{ seq: 40, kind: "TaskAssigned", task: "T-3", causation: 39 },
+			{ seq: 41, kind: "TaskStarted", task: "T-3", causation: 40 },
+			{ seq: 42, kind: "RunStarted", task: "T-3", causation: 41 },
+			...[43, 44, 45, 46, 47].map((seq) => ({
+				seq,
+				kind: "ArtifactStored",
+				task: "T-3",
+				causation: 42,
+			})),
+			{ seq: 48, kind: "RunFinished", task: "T-3", causation: 42 },
+			{ seq: 49, kind: "EvaluationRecorded", task: "T-3", causation: 48 },
+			{ seq: 50, kind: "TaskCompleted", task: "T-3", causation: 49 },
+			{ seq: 51, kind: "ReviewRecorded", task: "T-3", causation: 50 },
+			{ seq: 52, kind: "TaskCompleted", task: "T-3", causation: 51 },
 		]);
 		const at = (seq: number) => events[seq - 1];
 		expect(at(9)?.payload).toMatchObject({
@@ -197,9 +220,15 @@ describe.skipIf(!requireDocker())(suite, () => {
 			input_types: ["SubmissionRecord", "LimsDatabase"],
 			output_types: ["ReceivingLogRow", "LimsDatabase"],
 		});
-		expect(at(11)?.payload).toMatchObject({ id: fixtureId, lineage: [] });
+		expect(at(11)?.payload).toMatchObject({
+			id: "S-create_work_order",
+			owner_agent: "A-bram",
+			input_types: ["ReceivingLogRow", "LimsDatabase"],
+			output_types: ["WorkOrder", "LimsDatabase"],
+		});
+		expect(at(12)?.payload).toMatchObject({ id: fixtureId, lineage: [] });
 		expect(
-			[16, 17, 18].map((seq) => at(seq)?.payload),
+			[17, 18, 19].map((seq) => at(seq)?.payload),
 			"submission.json, stdout and stderr, each with a Lineage of the Fixture",
 		).toMatchObject([
 			{
@@ -210,30 +239,30 @@ describe.skipIf(!requireDocker())(suite, () => {
 			{ filename: "stdout.txt", lineage: [fixtureId] },
 			{ filename: "stderr.txt", lineage: [fixtureId] },
 		]);
-		expect(at(20)?.payload).toMatchObject({
+		expect(at(21)?.payload).toMatchObject({
 			stage: 1,
 			score: 1,
 			passed: true,
 		});
-		expect(at(21)).toMatchObject({
+		expect(at(22)).toMatchObject({
 			actor: rin,
 			payload: { review: { tag: "Required", reviewer: pia } },
 		});
-		expect(at(22)).toMatchObject({ actor: pia });
-		expect(at(23)).toMatchObject({
+		expect(at(23)).toMatchObject({ actor: pia });
+		expect(at(24)).toMatchObject({
 			actor: pia,
 			payload: { review: { tag: "Reviewed" } },
 		});
-		const recordId = /output {4}([0-9a-f]{64}) SubmissionRecord/.exec(
-			result.stdout,
-		)?.[1];
-		expect(at(16)?.payload).toMatchObject({ id: recordId });
+		const outputOf = (type: string) =>
+			new RegExp(`output {4}([0-9a-f]{64}) ${type}`).exec(result.stdout)?.[1];
+		const recordId = outputOf("SubmissionRecord");
+		expect(at(17)?.payload).toMatchObject({ id: recordId });
 		expect(
-			at(24)?.payload,
+			at(25)?.payload,
 			"stage 2 takes the record, and no database is there to carry",
 		).toMatchObject({ inputs: [recordId] });
 		expect(
-			[28, 29, 30, 31, 32].map((seq) => at(seq)?.payload),
+			[29, 30, 31, 32, 33].map((seq) => at(seq)?.payload),
 			"each with a Lineage of the record",
 		).toMatchObject([
 			{
@@ -251,17 +280,55 @@ describe.skipIf(!requireDocker())(suite, () => {
 			{ filename: "stdout.txt" },
 			{ filename: "stderr.txt" },
 		]);
-		expect(at(34)?.payload).toMatchObject({
+		expect(at(35)?.payload).toMatchObject({
 			stage: 2,
 			score: 1,
 			passed: true,
 		});
-		expect(at(35)).toMatchObject({
+		expect(at(36)).toMatchObject({
 			actor: bram,
 			payload: { review: { tag: "Required", reviewer: pia } },
 		});
-		expect(at(36)).toMatchObject({ actor: pia });
-		expect(at(37)).toMatchObject({
+		expect(at(37)).toMatchObject({ actor: pia });
+		expect(at(38)).toMatchObject({
+			actor: pia,
+			payload: { review: { tag: "Reviewed" } },
+		});
+		const rowId = outputOf("ReceivingLogRow");
+		const version1 = outputOf("LimsDatabase");
+		expect(
+			at(39)?.payload,
+			"stage 3 takes the Receiving Log row and carries stage 2's database",
+		).toMatchObject({ inputs: [rowId, version1] });
+		expect(
+			[43, 44, 45, 46, 47].map((seq) => at(seq)?.payload),
+			"each with a Lineage of the Receiving Log row and stage 2's database",
+		).toMatchObject([
+			{
+				filename: "lims.sqlite",
+				artifact_type: "LimsDatabase",
+				lineage: [rowId, version1],
+			},
+			{ filename: "work_order.json", artifact_type: "Other" },
+			{
+				filename: "work_order.xlsx",
+				artifact_type: "WorkOrder",
+				lineage: [rowId, version1],
+			},
+			{ filename: "stdout.txt" },
+			{ filename: "stderr.txt" },
+		]);
+		expect(at(49)?.payload).toMatchObject({
+			stage: 3,
+			score: 1,
+			passed: true,
+		});
+		expect(at(50)).toMatchObject({
+			actor: bram,
+			payload: { review: { tag: "Required", reviewer: pia } },
+		});
+		expect(at(51)).toMatchObject({ actor: pia });
+		expect(at(52)).toMatchObject({
 			actor: pia,
 			payload: { review: { tag: "Reviewed" } },
 		});
@@ -287,20 +354,26 @@ describe.skipIf(!requireDocker())(suite, () => {
 		);
 	}, 600_000);
 
-	it("sandbox lineage prints a toy LIMS database version's record and Fixture, and after a run on another Fixture, the version it carried", () => {
-		const outputOf = (stdout: string, type: string) => {
-			const id = new RegExp(`output {4}([0-9a-f]{64}) ${type}`).exec(
-				stdout,
-			)?.[1];
-			if (!id) throw new Error(`no ${type} in ${stdout}`);
-			return id;
+	it("sandbox lineage prints a toy LIMS database version's record and Fixture, the Work Order's Receiving Log row and database back to the Fixture, and after a run on another Fixture, the version stage 3 wrote", () => {
+		/** Each output of `type` the run printed, in stage order. */
+		const outputsOf = (stdout: string, type: string) => {
+			const ids = [
+				...stdout.matchAll(new RegExp(`output {4}([0-9a-f]{64}) ${type}`, "g")),
+			].map(([, id]) => id);
+			if (ids.length === 0) throw new Error(`no ${type} in ${stdout}`);
+			return ids;
 		};
 		const first = aliquot("workflow", "run", fixture);
 		expect(first.status, first.stderr).toBe(0);
-		const record = outputOf(first.stdout, "SubmissionRecord");
-		const version1 = outputOf(first.stdout, "LimsDatabase");
+		const [record] = outputsOf(first.stdout, "SubmissionRecord");
+		const [row] = outputsOf(first.stdout, "ReceivingLogRow");
+		const [version1, version1WithWorkOrder] = outputsOf(
+			first.stdout,
+			"LimsDatabase",
+		);
+		const [workOrder] = outputsOf(first.stdout, "WorkOrder");
 
-		const lineage1 = aliquot("sandbox", "lineage", version1);
+		const lineage1 = aliquot("sandbox", "lineage", version1 ?? "");
 
 		expect(lineage1.status, lineage1.stderr).toBe(0);
 		expect(lineage1.stdout).toBe(
@@ -312,22 +385,42 @@ describe.skipIf(!requireDocker())(suite, () => {
 			].join("\n"),
 		);
 
+		const workOrderLineage = aliquot("sandbox", "lineage", workOrder ?? "");
+
+		expect(workOrderLineage.status, workOrderLineage.stderr).toBe(0);
+		expect(workOrderLineage.stdout).toBe(
+			[
+				`${workOrder} WorkOrder <- R-3 S-create_work_order v1`,
+				`  ${row} ReceivingLogRow <- R-2 S-log_receipt v1`,
+				`    ${record} SubmissionRecord <- R-1 S-parse_submission v1`,
+				`      ${fixtureId} SubmissionForm <- none`,
+				`  ${version1} LimsDatabase <- R-2 S-log_receipt v1`,
+				`    ${record} SubmissionRecord <- R-1 S-parse_submission v1`,
+				`      ${fixtureId} SubmissionForm <- none`,
+				"",
+			].join("\n"),
+		);
+
 		const second = aliquot("workflow", "run", secondFixture);
 		expect(second.status, second.stderr).toBe(0);
-		const record2 = outputOf(second.stdout, "SubmissionRecord");
-		const version2 = outputOf(second.stdout, "LimsDatabase");
+		const [record2] = outputsOf(second.stdout, "SubmissionRecord");
+		const [version2] = outputsOf(second.stdout, "LimsDatabase");
 
-		const lineage2 = aliquot("sandbox", "lineage", version2);
+		const lineage2 = aliquot("sandbox", "lineage", version2 ?? "");
 
 		expect(lineage2.status, lineage2.stderr).toBe(0);
 		expect(lineage2.stdout).toBe(
 			[
-				`${version2} LimsDatabase <- R-4 S-log_receipt v1`,
-				`  ${record2} SubmissionRecord <- R-3 S-parse_submission v1`,
+				`${version2} LimsDatabase <- R-5 S-log_receipt v1`,
+				`  ${record2} SubmissionRecord <- R-4 S-parse_submission v1`,
 				`    ${secondFixtureId} SubmissionForm <- none`,
-				`  ${version1} LimsDatabase <- R-2 S-log_receipt v1`,
-				`    ${record} SubmissionRecord <- R-1 S-parse_submission v1`,
-				`      ${fixtureId} SubmissionForm <- none`,
+				`  ${version1WithWorkOrder} LimsDatabase <- R-3 S-create_work_order v1`,
+				`    ${row} ReceivingLogRow <- R-2 S-log_receipt v1`,
+				`      ${record} SubmissionRecord <- R-1 S-parse_submission v1`,
+				`        ${fixtureId} SubmissionForm <- none`,
+				`    ${version1} LimsDatabase <- R-2 S-log_receipt v1`,
+				`      ${record} SubmissionRecord <- R-1 S-parse_submission v1`,
+				`        ${fixtureId} SubmissionForm <- none`,
 				"",
 			].join("\n"),
 		);
@@ -348,13 +441,14 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(verify.ok).toBe(true);
 		expect(taskState("T-1")).toEqual({ tag: "Done", assignee: "A-rin" });
 		expect(taskState("T-2")).toEqual({ tag: "Done", assignee: "A-bram" });
-		expect(taskState("T-3")?.tag).toBe("Failed");
-		expect(taskState("T-4")).toBeUndefined();
+		expect(taskState("T-3")).toEqual({ tag: "Done", assignee: "A-bram" });
+		expect(taskState("T-4")?.tag).toBe("Failed");
+		expect(taskState("T-5")).toBeUndefined();
 		// One registration per stage serves every Fixture in the batch.
 		expect(
 			events.filter(
 				(e) => e.kind === "ScriptRegistered" || e.kind === "ScriptRevised",
 			),
-		).toHaveLength(2);
+		).toHaveLength(3);
 	}, 600_000);
 });
