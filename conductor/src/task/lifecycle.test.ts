@@ -308,7 +308,7 @@ describe("the other Task verbs", () => {
 			payload: { target: "staging" },
 		});
 
-		expect(blocked.gate_id).toBe("G-1");
+		expect(blocked.gate.id).toBe("G-1");
 		expect(blocked.task.state).toEqual({
 			tag: "Blocked",
 			assignee: rin,

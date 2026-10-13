@@ -48,12 +48,13 @@ const gate = (meaning?: "approve" | "reject") => {
 };
 
 describe("GateProjection", () => {
-	it("records who requested a Gate, when, and the payload's hash", () => {
+	it("records who requested a Gate, when and at which seq, and the payload's hash", () => {
 		expect(gate()).toEqual({
 			id: "G-1",
 			kind: "Deploy",
 			requester: { tag: "Agent", id: "A-bram" },
 			requested_at: "2026-10-12T09:00:00.000Z",
+			requested_seq: 1,
 			payload,
 			payload_hash:
 				"644b4ff33f551679c2cafd567934dd65cb8ea3d3c6bae02b1d676fafc67892e5",

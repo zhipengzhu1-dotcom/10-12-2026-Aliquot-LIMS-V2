@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { gateDecision, requestGate } from "../gate/request.js";
+import { decideGate, requestGate } from "../gate/lifecycle.js";
 import { AgentId, RoomId, type Seq } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
@@ -59,14 +59,18 @@ const say = (room_id: RoomId, actor: Actor, body: string, replyTo?: Seq) =>
 /** Retire an Agent through an approved RetireAgent Gate (ADR-0006). */
 const retire = (who: Actor) => {
 	if (who.tag !== "Agent") throw new Error("only an Agent retires");
-	const { gate_id } = requestGate(ledger, {
+	const { gate } = requestGate(ledger, {
 		actor: operator,
 		kind: "RetireAgent",
 		payload: { agent_id: who.id },
 	});
-	const gate = ledger.projections.gates.gates.get(gate_id);
-	if (gate === undefined) throw new Error(`${gate_id} was not requested`);
-	ledger.append(gateDecision(gate, "approve", "left the lab"));
+	const { id: gate_id, payload_hash } = gate;
+	decideGate(ledger, {
+		gate_id,
+		payload_hash,
+		meaning: "approve",
+		reason: "left the lab",
+	});
 	ledger.append({
 		actor: operator,
 		kind: "AgentRetired",

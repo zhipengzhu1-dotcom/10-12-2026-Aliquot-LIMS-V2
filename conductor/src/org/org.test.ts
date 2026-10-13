@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
-import { gateDecision, requestGate } from "../gate/request.js";
+import { decideGate, requestGate } from "../gate/lifecycle.js";
 import { AgentId, GateId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import type { Actor } from "../types/actor.js";
@@ -16,14 +16,13 @@ const decidedGate = (
 	payload: { agent_id: string; reason?: string },
 	meaning: "approve" | "reject" = "approve",
 ): GateId => {
-	const { gate_id } = requestGate(ledger, {
+	const { gate } = requestGate(ledger, {
 		actor: { tag: "Operator" },
 		kind,
 		payload,
 	});
-	const gate = ledger.projections.gates.gates.get(gate_id);
-	if (gate === undefined) throw new Error(`${gate_id} was not requested`);
-	ledger.append(gateDecision(gate, meaning, "Checked"));
+	const { id: gate_id, payload_hash } = gate;
+	decideGate(ledger, { gate_id, payload_hash, meaning, reason: "Checked" });
 	return gate_id;
 };
 

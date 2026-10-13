@@ -12,8 +12,8 @@ import {
 	UsageError,
 } from "../command.js";
 import type { NewEvent } from "../events.js";
+import { requestGate } from "../gate/lifecycle.js";
 import { payloadText } from "../gate/projection.js";
-import { requestGate } from "../gate/request.js";
 import { AgentId, GateId } from "../ids.js";
 import { AgentDefinition } from "../types/agent-definition.js";
 import { renderTree, tree } from "./projection.js";
@@ -132,12 +132,15 @@ export const orgCommands: CommandTable = {
 			const { id, reason, as, gate, actor } = parse("retire", args, ["id"]);
 			if (gate === undefined) {
 				const why = needReason("retire", reason);
-				const { gate_id, payload_hash } = withLedger(ctx.home, true, (ledger) =>
-					requestGate(ledger, {
-						actor,
-						kind: "RetireAgent",
-						payload: { agent_id: id, reason: why },
-					}),
+				const { id: gate_id, payload_hash } = withLedger(
+					ctx.home,
+					true,
+					(ledger) =>
+						requestGate(ledger, {
+							actor,
+							kind: "RetireAgent",
+							payload: { agent_id: id, reason: why },
+						}).gate,
 				);
 				ctx.stdout.write(
 					`Requested ${gate_id} to retire ${id}; payload hash ${payload_hash}\n` +
