@@ -2,11 +2,11 @@ import { defineConfig } from "vitest/config";
 
 // Task and Vitality rules and the interface's views run in process, so their
 // suites keep vitest's default timeouts. The glossary check walks the whole
-// repository and the other command tests spawn the command line; on a shared
-// CI runner both run past the 5 s default.
+// repository and every command test, Task and Vitality ones included, spawns
+// the command line; on a shared CI runner both run past the 5 s default.
 const IN_PROCESS = [
-	"src/task/**/*.test.ts",
-	"src/vitality/**/*.test.ts",
+	"src/task/**/!(commands).test.ts",
+	"src/vitality/**/!(commands).test.ts",
 	"ui/**/*.test.ts",
 ];
 
