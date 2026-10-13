@@ -4,7 +4,7 @@ This document defines how the Conductor measures an Agent's Vitality, how that V
 
 ## Vitality is measured, never reported
 
-The Conductor records a `VitalitySampled` Event for an Agent at the end of each of its Turns. Each field comes from Events already in the Ledger, so anyone can recompute a sample. An Agent may say how it feels in a message, but those words never change its Vitality.
+The Conductor records a `VitalitySampled` Event for an Agent at the end of each of its Turns. That sample is the Conductor's own act (ADR-0013): its actor is `Conductor`, and its `causation_id` names the Turn's `TurnFinished`. The Ledger refuses a sample by the Conductor that names no `TurnFinished` of the same Agent. The Operator may also take a sample with `vitality sample`, which names no cause. Each field comes from Events already in the Ledger, so anyone can recompute a sample. An Agent may say how it feels in a message, but those words never change its Vitality.
 
 | Field | Definition (initial, tune in slice 1) | Range |
 |---|---|---|
