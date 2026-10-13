@@ -33,11 +33,14 @@ export const answerText = (answer: ActionAnswer): string =>
 /**
  * The body a view's action form posts: the JSON its markup carries in
  * `data-body`, with each field the Operator filled in set at its dotted
- * name, as `definition.supervisor_id`. An empty field leaves its key out.
+ * name, as `definition.supervisor_id`. An empty field leaves its key out. A
+ * field named in `json` holds JSON, which is parsed, so an editor over a
+ * whole definition sets it as an object; fields after it set keys inside it.
  */
 export const bodyOf = (
 	fixed: string,
 	fields: Iterable<readonly [string, string]>,
+	json: ReadonlySet<string> = new Set(),
 ): Record<string, unknown> => {
 	const body = JSON.parse(fixed) as Record<string, unknown>;
 	for (const [name, value] of fields) {
@@ -46,7 +49,15 @@ export const bodyOf = (
 		let target = body;
 		for (const step of path) target = target[step] as Record<string, unknown>;
 		if (value === "") delete target[key];
-		else target[key] = value;
+		else target[key] = json.has(name) ? parsed(name, value) : value;
 	}
 	return body;
+};
+
+const parsed = (name: string, text: string): unknown => {
+	try {
+		return JSON.parse(text);
+	} catch (error) {
+		throw new Error(`${name} is not JSON: ${String(error)}`);
+	}
 };

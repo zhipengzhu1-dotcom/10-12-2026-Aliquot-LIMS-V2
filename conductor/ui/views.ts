@@ -1,3 +1,5 @@
+import { agentView } from "./agent.js";
+import { gatesView } from "./gates.js";
 import { ledgerView } from "./ledger.js";
 import { escapeHtml } from "./markup.js";
 import { orgView } from "./org.js";
@@ -47,10 +49,10 @@ const view = (name: string, title: string, sources: string[]): View => ({
 export const VIEWS: readonly View[] = [
 	orgView,
 	view("flow", "Flow", ["tasks"]),
-	view("agent", "Agent", ["org", "vitality", "tiers"]),
+	agentView,
 	view("rooms", "Rooms", ["rooms"]),
 	view("scripts", "Scripts", ["scripts", "runs", "artifacts"]),
-	view("gates", "Gates", ["gates"]),
+	gatesView,
 	view("performance", "Performance", ["tiers", "vitality", "tasks", "turns"]),
 	ledgerView,
 ];

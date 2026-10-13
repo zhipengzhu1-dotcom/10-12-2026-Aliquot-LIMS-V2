@@ -128,12 +128,12 @@ const ALLOWED: readonly Exemption[] = [
 		in: file,
 		reason: "the Memory note field the glossary names",
 	})),
-	{
+	...["training/commands.ts", "serve/actions.ts"].map((file) => ({
 		phrase: "coach",
-		in: "training/commands.ts",
+		in: file,
 		reason:
-			"the `training coach` command, by which the Operator gives Coaching",
-	},
+			"the `training coach` command and the `coach` action, by which the Operator gives Coaching",
+	})),
 	{ phrase: "ticket", in: "events.ts", reason: "a GitHub issue, not a Task" },
 	{
 		phrase: "inspector",

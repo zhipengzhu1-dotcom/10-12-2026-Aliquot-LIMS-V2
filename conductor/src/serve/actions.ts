@@ -8,6 +8,7 @@ import { readBack } from "../lifecycle-support.js";
 import { pause, resume, revise } from "../org/lifecycle.js";
 import { open, say } from "../room/lifecycle.js";
 import { assign, handOff, review } from "../task/lifecycle.js";
+import { giveCoaching } from "../training/lifecycle.js";
 import type { Actor } from "../types/actor.js";
 import { AgentDefinition } from "../types/agent-definition.js";
 import { Review } from "../types/merit.js";
@@ -99,6 +100,14 @@ export const ACTIONS = {
 			reason: Reason,
 		}),
 		(ledger, body) => orderRest(ledger, { actor: OPERATOR, ...body }).seq,
+	),
+	coach: action(
+		z.strictObject({
+			agent_id: AgentId,
+			note: Reason,
+			task_id: TaskId.optional(),
+		}),
+		(ledger, body) => giveCoaching(ledger, { actor: OPERATOR, ...body }).seq,
 	),
 } satisfies Record<string, Action<z.ZodType>>;
 

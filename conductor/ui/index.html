@@ -97,6 +97,30 @@
 		padding: 0.25rem 0;
 	}
 	.agent details input { flex: 1 1 12rem; }
+	form.act { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.25rem 0; }
+	form.act input { flex: 1 1 12rem; }
+	form.act textarea { flex: 1 1 100%; min-height: 4rem; }
+	.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1rem; margin: 0.5rem 0; }
+	.facts dt { color: var(--muted); }
+	.facts dd { margin: 0; overflow-wrap: anywhere; }
+	.gate { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+	.gate h3 { margin: 0.25rem 0; }
+	.kind, .empty { color: var(--muted); }
+	.state-open { color: var(--accent); border-color: currentColor; }
+	.state-rejected, .state-expired { color: var(--warn); border-color: currentColor; }
+	ul.gates { list-style: none; padding: 0; }
+	table.diff, table.rows { border-collapse: collapse; font-size: 13px; margin: 0.5rem 0; }
+	table.diff th, table.diff td, table.rows th, table.rows td {
+		padding: 0.25rem 0.5rem;
+		border-bottom: 1px solid var(--line);
+		text-align: left;
+		vertical-align: top;
+	}
+	table.diff td { font-family: ui-monospace, monospace; }
+	.actions { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+	.actions summary { color: var(--muted); cursor: pointer; }
+	svg.merit polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+	svg.merit circle { fill: var(--accent); }
 	.verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 	.verdict.broken { color: var(--bad); font-weight: 600; }
 	main { overflow-x: auto; }
