@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { basename, join, relative, sep } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 import { sha256Hex } from "../hash.js";
 import {
 	type ArtifactId,
@@ -117,22 +117,65 @@ export type WorkflowRun = {
 type Typed = { readonly id: ArtifactId; readonly artifact_type: ArtifactType };
 
 /**
- * The previous stage's Artifacts whose type the stage takes as input, or a
- * refusal naming the stage and the type nothing gave it.
+ * The input type a stage takes the weighings as. A stage's own `Other`
+ * outputs are read-backs for its Evaluation, never a later stage's input.
+ */
+const WEIGHINGS: ArtifactType = "Other";
+
+/**
+ * Store the synthetic weighings the Operator keeps beside a Fixture,
+ * `<fixture stem>.weighings.json`, as the Operator's `Other` with no
+ * Lineage, or refuse the stage that takes them, naming the file.
+ */
+const storeWeighings = (
+	ledger: Ledger,
+	home: string,
+	stage: Stage,
+	formPath: string,
+): Typed => {
+	const stem = basename(formPath, extname(formPath));
+	const path = join(dirname(formPath), `${stem}.weighings.json`);
+	if (!existsSync(path)) {
+		throw new Error(
+			`stage ${stage.number} ${stage.name} refused: it takes the weighings beside the Fixture as input, and ${path} does not exist`,
+		);
+	}
+	return openArtifacts({ ledger, home }).store(
+		readFileSync(path),
+		{
+			artifact_type: WEIGHINGS,
+			media_type: "application/json",
+			produced_by: OPERATOR,
+			lineage: [],
+			filename: basename(path),
+		},
+		{ actor: OPERATOR },
+	).artifact;
+};
+
+/**
+ * The Artifacts of the stage's input types, from the previous stage's
+ * outputs and the weighings, or a refusal naming the stage and the type
+ * nothing gave it.
  */
 const inputsFor = (
 	stage: Stage,
 	previous: { readonly from: string; readonly artifacts: readonly Typed[] },
+	weighings: Typed | undefined,
 ): ArtifactId[] => {
+	const given = [
+		...previous.artifacts.filter((a) => a.artifact_type !== WEIGHINGS),
+		...(weighings ? [weighings] : []),
+	];
 	const missing = stage.inputs.filter(
-		(type) => !previous.artifacts.some((a) => a.artifact_type === type),
+		(type) => !given.some((a) => a.artifact_type === type),
 	);
 	if (missing.length > 0) {
 		throw new Error(
 			`stage ${stage.number} ${stage.name} refused: it takes ${missing.join(", ")} as input, and ${previous.from} gave none`,
 		);
 	}
-	return previous.artifacts
+	return given
 		.filter((a) => stage.inputs.includes(a.artifact_type))
 		.map((a) => a.id);
 };
@@ -345,7 +388,8 @@ const runStage = async (options: {
  * The toy workflow on one Submission Form: store it as a Fixture, then run
  * each planned stage in order on the previous stage's Artifacts of its input
  * types (the Fixture for the first), until the plan ends or a Task does not
- * end Done. Each stage's TaskProposed names the Event before it: the
+ * end Done. Before the first stage that takes the weighings, store them
+ * from beside the Fixture. Each stage's TaskProposed names as its cause the
  * Fixture's ArtifactStored, then the previous stage's last TaskCompleted.
  */
 export const runWorkflow = async (options: {
@@ -378,12 +422,16 @@ export const runWorkflow = async (options: {
 		artifacts: [fixture],
 	};
 	let causation_id = stored;
+	let weighings: Typed | undefined;
 	for (const plan of options.plan) {
+		if (plan.stage.inputs.includes(WEIGHINGS) && !weighings) {
+			weighings = storeWeighings(ledger, home, plan.stage, options.formPath);
+		}
 		const { result, seq } = await runStage({
 			ledger,
 			home,
 			plan,
-			inputs: inputsFor(plan.stage, previous),
+			inputs: inputsFor(plan.stage, previous, weighings),
 			causation_id,
 			filename,
 			timeoutMs: options.timeoutMs,

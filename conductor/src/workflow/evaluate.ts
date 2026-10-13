@@ -14,6 +14,10 @@
  * writes has the due date this module computes on its own, a Test for
  * every Sample on the Receiving Log row, and `work_orders` rows that agree
  * with it.
+ *
+ * Stage 4: the Result Worksheet that `sandbox/scripts/compute_results/main.py`
+ * writes computes every average and the mean by formula from the weighings,
+ * and the `results` rows agree with it.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -477,6 +481,224 @@ export const evaluateWorkOrder = ({
 			document.sort().join("; ") === database.sort().join("; "),
 			`the work_orders rows for ${number} (${database.join("; ") || "none"}) do not agree with the Work Order (${document.join("; ")})`,
 		);
+
+		return {
+			score: (checks - findings.length) / checks,
+			passed: findings.length === 0,
+			findings,
+		};
+	} catch (error) {
+		if (error instanceof Unreadable) return failed(error.message);
+		throw error;
+	}
+};
+
+/** The Result Worksheet's columns, in order, as `sandbox/synth/result_worksheet.py` writes them. */
+export const RESULT_WORKSHEET_COLUMNS = [
+	"#",
+	"Code",
+	"Name",
+	"Status",
+	"Lot#",
+	"Weight of 20 Capsules (g)",
+	"Weight Taken (g)",
+	"Average Weight (g)",
+] as const;
+
+const CONTAINER = RESULT_WORKSHEET_COLUMNS.indexOf("#");
+const WEIGHT_OF_20 = RESULT_WORKSHEET_COLUMNS.indexOf(
+	"Weight of 20 Capsules (g)",
+);
+const WEIGHT_TAKEN = RESULT_WORKSHEET_COLUMNS.indexOf("Weight Taken (g)");
+const AVERAGE = RESULT_WORKSHEET_COLUMNS.indexOf("Average Weight (g)");
+
+/** How far a `results` value may be from the worksheet's arithmetic, in g. */
+export const RESULTS_TOLERANCE_G = 0.0001;
+export const AVERAGE_WEIGHT_TEST = "Average capsule weight";
+/** The `results` test name of the mean of a Work Order's averages. */
+export const MEAN_AVERAGE_WEIGHT = "Average capsule weight, Work Order mean";
+
+const Cell = z.union([z.string(), z.number(), z.null()]);
+type Cell = z.infer<typeof Cell>;
+
+/** `result_worksheet.json` (schema `result_worksheet/1`): the sheet as the Script read back its xlsx, formulas as text. */
+const WorksheetReadBack = z.object({
+	schema: z.literal("result_worksheet/1"),
+	sheet: z.array(z.array(Cell)),
+});
+
+/** The weighings file: one entry per container, as `synth` writes `weighings.json`. */
+const Weighings = z.array(
+	z.object({
+		container: z.int(),
+		weight_of_20_g: z.number(),
+		weight_taken_g: z.number(),
+	}),
+);
+
+const shown = (cell: Cell | undefined) =>
+	cell === undefined || cell === null ? "empty" : String(cell);
+
+type Results = {
+	/** Each `samples` row's container number, by Lab Reference. */
+	readonly containers: ReadonlyMap<string, number>;
+	readonly workOrders: readonly Omit<WorkOrderRow, "due_date">[];
+	/** Each `results` row's value, by Lab Reference and test. */
+	readonly values: ReadonlyMap<string, number>;
+};
+
+const resultKey = (ref: string, test: string) => `${ref}\0${test}`;
+
+const readResults = (artifact: StageArtifact): Results =>
+	queryDatabase(artifact, (db) => ({
+		containers: new Map(
+			db
+				.prepare("SELECT lab_reference, container FROM samples")
+				.all()
+				.map((row) => [String(row.lab_reference), Number(row.container)]),
+		),
+		workOrders: db
+			.prepare("SELECT work_order, lab_reference, test FROM work_orders")
+			.all()
+			.map((row) => ({
+				work_order: String(row.work_order),
+				lab_reference: String(row.lab_reference),
+				test: String(row.test),
+			})),
+		values: new Map(
+			db
+				.prepare("SELECT lab_reference, test, value FROM results")
+				.all()
+				.map((row) => [
+					resultKey(String(row.lab_reference), String(row.test)),
+					Number(row.value),
+				]),
+		),
+	}));
+
+/**
+ * Stage 4's Evaluation of its Run. On the worksheet: every container row's
+ * average is the formula `=F<row>/20`, its two weights equal the weighing
+ * of its container, every weighing has a row, and the Mean row averages
+ * the rows by formula. In the database version the Run wrote: for every
+ * Sample of the Work Order, as the carried version lists them, the
+ * `results` row for "Average capsule weight" equals its container row's
+ * weight of 20 capsules divided by 20, and its Work Order mean row equals
+ * the mean of those, each within `RESULTS_TOLERANCE_G`. The worksheet
+ * comes from `result_worksheet.json`, because the Conductor has no xlsx
+ * reader; the weighings are the Run's `Other` input.
+ */
+export const evaluateResults = ({ inputs, outputs }: RunArtifacts): Scored => {
+	try {
+		const { sheet } = readJson(
+			outputs.find((a) => a.filename === "result_worksheet.json"),
+			"result_worksheet.json read-back",
+			WorksheetReadBack,
+		);
+		const weighings = readJson(
+			ofType(inputs, "Other"),
+			"weighings file",
+			Weighings,
+		);
+		const carried = ofType(inputs, "LimsDatabase");
+		if (!carried) throw new Unreadable("the Run carried no LimsDatabase");
+		const written = ofType(outputs, "LimsDatabase");
+		if (!written) throw new Unreadable("the Run wrote no LimsDatabase");
+		const before = readResults(carried);
+		const after = readResults(written);
+
+		const header = sheet.findIndex((row) =>
+			RESULT_WORKSHEET_COLUMNS.every((column, i) => row[i] === column),
+		);
+		if (header < 0) {
+			throw new Unreadable(
+				`the worksheet has no row of the Result Worksheet's columns ${RESULT_WORKSHEET_COLUMNS.join(", ")}`,
+			);
+		}
+		const body = sheet.slice(header + 1);
+		const meanAt = body.findIndex((row) => row[WEIGHT_TAKEN] === "Mean");
+		const meanRow = body[meanAt];
+		if (!meanRow) throw new Unreadable("the worksheet has no Mean row");
+		// Sheet rows count from 1, and the first container row follows the column row.
+		const first = header + 2;
+		const rows = body.slice(0, meanAt).map((cells, i) => ({
+			at: first + i,
+			cells,
+		}));
+		const number = sheet.find((row) => row[0] === "Work Order")?.[1];
+
+		const findings: string[] = [];
+		let checks = 0;
+		const check = (ok: boolean, finding: string) => {
+			checks++;
+			if (!ok) findings.push(finding);
+		};
+		const weighingOf = new Map(weighings.map((w) => [w.container, w]));
+		const averages = new Map<number, number>();
+		for (const { at, cells } of rows) {
+			const container = cells[CONTAINER];
+			const weighing =
+				typeof container === "number" ? weighingOf.get(container) : undefined;
+			const where = `row ${at} (container ${shown(container)})`;
+			const average = cells[AVERAGE];
+			check(
+				average === `=F${at}/20`,
+				`${where}: Average Weight (g) is ${shown(average)}, not the formula =F${at}/20`,
+			);
+			const of20 = cells[WEIGHT_OF_20];
+			check(
+				weighing !== undefined && of20 === weighing.weight_of_20_g,
+				`${where}: Weight of 20 Capsules (g) ${shown(of20)} is not the weighing's ${weighing?.weight_of_20_g ?? "(none)"}`,
+			);
+			const taken = cells[WEIGHT_TAKEN];
+			check(
+				weighing !== undefined && taken === weighing.weight_taken_g,
+				`${where}: Weight Taken (g) ${shown(taken)} is not the weighing's ${weighing?.weight_taken_g ?? "(none)"}`,
+			);
+			if (typeof container === "number" && typeof of20 === "number") {
+				averages.set(container, of20 / 20);
+			}
+		}
+		for (const { container } of weighings) {
+			check(
+				rows.some(({ cells }) => cells[CONTAINER] === container),
+				`container ${container}: the worksheet has no row for its weighing`,
+			);
+		}
+		const meanFormula = `=AVERAGE(H${first}:H${first + rows.length - 1})`;
+		check(
+			meanRow[AVERAGE] === meanFormula,
+			`the Mean row's Average Weight (g) is ${shown(meanRow[AVERAGE])}, not the formula ${meanFormula}`,
+		);
+
+		const refs = before.workOrders
+			.filter((r) => r.work_order === number && r.test === AVERAGE_WEIGHT_TEST)
+			.map((r) => r.lab_reference);
+		check(
+			refs.length > 0,
+			`Work Order ${shown(number)} has no ${AVERAGE_WEIGHT_TEST} rows in the carried database`,
+		);
+		const mean =
+			[...averages.values()].reduce((sum, a) => sum + a, 0) / averages.size;
+		const agrees = (value: number | undefined, expected: number | undefined) =>
+			value !== undefined &&
+			expected !== undefined &&
+			Math.abs(value - expected) <= RESULTS_TOLERANCE_G;
+		for (const ref of refs) {
+			const container = before.containers.get(ref);
+			const expected =
+				container === undefined ? undefined : averages.get(container);
+			const value = after.values.get(resultKey(ref, AVERAGE_WEIGHT_TEST));
+			check(
+				agrees(value, expected),
+				`${ref}: results holds ${value ?? "no row"} for ${AVERAGE_WEIGHT_TEST}, not ${expected ?? "(no worksheet row)"}, container ${container ?? "(none)"}'s Weight of 20 Capsules (g) / 20, within ${RESULTS_TOLERANCE_G} g`,
+			);
+			const meanValue = after.values.get(resultKey(ref, MEAN_AVERAGE_WEIGHT));
+			check(
+				agrees(meanValue, mean),
+				`${ref}: results holds ${meanValue ?? "no row"} for ${MEAN_AVERAGE_WEIGHT}, not ${mean}, the mean of the worksheet's averages, within ${RESULTS_TOLERANCE_G} g`,
+			);
+		}
 
 		return {
 			score: (checks - findings.length) / checks,
