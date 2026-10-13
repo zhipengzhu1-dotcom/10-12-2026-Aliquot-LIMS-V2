@@ -11,6 +11,7 @@ import {
 	RunId,
 	ScriptId,
 	Sha256,
+	SkillId,
 	TaskId,
 } from "./ids.js";
 import { open } from "./room/lifecycle.js";
@@ -102,6 +103,61 @@ const ROWS: Row[] = [
 			};
 		},
 		"TaskCompleted refused: T-1 is sampled for Review, as every Task of A-rin on Probation is; its completion names a reviewer",
+	],
+	[
+		"the Task Projection on a Help request",
+		(s) => {
+			const task_id = s.task(rin.id);
+			return {
+				actor: agent("pia"),
+				task_id,
+				kind: "HelpRequested",
+				payload: { task_id, to: operator, question: "Which column?" },
+			};
+		},
+		"HelpRequested refused: only A-rin, the assignee of T-1, requests help on it; the actor is A-pia",
+	],
+	[
+		"the Training guard on a Memory note",
+		(s) => {
+			const task_id = s.task(agent("pia").id);
+			return {
+				actor: rin,
+				task_id,
+				kind: "MemoryNoted",
+				payload: {
+					agent: rin.id,
+					task_id,
+					lesson: "Read the last column",
+					applies_to: [],
+				},
+			};
+		},
+		"MemoryNoted refused: A-rin was never assigned T-1",
+	],
+	[
+		"the Training Projection on a Skill version",
+		() => ({
+			actor: operator,
+			kind: "SkillPublished",
+			payload: {
+				id: SkillId.parse("parse-submission-form"),
+				version: 2,
+				title: "Parse a Submission Form",
+				body_md: "",
+				author: operator,
+			},
+		}),
+		"SkillPublished refused: parse-submission-form has not been published, so its next version is 1, not 2",
+	],
+	[
+		"the Training guard on Coaching",
+		() => ({
+			actor: rin,
+			kind: "HumanCoached",
+			payload: { agent_id: agent("pia").id, note: "Slow down" },
+		}),
+		"HumanCoached refused: only the Operator gives Coaching; A-rin tried to give it to A-pia",
 	],
 	[
 		"the Task guard on the reviewer",

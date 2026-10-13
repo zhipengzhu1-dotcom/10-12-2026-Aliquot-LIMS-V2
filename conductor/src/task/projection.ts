@@ -1,13 +1,25 @@
 import type { Event, PayloadOf } from "../events.js";
 import type { AgentId, GateId, Seq, TaskId } from "../ids.js";
 import { type Projection, Refusal } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
+import { type Actor, actorText, type EventActor } from "../types/actor.js";
 import type { Task, TaskState } from "../types/task.js";
+
+/** A Help request on a Task by its assignee. A reply is a Message in a Room. */
+export type HelpRequest = {
+	readonly seq: Seq;
+	readonly from: AgentId;
+	readonly to: Actor;
+	readonly question: string;
+};
 
 export type TaskView = {
 	readonly tasks: ReadonlyMap<TaskId, Task>;
 	/** The seq of the latest Event that created or moved each Task. */
 	readonly lastSeq: ReadonlyMap<TaskId, Seq>;
+	/** Each Task's Help requests, in seq order. */
+	readonly help: ReadonlyMap<TaskId, readonly HelpRequest[]>;
+	/** Every Agent each Task has been assigned to, which a Memory note's Task must include. */
+	readonly assignees: ReadonlyMap<TaskId, ReadonlySet<AgentId>>;
 };
 
 type Tag = TaskState["tag"];
@@ -131,6 +143,32 @@ export const stateIn = <F extends Tag>(
 	return isIn(from, state) ? state : new Refusal(notIn(task_id, from, state));
 };
 
+/** The live states with an assignee, the states a Help request is made in. */
+const HELP_TAGS = [
+	"Assigned",
+	"InProgress",
+	"UnderReview",
+	"Blocked",
+] as const satisfies readonly (typeof LIVE_TAGS)[number][];
+
+/**
+ * The assignee of `task_id` when `actor` is that assignee and the Task is
+ * live, or why `actor` may not request help on it.
+ */
+export const helpRequester = (
+	view: TaskView,
+	task_id: TaskId,
+	actor: EventActor,
+): AgentId | Refusal => {
+	const state = stateIn(view, task_id, HELP_TAGS);
+	if (state instanceof Refusal) return state;
+	return actor.tag === "Agent" && actor.id === state.assignee
+		? state.assignee
+		: new Refusal(
+				`only ${state.assignee}, the assignee of ${task_id}, requests help on it; the actor is ${actorText(actor)}`,
+			);
+};
+
 /** The Task an Event speaks about, if any. */
 export const taskIdOf = (event: Event): TaskId | undefined => {
 	switch (event.kind) {
@@ -194,10 +232,35 @@ export const transition = (
 	);
 };
 
-const withTask = (view: TaskView, task: Task, event: Event): TaskView => ({
-	tasks: new Map(view.tasks).set(task.id, task),
-	lastSeq: new Map(view.lastSeq).set(task.id, event.seq),
-});
+const withTask = (view: TaskView, task: Task, event: Event): TaskView => {
+	const assignees = view.assignees.get(task.id) ?? new Set<AgentId>();
+	return {
+		...view,
+		tasks: new Map(view.tasks).set(task.id, task),
+		lastSeq: new Map(view.lastSeq).set(task.id, event.seq),
+		assignees:
+			"assignee" in task.state && !assignees.has(task.state.assignee)
+				? new Map(view.assignees).set(
+						task.id,
+						new Set(assignees).add(task.state.assignee),
+					)
+				: view.assignees,
+	};
+};
+
+const withHelp = (
+	view: TaskView,
+	event: Extract<Event, { kind: "HelpRequested" }>,
+): TaskView | Refusal => {
+	const { task_id, to, question } = event.payload;
+	const from = helpRequester(view, task_id, event.actor);
+	if (from instanceof Refusal) return from;
+	const help = [
+		...(view.help.get(task_id) ?? []),
+		{ seq: event.seq, from, to, question },
+	];
+	return { ...view, help: new Map(view.help).set(task_id, help) };
+};
 
 const move = (view: TaskView, task: Task, event: Event) => {
 	const state = transition(task.state, event);
@@ -224,6 +287,7 @@ export const applyTaskEvent = (
 		);
 		return blocked ? move(view, blocked, event) : view;
 	}
+	if (event.kind === "HelpRequested") return withHelp(view, event);
 	const id = taskIdOf(event);
 	if (id === undefined) return view;
 	const task = view.tasks.get(id);
@@ -244,7 +308,12 @@ export const applyTaskEvent = (
 
 /** Tasks from the Ledger, moved by the Task state machine. */
 export const TaskProjection: Projection<TaskView> = {
-	init: { tasks: new Map(), lastSeq: new Map() },
+	init: {
+		tasks: new Map(),
+		lastSeq: new Map(),
+		help: new Map(),
+		assignees: new Map(),
+	},
 	reduce: applyTaskEvent,
 };
 

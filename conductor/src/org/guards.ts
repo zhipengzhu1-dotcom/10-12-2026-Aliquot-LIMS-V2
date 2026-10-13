@@ -76,6 +76,19 @@ const authorRefusal = (event: Event, definition: AgentDefinition) =>
 		? undefined
 		: `${definition.id}'s definition names ${actorText(definition.revised_by)} as revised_by, but the actor is ${actorText(event.actor)}`;
 
+/** A definition grants only Skills that a SkillPublished has published. */
+const skillRefusal = (
+	projections: Projections,
+	definition: AgentDefinition,
+) => {
+	const unpublished = definition.skills.find(
+		(id) => !projections.training.skills.has(id),
+	);
+	return unpublished === undefined
+		? undefined
+		: `${definition.id}'s definition grants the Skill ${unpublished}, which has not been published`;
+};
+
 const TIER_REVISION_FIELDS: ReadonlySet<string> = new Set([
 	"version",
 	"trust_tier",
@@ -148,6 +161,7 @@ const orgGuard: AppendGuard = (projections, event) => {
 		case "AgentRecruited":
 			return (
 				authorRefusal(event, event.payload) ??
+				skillRefusal(projections, event.payload) ??
 				tierRefusal(
 					projections.trust,
 					event.payload.id,
@@ -166,6 +180,7 @@ const orgGuard: AppendGuard = (projections, event) => {
 			}
 			return (
 				authorRefusal(event, definition) ??
+				skillRefusal(projections, definition) ??
 				tierRefusal(projections.trust, definition.id, definition.trust_tier)
 			);
 		}
