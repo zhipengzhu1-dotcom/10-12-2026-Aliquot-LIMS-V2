@@ -1,6 +1,17 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { evaluateSubmission } from "./evaluate.js";
+import { sha256Hex } from "../hash.js";
+import { ArtifactId } from "../ids.js";
+import type { ArtifactType } from "../types/artifact.js";
+import {
+	evaluateReceipt,
+	evaluateSubmission,
+	RECEIVING_LOG_COLUMNS,
+} from "./evaluate.js";
+import type { StageArtifact } from "./stages.js";
 
 /** The committed Fixture's expected record: a complete, valid submission. */
 const complete = (): Record<string, Record<string, string> | string> =>
@@ -87,6 +98,223 @@ describe("evaluateSubmission", () => {
 			"Report To: Company is missing",
 			"Report To: Contact is missing",
 			"Report To: Email is missing",
+		]);
+	});
+});
+
+const LOT = "LT-268123";
+const PRODUCT_CODE = "TLB-1475";
+
+const stageArtifact = (
+	artifact_type: ArtifactType,
+	filename: string,
+	bytes: Buffer,
+): StageArtifact => ({
+	id: ArtifactId.parse(sha256Hex(bytes)),
+	artifact_type,
+	filename,
+	bytes,
+});
+
+/** A database version holding `samples` rows (Lab Reference, Lot) and `lots` rows. */
+const database = (
+	samples: readonly (readonly [string, string])[],
+	lots: readonly string[],
+): Buffer => {
+	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
+	try {
+		const path = join(dir, "lims.sqlite");
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TABLE lots (lot TEXT PRIMARY KEY); CREATE TABLE samples (lab_reference TEXT PRIMARY KEY, lot TEXT NOT NULL)",
+		);
+		for (const lot of lots) db.prepare("INSERT INTO lots VALUES (?)").run(lot);
+		for (const [ref, lot] of samples) {
+			db.prepare("INSERT INTO samples VALUES (?, ?)").run(ref, lot);
+		}
+		db.close();
+		return readFileSync(path);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+const row = (ref: string, lot = LOT, productCode = PRODUCT_CODE) => [
+	ref,
+	"2026-01-06",
+	"15:17",
+	productCode,
+	"Tallowby Milk Thistle 250 mg Capsules",
+	"60 ct amber glass bottle",
+	lot,
+	"Tallowby Botanicals LLC",
+	"",
+	"1",
+];
+
+/** Stage 2's Run on the Fixture's record: two containers, LR-2026-0001 and 0002, by default. */
+const receiptRun = ({
+	rows = [row("LR-2026-0001"), row("LR-2026-0002")],
+	columns = [...RECEIVING_LOG_COLUMNS],
+	written = database(
+		[
+			["LR-2026-0001", LOT],
+			["LR-2026-0002", LOT],
+		],
+		[LOT],
+	),
+	carried,
+	readBack = true,
+}: {
+	rows?: string[][];
+	columns?: string[];
+	written?: Buffer;
+	carried?: Buffer;
+	readBack?: boolean;
+} = {}) => ({
+	inputs: [
+		stageArtifact(
+			"SubmissionRecord",
+			"submission.json",
+			Buffer.from(JSON.stringify(complete())),
+		),
+		...(carried ? [stageArtifact("LimsDatabase", "lims.sqlite", carried)] : []),
+	],
+	outputs: [
+		stageArtifact(
+			"ReceivingLogRow",
+			"receiving_log_row.xlsx",
+			Buffer.from("the xlsx bytes"),
+		),
+		stageArtifact("LimsDatabase", "lims.sqlite", written),
+		...(readBack
+			? [
+					stageArtifact(
+						"Other",
+						"receipt.json",
+						Buffer.from(
+							JSON.stringify({
+								schema: "receipt/1",
+								sheet: "01-06",
+								columns,
+								rows,
+							}),
+						),
+					),
+				]
+			: []),
+	],
+});
+
+// The row count, 4 per row (LOT#, Product Code, samples row, new Lab
+// Reference), and the one lots row.
+const receiptChecks = (rows: number) => 1 + 4 * rows + 1;
+
+describe("evaluateReceipt", () => {
+	it("passes one row per container with the record's Lot and Product Code, each Lab Reference a new samples row of that Lot, and one lots row", () => {
+		expect(
+			evaluateReceipt(
+				receiptRun({
+					carried: database([["LR-2026-0000", "LT-250001"]], ["LT-250001"]),
+				}),
+			),
+		).toEqual({ score: 1, passed: true, findings: [] });
+	});
+
+	it("fails a row whose Lot differs from the record's, naming the row", () => {
+		const evaluation = evaluateReceipt(
+			receiptRun({
+				rows: [row("LR-2026-0001"), row("LR-2026-0002", "LT-999999")],
+			}),
+		);
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.score).toBeCloseTo(
+			(receiptChecks(2) - 1) / receiptChecks(2),
+		);
+		expect(evaluation.findings).toEqual([
+			"row 2 (LR-2026-0002): LOT# LT-999999 is not the record's Lot LT-268123",
+		]);
+	});
+
+	it("fails a row whose Product Code differs from the record's", () => {
+		const evaluation = evaluateReceipt(
+			receiptRun({
+				rows: [row("LR-2026-0001", LOT, "TLB-0000"), row("LR-2026-0002")],
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"row 1 (LR-2026-0001): Product Code TLB-0000 is not the record's TLB-1475",
+		]);
+	});
+
+	it("fails when the rows do not number the record's containers", () => {
+		const evaluation = evaluateReceipt(
+			receiptRun({ rows: [row("LR-2026-0001")] }),
+		);
+
+		expect(evaluation.score).toBeCloseTo(
+			(receiptChecks(1) - 1) / receiptChecks(1),
+		);
+		expect(evaluation.findings).toEqual([
+			"1 Receiving Log rows for 2 containers",
+		]);
+	});
+
+	it("fails a Lab Reference the carried database version already holds", () => {
+		const evaluation = evaluateReceipt(
+			receiptRun({ carried: database([["LR-2026-0001", LOT]], [LOT]) }),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"row 1 (LR-2026-0001): Lab Reference LR-2026-0001 is already in the carried database",
+		]);
+	});
+
+	it("fails a row with no samples row of the record's Lot, and a Lot with no lots row", () => {
+		const evaluation = evaluateReceipt(
+			receiptRun({
+				written: database(
+					[
+						["LR-2026-0001", LOT],
+						["LR-2026-0002", "LT-999999"],
+					],
+					[],
+				),
+			}),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"row 2 (LR-2026-0002): the database has no samples row for LR-2026-0002 with Lot LT-268123",
+			"the database has 0 lots rows for Lot LT-268123, not 1",
+		]);
+	});
+
+	it("scores 0 when the sheet's columns are not the Receiving Log's", () => {
+		const evaluation = evaluateReceipt(receiptRun({ columns: ["#", "LOT#"] }));
+
+		expect(evaluation).toEqual({
+			score: 0,
+			passed: false,
+			findings: [
+				`the sheet's columns are #, LOT#, not the Receiving Log's ${RECEIVING_LOG_COLUMNS.join(", ")}`,
+			],
+		});
+	});
+
+	it("scores 0 when the Run wrote no read-back or a database it cannot open", () => {
+		expect(evaluateReceipt(receiptRun({ readBack: false }))).toEqual({
+			score: 0,
+			passed: false,
+			findings: ["the Run has no receipt.json read-back"],
+		});
+		const unreadable = evaluateReceipt(
+			receiptRun({ written: Buffer.from("not a database") }),
+		);
+		expect(unreadable.score).toBe(0);
+		expect(unreadable.findings).toEqual([
+			expect.stringMatching(/^lims\.sqlite is not a toy LIMS database: /),
 		]);
 	});
 });

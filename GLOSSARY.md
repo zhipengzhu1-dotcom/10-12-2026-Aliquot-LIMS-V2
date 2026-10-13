@@ -188,6 +188,10 @@ _Avoid_: phase, step
 A data source that the lab relies on as its official record. Writes to a System of record need a Gate. The toy LIMS database is not a System of record.
 _Avoid_: production database, real DB, LIMS
 
+**Toy LIMS database**:
+The synthetic SQLite database that stands in for the lab's LIMS tables in the toy workflow. It is an Artifact of type `LimsDatabase`, never a mutable file: a stage carries the latest version from the Ledger and outputs the next one, whose Lineage names the version before it. It is not a System of record.
+_Avoid_: lab database, live database
+
 ### Merit
 
 **Review**:
@@ -313,5 +317,5 @@ Turnaround time, coded on the Submission Form: 1 is regular, 2 is rush in 1 to 2
 _Avoid_: SLA, deadline, priority (priority is a separate Task field)
 
 **Lab Reference**:
-The lab's internal identifier for a received Sample, printed as "BNY REF#" on current templates.
+The lab's internal identifier for a received Sample, printed as "BNY REF#" on current templates. In the toy workflow, stage 2 assigns one to each container at receipt, as `LR-<year received>-<n>`.
 _Avoid_: ref number, BNY REF#, accession number

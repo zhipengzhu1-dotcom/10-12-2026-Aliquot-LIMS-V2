@@ -5,6 +5,7 @@ export const ArtifactType = z.enum([
 	"SubmissionForm",
 	"SubmissionRecord",
 	"ReceivingLogRow",
+	"LimsDatabase",
 	"WorkOrder",
 	"ResultWorksheet",
 	"VerificationRecord",
