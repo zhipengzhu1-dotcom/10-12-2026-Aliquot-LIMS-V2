@@ -1,4 +1,4 @@
-import type { AppendGuard } from "../append-guard.js";
+import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { RunId, Seq, TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
@@ -29,8 +29,7 @@ export const runFinishedFor = (
 const evaluations: AppendGuard = (projections, event) => {
 	if (event.kind !== "EvaluationRecorded") return undefined;
 	const { run_id, task_id } = event.payload;
-	const finished = runFinishedFor(projections, run_id, task_id);
-	return finished instanceof Refusal ? finished.reason : undefined;
+	return reasonOf(runFinishedFor(projections, run_id, task_id));
 };
 
 export const stage1Guards: readonly AppendGuard[] = [evaluations];

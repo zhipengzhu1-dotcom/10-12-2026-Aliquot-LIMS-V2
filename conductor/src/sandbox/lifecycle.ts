@@ -1,4 +1,4 @@
-import { AppendRefused, refusalText } from "../append-guard.js";
+import { orRefuse } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
 import {
 	ArtifactId,
@@ -14,6 +14,7 @@ import type { Actor } from "../types/actor.js";
 import type { ArtifactType, StoredArtifact } from "../types/artifact.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import { type ArtifactMeta, productionOf } from "./artifacts.js";
+import { runningRun, startedRun } from "./runs.js";
 
 /**
  * Who appends a Sandbox Event, and the cause it names when that cause lies
@@ -92,12 +93,9 @@ export const store = (
 		return { artifact: existing.record, seq: existing.seq };
 	}
 	const run =
-		produced_by.tag === "Run" ? runs.runs.get(produced_by.id) : undefined;
-	if (produced_by.tag === "Run" && run === undefined) {
-		throw new AppendRefused(
-			refusalText("ArtifactStored", `${produced_by.id} has not started`),
-		);
-	}
+		produced_by.tag === "Run"
+			? orRefuse("ArtifactStored", runningRun(runs, produced_by.id))
+			: undefined;
 	const artifact: StoredArtifact = {
 		id,
 		...facts,
@@ -143,12 +141,10 @@ export const finishRun = (
 	ledger: Ledger,
 	{ actor, causation_id, run }: Omit<Origin, "task_id"> & { readonly run: Run },
 ): { readonly run: Run; readonly seq: Seq } => {
-	const started = ledger.projections.runs.runs.get(run.id);
-	if (started === undefined) {
-		throw new AppendRefused(
-			refusalText("RunFinished", `${run.id} has no RunStarted`),
-		);
-	}
+	const started = orRefuse(
+		"RunFinished",
+		startedRun(ledger.projections.runs, run.id),
+	);
 	const { seq } = ledger.append({
 		actor,
 		task_id: started.task_id,

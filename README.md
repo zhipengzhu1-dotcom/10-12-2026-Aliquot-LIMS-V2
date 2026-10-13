@@ -279,7 +279,7 @@ pnpm -C conductor cli --home /tmp/aliquot vitality tiers
 # A-rin Rin merit=3.00 reviewed=10 tier=Trusted unused_mentor_gates=-
 ```
 
-Order Rest or end it, and append a `VitalitySampled` computed from the Ledger. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000).
+Order Rest or end it, and append a `VitalitySampled` computed from the Ledger. `--budget` is the Energy budget in tokens per 5-hour window (default 1,000,000). Sampling an Agent that is Retired or not in the Org appends nothing and exits 1 with `VitalitySampled refused: <A-id> is not a live Agent in the Org`.
 
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --begin --reason "fatigue 0.92" --as A-mabel

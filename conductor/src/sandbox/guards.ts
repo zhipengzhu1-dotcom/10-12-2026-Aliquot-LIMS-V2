@@ -1,6 +1,7 @@
-import type { AppendGuard } from "../append-guard.js";
+import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { ArtifactId } from "../ids.js";
 import type { Projections } from "../projections.js";
+import { runningRun } from "./runs.js";
 import { findScript } from "./scripts.js";
 
 /** A Script's id is `S-` and its name. Its versions are the Script Projection's. */
@@ -34,12 +35,9 @@ const artifacts: AppendGuard = (projections, event) => {
 	if (unknown.length > 0) {
 		return `Lineage of ${artifact.id} names unknown Artifacts ${unknown.join(", ")}`;
 	}
-	if (artifact.produced_by.tag === "Run") {
-		const run = projections.runs.runs.get(artifact.produced_by.id);
-		if (!run) return `${artifact.produced_by.id} has not started`;
-		if (run.finished) return `${artifact.produced_by.id} has already finished`;
-	}
-	return undefined;
+	return artifact.produced_by.tag === "Run"
+		? reasonOf(runningRun(projections.runs, artifact.produced_by.id))
+		: undefined;
 };
 
 /**

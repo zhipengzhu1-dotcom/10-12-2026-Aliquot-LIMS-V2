@@ -1,4 +1,4 @@
-import { AppendRefused, refusalText } from "../append-guard.js";
+import { orRefuse } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
 import {
 	EvaluationId,
@@ -8,7 +8,6 @@ import {
 	type TaskId,
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
-import { Refusal } from "../reduce.js";
 import type { Actor } from "../types/actor.js";
 import type { SubmissionEvaluation } from "./evaluate.js";
 import { runFinishedFor } from "./guards.js";
@@ -36,10 +35,10 @@ export const recordEvaluation = (
 	},
 ): Evaluated => {
 	const { projections } = ledger;
-	const finished = runFinishedFor(projections, run_id, task_id);
-	if (finished instanceof Refusal) {
-		throw new AppendRefused(refusalText("EvaluationRecorded", finished.reason));
-	}
+	const finished = orRefuse(
+		"EvaluationRecorded",
+		runFinishedFor(projections, run_id, task_id),
+	);
 	const evaluation: Evaluation = {
 		eval_id: EvaluationId.parse(
 			nextId("E", projections.work.evaluations.keys()),

@@ -40,6 +40,14 @@ export const refusalText = (kind: string, reason: string) =>
 	`${kind} refused: ${reason}`;
 
 /**
+ * A rule's predicate returns what a lifecycle verb needs to build its Event,
+ * or a Refusal. A guard reads the Refusal's reason through `reasonOf`, and a
+ * verb throws it through `orRefuse`, so both decide by the same predicate.
+ */
+export const reasonOf = (value: unknown): string | undefined =>
+	value instanceof Refusal ? value.reason : undefined;
+
+/**
  * The value, or the refusal of `kind` thrown before anything is appended, for
  * a lifecycle verb that needs the value to build its Event.
  */
