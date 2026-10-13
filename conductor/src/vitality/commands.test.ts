@@ -55,8 +55,8 @@ afterEach(() => {
 });
 
 describe("aliquot vitality", () => {
-	it("review refuses a score outside 0 to 3, then records a Review and the Trust tier Revision it earns", () => {
-		const review = (quality: string) =>
+	it("review refuses a score outside 0 to 3 and a reviewer the assignee's role does not allow, then records a Review and the Trust tier Revision it earns", () => {
+		const review = (quality: string, ...as: string[]) =>
 			vitality(
 				"review",
 				"T-10",
@@ -72,15 +72,21 @@ describe("aliquot vitality", () => {
 				"2",
 				"--note",
 				"Late by an hour",
+				...as,
 			);
 
-		const four = review("4");
+		const four = review("4", "--as", "A-pia");
 		expect(four.status).toBe(2);
 		expect(four.stderr.split("\n")[0]).toBe(
 			'UsageError: --quality must be a score 0, 1, 2 or 3, not "4"',
 		);
-		expect(ok(review("3"))).toBe(
-			"Recorded a Review of T-10 by Operator: mean 2.80\n" +
+		const byOperator = review("3");
+		expect(byOperator.status).toBe(1);
+		expect(byOperator.stderr).toContain(
+			"ReviewRecorded refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); Operator may not review T-10",
+		);
+		expect(ok(review("3", "--as", "A-pia"))).toBe(
+			"Recorded a Review of T-10 by A-pia: mean 2.80\n" +
 				"Revised A-rin to version 2: Trust tier Probation -> Trusted: Merit 2.98 over 10 reviewed Tasks\n",
 		);
 		expect(storedTier(rin)).toBe("Trusted");

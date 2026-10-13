@@ -4,31 +4,41 @@ import { canonicalJson } from "../hash.js";
 import { notInOrg } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
-import { assigneeOf } from "../task/projection.js";
-import { actorText } from "../types/actor.js";
+import { actorText, type EventActor } from "../types/actor.js";
+import type { Review } from "../types/merit.js";
+import { reviewerRefusal } from "./reviewers.js";
 import { restInEffect } from "./vitality.js";
 
 /**
  * A Review scores a completed Task (UnderReview, or Done when the Auditor
- * adds one), is recorded by the reviewer it names, and never by the assignee.
+ * adds one), is recorded by the reviewer it names, and only by a reviewer
+ * that the assignee's role allows.
  */
-const reviewRules: AppendGuard = (projections, event) => {
-	if (event.kind !== "ReviewRecorded") return undefined;
-	const { task_id, reviewer } = event.payload;
+export const reviewRefusal = (
+	projections: Projections,
+	{ task_id, reviewer }: Review,
+	actor: EventActor,
+): Refusal | undefined => {
 	const task = projections.tasks.tasks.get(task_id);
-	if (task === undefined) return `${task_id} does not exist`;
-	if (task.state.tag !== "UnderReview" && task.state.tag !== "Done") {
-		return `${task_id} is ${task.state.tag}; only an UnderReview or Done Task gets a Review`;
+	if (task === undefined) return new Refusal(`${task_id} does not exist`);
+	const { state } = task;
+	if (state.tag !== "UnderReview" && state.tag !== "Done") {
+		return new Refusal(
+			`${task_id} is ${state.tag}; only an UnderReview or Done Task gets a Review`,
+		);
 	}
-	if (canonicalJson(reviewer) !== canonicalJson(event.actor)) {
-		return `the reviewer ${actorText(reviewer)} is not the actor ${actorText(event.actor)}`;
+	if (canonicalJson(reviewer) !== canonicalJson(actor)) {
+		return new Refusal(
+			`the reviewer ${actorText(reviewer)} is not the actor ${actorText(actor)}`,
+		);
 	}
-	const assignee = assigneeOf(task);
-	if (reviewer.tag === "Agent" && reviewer.id === assignee) {
-		return `${assignee} is the assignee of ${task_id} and cannot review it`;
-	}
-	return undefined;
+	return reviewerRefusal(projections, task_id, state.assignee, reviewer);
 };
+
+const reviewRules: AppendGuard = (projections, event) =>
+	event.kind === "ReviewRecorded"
+		? reasonOf(reviewRefusal(projections, event.payload, event.actor))
+		: undefined;
 
 /** Rest is ordered for an Agent in the Org, and begins and ends in turn. */
 export const restRefusal = (

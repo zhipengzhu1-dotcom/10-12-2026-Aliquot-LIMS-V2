@@ -34,6 +34,16 @@ const ok = (...args: string[]) => {
 	return result.stdout;
 };
 
+/** Run a command the Ledger must refuse and return the refusal it prints. */
+const refused = (...args: string[]) => {
+	const result = aliquot(...args);
+	expect(result.stdout).toBe("");
+	expect(result.status).toBe(1);
+	const [name, ...refusal] = result.stderr.trimEnd().split(": ");
+	expect(name).toBe("AppendRefused");
+	return refusal.join(": ");
+};
+
 /** A seeded Ledger in `home`, after `build`, closed for the command line. */
 const seeded = (build: (s: Scenario) => void = () => {}) => {
 	const s = scenario(undefined, { home });
@@ -121,11 +131,30 @@ describe("aliquot task", () => {
 		});
 	});
 
-	it("assign assigns a Proposed Task", () => {
+	it("assign assigns a Proposed Task, and is refused to an Agent strained or worse until Rest ends or a fresh sample", () => {
 		seeded((s) => s.task(rin, { start: false }));
 
 		expect(ok("task", "assign", "T-1", "A-odile")).toBe(
 			"T-1 Assigned (assignee A-odile)\n",
+		);
+
+		// 80,000 of the 125,000 tokens each of 8 Agents gets: fatigue 0.64.
+		ok("vitality", "sample", "A-ines", "--tokens", "80000");
+		expect(refused("task", "assign", "T-1", "A-ines")).toBe(
+			"TaskAssigned refused: A-ines is strained and may not accept a Task",
+		);
+		ok("vitality", "sample", "A-ines");
+		expect(ok("task", "assign", "T-1", "A-ines")).toBe(
+			"T-1 Assigned (assignee A-ines)\n",
+		);
+
+		ok("vitality", "rest", "A-bram", "--begin", "--reason", "fatigue 0.92");
+		expect(refused("task", "assign", "T-1", "A-bram")).toBe(
+			"TaskAssigned refused: A-bram is resting and may not accept a Task",
+		);
+		ok("vitality", "rest", "A-bram", "--end", "--reason", "fatigue 0.41");
+		expect(ok("task", "assign", "T-1", "A-bram")).toBe(
+			"T-1 Assigned (assignee A-bram)\n",
 		);
 	});
 
@@ -137,9 +166,16 @@ describe("aliquot task", () => {
 		);
 	});
 
-	it("handoff hands an InProgress Task to another Agent", () => {
+	it("handoff hands an InProgress Task to another Agent, and is refused to an Agent strained or worse", () => {
 		seeded((s) => s.task(rin));
 
+		ok("vitality", "sample", "A-ines", "--tokens", "80000");
+		expect(
+			refused("task", "handoff", "T-1", "A-ines", "--reason", "too much"),
+		).toBe(
+			"TaskHandedOff refused: A-ines is strained and may not accept a Task",
+		);
+		ok("vitality", "sample", "A-ines");
 		expect(
 			ok("task", "handoff", "T-1", "A-ines", "--reason", "second opinion"),
 		).toBe("T-1 Assigned (assignee A-ines)\n");
@@ -168,6 +204,19 @@ describe("aliquot task", () => {
 		);
 		ok("task", "assign", "T-1", "A-rin");
 		ok("task", "start", "T-1", "--as", "A-rin");
+		expect(
+			refused(
+				"task",
+				"complete",
+				"T-1",
+				"--reviewer",
+				"A-odile",
+				"--as",
+				"A-rin",
+			),
+		).toBe(
+			"TaskCompleted refused: A-rin is a Specialist on Probation, reviewed by a Supervisor (A-pia or A-anselm), the Auditor (A-thorne) or a Senior or Mentor Agent (none); A-odile may not review T-1",
+		);
 		expect(
 			ok("task", "complete", "T-1", "--reviewer", "A-pia", "--as", "A-rin"),
 		).toBe("T-1 UnderReview (assignee A-rin, reviewer A-pia)\n");
