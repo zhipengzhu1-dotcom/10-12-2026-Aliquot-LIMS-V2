@@ -338,9 +338,33 @@ describe("GLOSSARY.md", () => {
 	});
 
 	it("needs every exemption", () => {
-		const unused = exemptions.filter(
-			(a) => scan(exemptions.filter((b) => b !== a)).length === hits.length,
-		);
+		// An exemption is needed when the scan without it reports more hits. Leaving
+		// it out changes only the lines where it blanked something, so only those
+		// lines are scanned again, once per exemption that blanked them.
+		const added = new Map<Compiled, number>();
+		const count = (text: string) =>
+			rules.filter(({ pattern }) => pattern.test(text)).length;
+		for (const { file, lines } of sources) {
+			const allowed = exemptions.filter((a) => file.startsWith(a.in ?? ""));
+			for (const line of lines) {
+				const text = words(line);
+				const blanked: Compiled[] = [];
+				const scanned = allowed.reduce((rest, a) => {
+					const next = rest.replace(a.pattern, (m) => " ".repeat(m.length));
+					if (next !== rest) blanked.push(a);
+					return next;
+				}, text);
+				for (const a of blanked) {
+					const without = blank(
+						allowed.filter((b) => b !== a),
+						file,
+						text,
+					);
+					added.set(a, (added.get(a) ?? 0) + count(without) - count(scanned));
+				}
+			}
+		}
+		const unused = exemptions.filter((a) => (added.get(a) ?? 0) === 0);
 		expect(unused.map((a) => a.phrase)).toEqual([]);
 	});
 });
