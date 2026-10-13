@@ -415,6 +415,16 @@ pnpm -C conductor cli --home /tmp/aliquot vitality rest A-rin --end --reason "fa
 pnpm -C conductor cli --home /tmp/aliquot vitality sample A-rin --budget 1000000
 ```
 
+Export one table as CSV on stdout, with a header row. With `--csv` alone, it writes one row per `VitalitySampled`: its seq and time, the Agent, the five values as recorded, the Mood the Agent had just after the sample (with Rest and its Tasks `InProgress` as they stood then), and the cause. `--turns` writes one row per Turn in the order they started, with its usage, counted tokens, Tool calls and outcome; an open Turn has empty finish columns and the outcome `open`. `--reviews` writes one row per Review, with the Task's assignee when it was recorded, the five scores, their mean and the note. The command only reads the Ledger, so it works while `aliquot serve` runs.
+
+```sh
+tools/aliquot --home /tmp/aliquot vitality export --csv > samples.csv
+tools/aliquot --home /tmp/aliquot vitality export --csv --turns > turns.csv
+tools/aliquot --home /tmp/aliquot vitality export --csv --reviews > reviews.csv
+# seq,at,agent,load,fatigue,friction,confidence,morale,mood,causation_id
+# 21,2026-10-13T06:29:58.207Z,A-mabel,0,0.063776,0,1,0,fresh,20
+```
+
 ## Workflow tracer
 
 The toy workflow is one table of stages, `conductor/src/workflow/stages.ts`. Each row names the stage number and name, the Script, the input Artifact types it takes from earlier stages, the types it carries from the Ledger instead, its output types, the Agent that works it, the Agent that reviews it, and its Evaluation, which reads the Run's inputs and outputs and scores the Run from 0 to 1 with a list of findings. Adding a stage is adding a row, a Script directory under `sandbox/scripts/`, and an Evaluation. The table is refused when its rows are not stages 1, 2, 3 in order, or when stage 5 (Verification) is worked by the Agent that works stage 4 (Results). Today the table has six stages, and the chain runs end to end, from the Submission Form to the Report of Analysis:
