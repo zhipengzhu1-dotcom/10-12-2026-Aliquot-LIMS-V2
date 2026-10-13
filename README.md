@@ -42,7 +42,7 @@ tools/check.sh
 | Build to `conductor/dist/` | `pnpm -C conductor build` |
 | Run the `aliquot` command line | `pnpm -C conductor cli <args>`, or `tools/aliquot <args>` from any directory |
 
-A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either.
+A domain's `commands.ts` uses the helpers in `conductor/src/cli-support.ts`: it opens the Ledger with `withLedger`, which closes it on every path, and parses a value with `parseOrUsage` (a command-line value, refused as a usage error) or `parseOrThrow` (a JSON document). Biome enforces this for `src/*/commands.ts`: `noRestrictedImports` refuses importing `openLedger` from `../ledger.js`, and the GritQL plugin `conductor/lint/no-safe-parse-in-commands.grit` refuses any `.safeParse(` call, so `pnpm -C conductor lint` fails on either. The GritQL plugin `conductor/lint/no-append-outside-lifecycle.grit` refuses an append call in any non-test module except a domain's `lifecycle.ts`, `ledger.ts` and the test scenario in `test-support/`, so only a lifecycle module appends Events; `conductor/src/append-rule.test.ts` checks which files it refuses.
 
 ### Sandbox (Python)
 
@@ -81,12 +81,7 @@ Off CI, a test that needs a missing prerequisite skips with a notice: the Docker
 
 The Ledger is `<home>/ledger.sqlite`, an append-only, hash-chained sequence of Events (ADR-0001). Only one process at a time can open it for writing. The writer holds `<home>/ledger.sqlite.lock`, which names its pid. A lock left by a process that no longer runs is taken over, under a second lock, `ledger.sqlite.lock.takeover`, so that two processes can never both take it over. If a process stops in the middle of a takeover, the next writer names the leftover `.takeover` file; delete it once no Conductor runs.
 
-Append one Event. The body is JSON with `actor`, `kind`, and `payload`, plus optional `task_id` and `causation_id`; give a file path, or pipe the body to stdin. The command prints the stored Event, or refuses an unknown `kind` or a malformed payload and writes nothing. Domain guards also refuse Events that break a rule, such as pausing an Agent that was never recruited, so this example needs `org seed` first (see Org). Only the Task lifecycle appends Task Events, so `ledger append` refuses them, and a `GateRequested` that names a Task, and names the command to use instead, such as `task start`.
-
-```sh
-echo '{"actor":{"tag":"Operator"},"kind":"AgentPaused","payload":{"agent_id":"A-odile","reason":"maintenance"}}' \
-  | pnpm -C conductor cli --home /tmp/aliquot ledger append
-```
+No command appends a raw Event. The Operator writes to the Ledger only through the domain commands (`org`, `task`, `room`, `gate`, `sandbox`, `vitality`, `stage1`), and each one appends through its domain's lifecycle module, which derives every id and cause from the Projections. Domain guards still refuse an Event that breaks a rule, such as pausing an Agent that was never recruited.
 
 `pnpm -C conductor` runs the command from `conductor/`, so give `--home` an absolute path. Add `--silent` after `pnpm` to drop its banner lines when you script the command line; pnpm 12 rejects `-s`. `tools/aliquot <args>` is the same command with `--silent`, and works from any directory: `tools/aliquot --home /tmp/aliquot org tree`.
 

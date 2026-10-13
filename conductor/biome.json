@@ -38,8 +38,14 @@
 			"includes": ["**/src/*/commands.ts"]
 		},
 		{
-			"path": "./lint/no-append-in-task-commands.grit",
-			"includes": ["**/src/task/commands.ts"]
+			"path": "./lint/no-append-outside-lifecycle.grit",
+			"includes": [
+				"**/src/**/*.ts",
+				"!**/src/**/*.test.ts",
+				"!**/src/*/lifecycle.ts",
+				"!**/src/ledger.ts",
+				"!**/src/test-support/**"
+			]
 		},
 		{
 			"path": "./lint/no-gate-request-for-task.grit",

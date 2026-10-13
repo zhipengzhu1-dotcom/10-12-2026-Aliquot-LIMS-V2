@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -18,14 +18,6 @@ const runCli = (args: string[], options: RunOptions = {}) =>
 		env: { ...process.env, ALIQUOT_HOME: "", ...options.env },
 	});
 
-// HumanCoached has no domain guard, so it appends to an empty Ledger.
-const coached = (note: string) =>
-	JSON.stringify({
-		actor: { tag: "Operator" },
-		kind: "HumanCoached",
-		payload: { agent_id: "A-odile", note },
-	});
-
 let home: string;
 
 beforeEach(() => {
@@ -42,7 +34,6 @@ describe("aliquot cli", () => {
 		expect(result.stderr).toBe("");
 		expect(result.status).toBe(0);
 		expect(result.stdout).toMatch(/^Usage: aliquot <command> \[options\]/);
-		expect(result.stdout).toContain("ledger append");
 		expect(result.stdout).toContain("ledger verify");
 	});
 
@@ -54,103 +45,26 @@ describe("aliquot cli", () => {
 });
 
 describe("aliquot ledger", () => {
-	it("appends Events from a file and from stdin, then verifies the chain", () => {
-		const file = join(home, "event.json");
-		writeFileSync(file, coached("from a file"));
+	it("has no command that appends a raw Event", () => {
+		const usage = runCli([]);
+		const result = runCli(["--home", home, "ledger", "append"]);
 
-		const fromFile = runCli(["--home", home, "ledger", "append", file]);
-		const fromStdin = runCli(["--home", home, "ledger", "append"], {
-			input: coached("from stdin"),
-		});
+		expect(usage.stdout).not.toContain("ledger append");
+		expect(result.status).toBe(2);
+		expect(result.stderr).toContain("unknown command: ledger append");
+	});
+
+	it("verifies the chain a domain command wrote", () => {
+		runCli(["--home", home, "org", "seed"]);
+
 		const verified = runCli(["--home", home, "ledger", "verify"]);
 
-		expect(fromFile.stderr).toBe("");
-		expect(fromFile.status).toBe(0);
-		expect(JSON.parse(fromFile.stdout)).toMatchObject({
-			seq: 1,
-			kind: "HumanCoached",
-			payload: { note: "from a file" },
-		});
-		expect(fromStdin.status).toBe(0);
-		expect(JSON.parse(fromStdin.stdout)).toMatchObject({ seq: 2 });
 		expect(verified.status).toBe(0);
-		expect(verified.stdout).toBe("Ledger verified: 2 Events, chain intact\n");
-	});
-
-	it("refuses an Event with an unknown kind and writes nothing", () => {
-		runCli(["--home", home, "ledger", "append"], { input: coached("first") });
-
-		const refused = runCli(["--home", home, "ledger", "append"], {
-			input: JSON.stringify({
-				actor: { tag: "Operator" },
-				kind: "AgentDanced",
-				payload: {},
-			}),
-		});
-		const verified = runCli(["--home", home, "ledger", "verify"]);
-
-		expect(refused.status).toBe(1);
-		expect(refused.stderr).toMatch(
-			/^AppendRefused: AgentDanced refused: not a valid Event: /,
-		);
-		expect(refused.stderr).toContain("AgentDanced");
-		expect(verified.stdout).toBe("Ledger verified: 1 Event, chain intact\n");
-	});
-
-	it("refuses a Task Event, naming the command that appends it, and writes nothing", () => {
-		runCli(["--home", home, "ledger", "append"], { input: coached("first") });
-
-		const refused = runCli(["--home", home, "ledger", "append"], {
-			input: JSON.stringify({
-				actor: { tag: "Agent", id: "A-rin" },
-				task_id: "T-1",
-				kind: "TaskStarted",
-				payload: { task_id: "T-1" },
-			}),
-		});
-		const verified = runCli(["--home", home, "ledger", "verify"]);
-
-		expect(refused.status).toBe(1);
-		expect(refused.stderr).toBe(
-			"AppendRefused: TaskStarted refused: only the Task lifecycle appends Task Events; use aliquot task start\n",
-		);
-		expect(verified.stdout).toBe("Ledger verified: 1 Event, chain intact\n");
-	});
-
-	it("refuses a GateRequested that names a Task, which blocks it, pointing to gate request --task", () => {
-		const refused = runCli(["--home", home, "ledger", "append"], {
-			input: JSON.stringify({
-				actor: { tag: "Agent", id: "A-rin" },
-				task_id: "T-1",
-				kind: "GateRequested",
-				payload: {
-					gate_id: "G-1",
-					kind: "Deploy",
-					payload: {},
-					payload_hash: "4".repeat(64),
-					lifetime_s: 3600,
-				},
-			}),
-		});
-
-		expect(refused.status).toBe(1);
-		expect(refused.stderr).toBe(
-			"AppendRefused: GateRequested refused: only the Task lifecycle appends Task Events; use aliquot gate request --task\n",
-		);
-	});
-
-	it("reports a body that is not JSON", () => {
-		const result = runCli(["--home", home, "ledger", "append"], {
-			input: "{oops",
-		});
-		expect(result.status).toBe(1);
-		expect(result.stderr).toMatch(/^error: the Event body is not JSON/);
+		expect(verified.stdout).toBe("Ledger verified: 8 Events, chain intact\n");
 	});
 
 	it("fails verify and names the first broken seq after a row is edited", () => {
-		for (const reason of ["a", "b", "c"]) {
-			runCli(["--home", home, "ledger", "append"], { input: coached(reason) });
-		}
+		runCli(["--home", home, "org", "seed"]);
 		const db = new DatabaseSync(join(home, "ledger.sqlite"));
 		db.exec(`UPDATE events SET ts = '2020-01-01T00:00:00.000Z' WHERE seq = 2`);
 		db.close();
@@ -166,9 +80,7 @@ describe("aliquot ledger", () => {
 	it("refuses to append while another process holds the Ledger", () => {
 		const holder = openLedger({ home, writer: true });
 		try {
-			const result = runCli(["--home", home, "ledger", "append"], {
-				input: coached("blocked"),
-			});
+			const result = runCli(["--home", home, "org", "seed"]);
 			expect(result.status).toBe(1);
 			expect(result.stderr).toBe(
 				`LedgerLocked: ${join(home, "ledger.sqlite.lock")} held by pid ${process.pid}\n`,
@@ -179,11 +91,8 @@ describe("aliquot ledger", () => {
 	});
 
 	it("uses ALIQUOT_HOME when --home is not given", () => {
-		runCli(["ledger", "append"], {
-			input: coached("env"),
-			env: { ALIQUOT_HOME: home },
-		});
+		runCli(["org", "seed"], { env: { ALIQUOT_HOME: home } });
 		const verified = runCli(["--home", home, "ledger", "verify"]);
-		expect(verified.stdout).toBe("Ledger verified: 1 Event, chain intact\n");
+		expect(verified.stdout).toBe("Ledger verified: 8 Events, chain intact\n");
 	});
 });

@@ -1,5 +1,0 @@
-language js
-
-`$ledger.append($event)` as $call where {
-	register_diagnostic(span=$call, message="Only a domain's lifecycle module appends its Events: task/commands.ts calls the verbs in task/lifecycle.ts.", severity="error")
-}

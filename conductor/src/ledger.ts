@@ -85,11 +85,8 @@ export const seal = (
 	return Event.parse(stripUndefined({ ...unhashed, hash }));
 };
 
-/**
- * Parse an Event body that arrived from outside, such as JSON from the
- * command line. Throws `AppendRefused` naming every problem.
- */
-export const parseNewEvent = (input: unknown): NewEvent => {
+/** Parse the Event body handed to `append`. Throws `AppendRefused` naming every problem. */
+const parseNewEvent = (input: unknown): NewEvent => {
 	const parsed = NewEvent.safeParse(input);
 	if (!parsed.success) {
 		const kind =
