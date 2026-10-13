@@ -59,8 +59,7 @@ describe("the stage table", () => {
 		});
 	});
 
-	it("has stage 4, Results: compute_results from the WorkOrder, the weighings and the carried LimsDatabase to a ResultWorksheet and the next LimsDatabase, worked by Rin and reviewed by Anselm, and no stage after it", () => {
-		expect(STAGES).toHaveLength(4);
+	it("has stage 4, Results: compute_results from the WorkOrder, the weighings and the carried LimsDatabase to a ResultWorksheet and the next LimsDatabase, worked by Rin and reviewed by Anselm", () => {
 		expect(STAGES[3]).toMatchObject({
 			number: 4,
 			name: "Results",
@@ -69,6 +68,20 @@ describe("the stage table", () => {
 			carried: ["LimsDatabase"],
 			outputs: ["ResultWorksheet", "LimsDatabase"],
 			worked_by: "A-rin",
+			reviewed_by: "A-anselm",
+		});
+	});
+
+	it("has stage 5, Verification: verify_results from the ResultWorksheet and the weighings to a VerificationRecord, worked by Bram and reviewed by Anselm, and no stage after it", () => {
+		expect(STAGES).toHaveLength(5);
+		expect(STAGES[4]).toMatchObject({
+			number: 5,
+			name: "Verification",
+			script: "verify_results",
+			inputs: ["ResultWorksheet", "Other"],
+			carried: [],
+			outputs: ["VerificationRecord"],
+			worked_by: "A-bram",
 			reviewed_by: "A-anselm",
 		});
 	});

@@ -4,6 +4,7 @@ import {
 	evaluateReceipt,
 	evaluateResults,
 	evaluateSubmissionRecord,
+	evaluateVerification,
 	evaluateWorkOrder,
 } from "./evaluate.js";
 import type { Scored } from "./lifecycle.js";
@@ -111,5 +112,16 @@ export const STAGES: readonly Stage[] = checkStages([
 		worked_by: AgentId.parse("A-rin"),
 		reviewed_by: AgentId.parse("A-anselm"),
 		evaluate: evaluateResults,
+	},
+	{
+		number: 5,
+		name: "Verification",
+		script: "verify_results",
+		inputs: ["ResultWorksheet", "Other"],
+		carried: [],
+		outputs: ["VerificationRecord"],
+		worked_by: AgentId.parse("A-bram"),
+		reviewed_by: AgentId.parse("A-anselm"),
+		evaluate: evaluateVerification,
 	},
 ]);

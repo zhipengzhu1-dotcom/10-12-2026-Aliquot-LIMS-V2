@@ -257,6 +257,26 @@ const typedFirstAverage = resultsCopy("typed_first_average", [
 	"original.write_sheet = typed",
 ]);
 
+const typedAverageBehindReadBack = resultsCopy(
+	"typed_average_behind_read_back",
+	[
+		"from openpyxl import load_workbook",
+		"",
+		"read_back = original.read_back",
+		"",
+		"",
+		"def honest_then_typed(path):",
+		"    sheet = read_back(path)",
+		"    wb = load_workbook(path)",
+		"    wb.active['H6'] = wb.active['F6'].value / 20 + 0.01",
+		"    wb.save(path)",
+		"    return sheet",
+		"",
+		"",
+		"original.read_back = honest_then_typed",
+	],
+);
+
 const resultsOneMilligramHigh = resultsCopy("results_one_milligram_high", [
 	"original.Weighing.average_g = property(",
 	"    lambda w: w.weight_of_20_g / 20 + 0.001",
@@ -738,7 +758,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 	}, 600_000);
 
 	it("stores the weighings beside the Fixture as the Operator's Other with no Lineage, and runs stage 4 on the Work Order, the weighings and stage 3's database to a Done Task worked by Rin, whose Result Worksheet's Lineage names all three", async () => {
-		const { stages } = await trace();
+		const { stages } = await trace({ stages: STAGES.slice(0, 4) });
 
 		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
 			[1, "Done"],
@@ -853,6 +873,89 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(s.events().at(-1)).toMatchObject({
 			kind: "TaskFailed",
 			task_id: results?.task_id,
+		});
+	}, 600_000);
+
+	it("runs stage 5 on stage 4's Result Worksheet and the weighings to a Done Task worked by Bram, whose Verification Record passes and has a Lineage of both", async () => {
+		const { stages } = await trace();
+
+		expect(stages.map((r) => [r.stage.number, r.state.tag])).toEqual([
+			[1, "Done"],
+			[2, "Done"],
+			[3, "Done"],
+			[4, "Done"],
+			[5, "Done"],
+		]);
+		const [, , , results, verification] = stages;
+		if (!results || !verification) throw new Error("a stage did not run");
+		expect(verification.state).toEqual({ tag: "Done", assignee: bram });
+		expect(verification.evaluation).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+		const worksheet = ofType(results.outputs, "ResultWorksheet");
+		const weighings = ArtifactId.parse(
+			sha256Hex(readFileSync(fixture.replace(/\.docx$/, ".weighings.json"))),
+		);
+		expect(
+			verification.run.inputs,
+			"the worksheet, not stage 4's result_worksheet.json or database, and the weighings",
+		).toEqual([worksheet.id, weighings]);
+		const record = ofType(verification.outputs, "VerificationRecord");
+		expect(record.filename).toBe("verification_record.json");
+		expect(
+			lineageOf(s.ledger.projections.artifacts, record.id, {
+				tag: "Run",
+				id: verification.run.id,
+			}),
+		).toEqual([worksheet.id, weighings]);
+		expect(JSON.parse(record.bytes.toString("utf8"))).toMatchObject({
+			schema: "verification_record/1",
+			worksheet: worksheet.id,
+			weighings,
+			work_order: "WO-2026-0001",
+			rows: [
+				{ container: 1, row: 6, formula: "=F6/20", within_tolerance: true },
+				{ container: 2, row: 7, formula: "=F7/20", within_tolerance: true },
+			],
+			mean: { row: 8, formula: "=AVERAGE(H6:H7)", within_tolerance: true },
+			verdict: "pass",
+		});
+		expect(
+			s
+				.events()
+				.find(
+					(e) =>
+						e.kind === "ReviewRecorded" && e.task_id === verification.task_id,
+				)?.actor,
+		).toEqual({ tag: "Agent", id: "A-anselm" });
+	}, 600_000);
+
+	it("fails stage 5's Evaluation and Task when a copy of compute_results types an average that disagrees with its weights into the xlsx but not into the read-back stage 4's Evaluation reads", async () => {
+		const { stages } = await trace({ source: typedAverageBehindReadBack });
+
+		const [, , , results, verification] = stages;
+		expect(
+			results?.state.tag,
+			"stage 4's Evaluation reads only the read-back",
+		).toBe("Done");
+		expect(verification?.evaluation).toMatchObject({
+			passed: false,
+			findings: [
+				`row 6 (container 1): a typed value recomputes to ${7.0886 / 20 + 0.01}, not ${7.0886 / 20}, the weighing's weight of 20 capsules / 20, within 0.0001 g`,
+				expect.stringMatching(
+					/^the Mean row's =AVERAGE\(H6:H7\) recomputes to [0-9.]+, not /,
+				),
+			],
+		});
+		expect(verification?.state).toMatchObject({
+			tag: "Failed",
+			reason: expect.stringContaining("row 6 (container 1)"),
+		});
+		expect(s.events().at(-1)).toMatchObject({
+			kind: "TaskFailed",
+			task_id: verification?.task_id,
 		});
 	}, 600_000);
 });

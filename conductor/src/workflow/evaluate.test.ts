@@ -11,6 +11,7 @@ import {
 	evaluateReceipt,
 	evaluateResults,
 	evaluateSubmission,
+	evaluateVerification,
 	evaluateWorkOrder,
 	MEAN_AVERAGE_WEIGHT,
 	RECEIVING_LOG_COLUMNS,
@@ -765,5 +766,175 @@ describe("evaluateResults", () => {
 			passed: false,
 			findings: ["the worksheet has no Mean row"],
 		});
+	});
+});
+
+type Recomputed = {
+	row: number;
+	formula: string | null;
+	recomputed_g: number | null;
+};
+
+/** The record `verify_results` writes for seed 1's worksheet. */
+const seed1Record = (worksheet: string, weighings: string) => ({
+	schema: "verification_record/1",
+	worksheet,
+	weighings,
+	tolerance_g: 0.0001,
+	work_order: WO,
+	rows: [
+		{ container: 1, row: 6, formula: "=F6/20", recomputed_g: 7.0886 / 20 },
+		{ container: 2, row: 7, formula: "=F7/20", recomputed_g: 7.2103 / 20 },
+	] as (Recomputed & { container: Cell })[],
+	mean: {
+		row: 8,
+		formula: "=AVERAGE(H6:H7)",
+		recomputed_g: SEED1_MEAN,
+	} as Recomputed,
+	missing_containers: [] as number[],
+	verdict: "pass" as "pass" | "fail",
+});
+
+type VerificationRecordJson = ReturnType<typeof seed1Record>;
+
+const WORKSHEET = stageArtifact(
+	"ResultWorksheet",
+	"result_worksheet.xlsx",
+	Buffer.from("the xlsx"),
+);
+const WEIGHINGS = stageArtifact(
+	"Other",
+	"submission-form-seed1.weighings.json",
+	Buffer.from(JSON.stringify(SEED1_WEIGHINGS)),
+);
+
+/** Stage 5's Run on seed 1's worksheet and weighings, writing the record `edit` makes of seed 1's. */
+const verificationRun = (
+	edit: (record: VerificationRecordJson) => void = () => {},
+) => {
+	const record = seed1Record(WORKSHEET.id, WEIGHINGS.id);
+	edit(record);
+	return {
+		inputs: [WORKSHEET, WEIGHINGS],
+		outputs: [
+			stageArtifact(
+				"VerificationRecord",
+				"verification_record.json",
+				Buffer.from(JSON.stringify(record)),
+			),
+		],
+	};
+};
+
+// The worksheet and the weighings it names, 1 per weighing, 1 per row, the
+// mean, and the verdict.
+const verificationChecks = (weighings: number, rows: number) =>
+	2 + weighings + rows + 2;
+
+describe("evaluateVerification", () => {
+	it("passes seed 1's record: it names the Run's worksheet and weighings, every recomputation agrees with the weighings, and its verdict is pass", () => {
+		expect(evaluateVerification(verificationRun())).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+	});
+
+	it("fails a record whose typed average disagrees with its weights, even with its verdict fail, naming the row and the mean", () => {
+		const evaluation = evaluateVerification(
+			verificationRun((record) => {
+				const [first] = record.rows;
+				if (!first) throw new Error("no row");
+				first.formula = null;
+				first.recomputed_g = 0.36443;
+				record.mean.recomputed_g = (0.36443 + 7.2103 / 20) / 2;
+				record.verdict = "fail";
+			}),
+		);
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.score).toBeCloseTo(
+			(verificationChecks(2, 2) - 2) / verificationChecks(2, 2),
+		);
+		expect(evaluation.findings).toEqual([
+			`row 6 (container 1): a typed value recomputes to 0.36443, not ${7.0886 / 20}, the weighing's weight of 20 capsules / 20, within 0.0001 g`,
+			`the Mean row's =AVERAGE(H6:H7) recomputes to ${(0.36443 + 7.2103 / 20) / 2}, not ${SEED1_MEAN}, the mean of the weighings' averages, within 0.0001 g`,
+		]);
+	});
+
+	it("passes a recomputation within 0.0001 g of the weighing and fails one beyond it", () => {
+		const off = (by: number) =>
+			evaluateVerification(
+				verificationRun((record) => {
+					const [first] = record.rows;
+					if (first) first.recomputed_g = 7.0886 / 20 + by;
+				}),
+			);
+
+		expect(off(0.00009).passed).toBe(true);
+		expect(off(0.001).findings).toEqual([
+			`row 6 (container 1): =F6/20 recomputes to ${7.0886 / 20 + 0.001}, not ${7.0886 / 20}, the weighing's weight of 20 capsules / 20, within 0.0001 g`,
+			"the record's verdict is pass, but a recomputation disagrees",
+		]);
+	});
+
+	it("fails a verdict of fail on a worksheet that agrees, and a weighing with no row", () => {
+		expect(
+			evaluateVerification(
+				verificationRun((record) => {
+					record.verdict = "fail";
+				}),
+			).findings,
+		).toEqual(["the record's verdict is fail, but every recomputation agrees"]);
+		expect(
+			evaluateVerification(
+				verificationRun((record) => {
+					record.rows.pop();
+				}),
+			).findings,
+		).toEqual([
+			"container 2: the record has no row for its weighing",
+			"the record's verdict is pass, but a recomputation disagrees",
+		]);
+	});
+
+	it("fails a record that names another worksheet or other weighings than the Run took", () => {
+		const other = "0".repeat(64);
+
+		expect(
+			evaluateVerification(
+				verificationRun((record) => {
+					record.worksheet = other;
+					record.weighings = other;
+				}),
+			).findings,
+		).toEqual([
+			`the record verifies ${other}, not the Result Worksheet ${WORKSHEET.id} the Run took`,
+			`the record checks against ${other}, not the weighings ${WEIGHINGS.id} the Run took`,
+		]);
+	});
+
+	it("scores 0 when the Run wrote no Verification Record, or one that is not JSON", () => {
+		expect(
+			evaluateVerification({ inputs: [WORKSHEET, WEIGHINGS], outputs: [] }),
+		).toEqual({
+			score: 0,
+			passed: false,
+			findings: ["the Run has no Verification Record"],
+		});
+		expect(
+			evaluateVerification({
+				inputs: [WORKSHEET, WEIGHINGS],
+				outputs: [
+					stageArtifact(
+						"VerificationRecord",
+						"verification_record.json",
+						Buffer.from("not json"),
+					),
+				],
+			}).findings,
+		).toEqual([
+			expect.stringMatching(/^verification_record\.json is not JSON/),
+		]);
 	});
 });

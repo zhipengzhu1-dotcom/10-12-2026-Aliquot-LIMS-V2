@@ -309,11 +309,11 @@ The spreadsheet in which an analyst records weighings and readings and computes 
 _Avoid_: bench sheet, calc sheet
 
 **Verification**:
-An independent recomputation and check of a Result Worksheet by someone other than its author. The output is a Verification Record.
+An independent recomputation and check of a Result Worksheet by someone other than its author. The output is a Verification Record. In the toy workflow, stage 5 is the Verification, and its Task's title starts `Stage 5 Verification`. Its Script, `verify_results`, evaluates each average on the worksheet's own cells and compares it with the weighings within 0.0001 g. It writes a Verification Record with a `pass` or `fail` verdict.
 _Avoid_: second check, double check, QC check, review (Review is a society term)
 
 **Verifier**:
-The person or Agent who performs a Verification. A Verifier is never the author of the Result Worksheet.
+The person or Agent who performs a Verification. A Verifier is never the author of the Result Worksheet. The workflow guard enforces this in the Ledger. It refuses a `TaskAssigned` or `TaskHandedOff` that gives a Verification Task to an Agent that was ever assigned the Task whose Run wrote a Result Worksheet among the Verification's inputs. The refusal names both Tasks and the Agent. The stage table also refuses a stage 5 worked by the Agent that works stage 4.
 _Avoid_: checker, reviewer
 
 **Report of Analysis**:
