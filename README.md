@@ -303,7 +303,7 @@ The command does these steps in one process:
 4. It stores the form as a `SubmissionForm` Artifact produced by the Operator, with no Lineage.
 5. It proposes a Task (`Parse Submission Form <file>`, TAT `Regular`, priority 1, the Fixture as input), assigns it to the owner, and starts it as the owner.
 6. It runs `parse_submission` in the Sandbox and evaluates the `submission.json` it writes: every required field must be filled and the TAT code must be `1`, `2`, or `3` (`conductor/src/stage1/evaluate.ts`).
-7. It records `EvaluationRecorded`. When the Evaluation failed, it records `TaskFailed` with the findings.
+7. It records `EvaluationRecorded` through the stage 1 lifecycle (`conductor/src/stage1/lifecycle.ts`), which mints the Evaluation id and names the Run's `RunFinished` as the cause. When the Evaluation failed, it records `TaskFailed` with the findings.
 8. When the Evaluation passed and the owner's Trust tier samples the Task for Review, it records `TaskCompleted` with Review required from the owner's Supervisor (`A-pia` for a Specialist) and the record as output. Then, as the Supervisor, it records `ReviewRecorded` with 3 on every dimension, because the Evaluation passed, and `TaskCompleted` with `review: Reviewed`. It prints any Trust tier Revision the Conductor appended after the Review, caused by the Review, as `revised`. When the tier does not sample the Task, it records `TaskCompleted` with Review skipped, giving the reason `not sampled for Review at tier <tier>`.
 
 The command prints the Task, Run, output Artifact, and score, and exits 0 when the Task is `Done` and 1 when it is `Failed`. Options:
