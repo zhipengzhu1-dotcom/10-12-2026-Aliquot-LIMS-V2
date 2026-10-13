@@ -3,7 +3,6 @@ import { gateDecision, requestGate } from "../gate/request.js";
 import {
 	AgentId,
 	ArtifactId,
-	EvaluationId,
 	type GateId,
 	RunId,
 	ScriptId,
@@ -17,6 +16,7 @@ import {
 	openMemoryLedger,
 } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
+import { recordEvaluation } from "../stage1/lifecycle.js";
 import type { Storage } from "../storage.js";
 import {
 	assign,
@@ -223,18 +223,13 @@ export const scenario = (
 			},
 		});
 		if (score === undefined) return;
-		ledger.append({
+		recordEvaluation(ledger, {
 			actor: operator,
 			task_id,
-			kind: "EvaluationRecorded",
-			payload: {
-				eval_id: EvaluationId.parse(`E-${runs}`),
-				run_id: id,
-				task_id,
-				score,
-				passed: score >= 0.5,
-				findings: [],
-			},
+			run_id: id,
+			score,
+			passed: score >= 0.5,
+			findings: [],
 		});
 	};
 

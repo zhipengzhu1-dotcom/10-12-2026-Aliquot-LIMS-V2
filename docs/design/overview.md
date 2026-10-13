@@ -324,6 +324,8 @@ A synthetic generator invents Clients, products, Lots, and dates in the shape of
 | 5. Verification | Result Worksheet | `verify_results`, run by a different Agent than stage 4 | Verification Record | The independent recomputation agrees within tolerance. |
 | 6. Report | Verification Record and metadata | `render_roa` | Report of Analysis (xlsx and PDF) | Every metadata field traces to the Receiving Log row, and no field is typed by hand. |
 
+The stage 1 lifecycle (`stage1/lifecycle.ts`) appends every `EvaluationRecorded`. It mints the Evaluation id from the Projections and names the `RunFinished` of the Run it scores as the Event's cause. It refuses an Evaluation of a Run that has not finished, or for a Task that is no longer live, before it builds the Event, in the words of the stage 1 guard. The stage 1 tracer appends nothing itself: it calls the Sandbox, the Task lifecycle, and this lifecycle.
+
 ## The Operator's interface
 
 Every view is a Projection of the Ledger and updates live over SSE. No view stores its own state.
