@@ -16,7 +16,7 @@ cd "$(git rev-parse --show-toplevel)/.claude/skills/verify"
 scripts/prove.sh org --intent 'Pause and resume from the Org view, and Rest from the Action bar'
 ```
 
-`prove.sh <feature> [--intent '<text>']` runs Launch, Doctor, Drive and Cleanup below in order, and exits 0 only when the proof's verdict is PASS and the proof outlived the cleanup. Its last line is `proof: <run>/proof/proof.md`. Features with a drive: `org`, `flow`, `agent`, `gates`, `ledger`. Run the parts by hand when you drive something the recipes do not cover.
+`prove.sh <feature> [--intent '<text>']` runs Launch, Doctor, Drive and Cleanup below in order, and exits 0 only when the proof's verdict is PASS and the proof outlived the cleanup. Its last line is `proof: <run>/proof/proof.md`. Features with a drive: `org`, `flow`, `agent`, `gates`, `ledger`, `chat`. Run the parts by hand when you drive something the recipes do not cover.
 
 ## Launch
 

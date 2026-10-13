@@ -156,6 +156,10 @@ _Avoid_: heartbeat, polling loop
 The single-page application the Conductor serves to the Operator: one view per hash route, each showing Projections that update on every Event from the Event stream, and the Operator's actions.
 _Avoid_: dashboard, frontend, portal
 
+**Chat view**:
+The view of the Interface, `#/chat`, that shows the Lab Room's Messages newest last, each with who said it, and says the Operator's text in the Lab Room. It is how the Operator talks to the whole team, and how the Operator reports received Samples in free text.
+_Avoid_: inbox, messenger, console
+
 **Event stream**:
 The Server-Sent Events at `/api/events`: one for each Event the Ledger appends, with the Event's seq as its id, so a client that reconnects resumes from the Ledger.
 _Avoid_: feed, websocket

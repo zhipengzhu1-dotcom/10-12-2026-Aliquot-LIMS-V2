@@ -145,7 +145,7 @@ export type Artifacts = {
 	store(
 		bytes: Uint8Array,
 		meta: ArtifactMeta,
-		by: { readonly actor: Actor },
+		by: { readonly actor: Actor; readonly cause?: Seq },
 	): Recorded<"artifact", StoredArtifact>;
 	/** The bytes, checked against the id. */
 	read(id: ArtifactId): Buffer;

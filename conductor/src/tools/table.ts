@@ -36,6 +36,7 @@ import { GateKind } from "../types/gate.js";
 import { Score } from "../types/merit.js";
 import { TaskState, TatClass } from "../types/task.js";
 import { orderRest } from "../vitality/lifecycle.js";
+import { storeMessage } from "./message.js";
 import { runScriptAs } from "./run-script.js";
 import { asText, type Tool, type ToolContext, ToolRefused } from "./tool.js";
 
@@ -256,6 +257,14 @@ export const TOOLS = [
 			}
 			return messages;
 		},
+	}),
+	tool({
+		name: "store_message",
+		description:
+			"Store the Operator's Message at a seq, in a Room you belong to, as an Other Artifact of its JSON (seq, room, said_by, ts, body), so a Script can run on it; storing it again returns the same Artifact",
+		input: { seq: Seq },
+		action: "TouchArtifact",
+		call: (ctx, { seq }, actor) => storeMessage(ctx, actor, seq),
 	}),
 	tool({
 		name: "open_room",

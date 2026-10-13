@@ -3,6 +3,7 @@ import type { Event } from "../events.js";
 import type { AgentId, ArtifactId } from "../ids.js";
 import { tree } from "../org/projection.js";
 import type { Projections } from "../projections.js";
+import { LAB_ROOM } from "../room/seed.js";
 import { assigneeOf } from "../task/projection.js";
 import { tokensInWindow } from "../turn/projection.js";
 import { actorText } from "../types/actor.js";
@@ -79,7 +80,8 @@ const reviewRows = (p: Projections) => {
  * `org-tree` is the reporting tree `org tree` prints. `vitality` and `tiers`
  * cover live Agents only, as `vitality show` and `vitality tiers` print them.
  * `training` holds every Agent's Memory notes and Coaching, and every version
- * of each Skill.
+ * of each Skill. `chat` is the Lab Room's Messages in seq order, each with
+ * the sayer's name from the Org.
  */
 export const PROJECTION_ROUTES = {
 	org: (p: Projections) => p.org,
@@ -87,6 +89,20 @@ export const PROJECTION_ROUTES = {
 	tasks: (p: Projections) => p.tasks,
 	gates: (p: Projections) => p.gates,
 	rooms: (p: Projections) => p.rooms,
+	chat: (p: Projections) => ({
+		room: LAB_ROOM.id,
+		messages: p.rooms.messages
+			.filter((m) => m.room_id === LAB_ROOM.id)
+			.map(({ room_id: _, actor, causation_id, ...m }) => ({
+				...m,
+				said_by: actorText(actor),
+				name:
+					actor.tag === "Agent"
+						? (p.org.agents.get(actor.id)?.definition.name ?? actor.id)
+						: actor.tag,
+				...(causation_id === undefined ? {} : { reply_to: causation_id }),
+			})),
+	}),
 	vitality: (p: Projections, now: Date) =>
 		vitalityProjection(p, {
 			now,

@@ -4,14 +4,14 @@ This directory is the maintained source for proving what the Operator sees and d
 
 ## Baseline preconditions
 
-- `scripts/launch.sh` made the run: a fresh home under `$ALIQUOT_VERIFY_ROOT` (default `${TMPDIR:-/tmp}/aliquot-verify`), seeded with `org seed` (eight Agents on `Probation`), `workflow run fixtures/submission-form-seed1.docx` (Tasks T-1 to T-5, all `Done`, one Lot), and `intake fixtures/submission-form-seed2.docx` (one Submission Form with no Task).
+- `scripts/launch.sh` made the run: a fresh home under `$ALIQUOT_VERIFY_ROOT` (default `${TMPDIR:-/tmp}/aliquot-verify`), seeded with `org seed` (eight Agents on `Probation`), `workflow run fixtures/submission-form-seed1.docx` (Tasks T-1 to T-5, all `Done`, one Lot), `intake fixtures/submission-form-seed2.docx` (one Submission Form with no Task), and `room seed` with one Message by Odile in `RM-lab`.
 - `serve` runs with `--no-schedule` on a port the system chose. `scripts/doctor.sh "$RUN"` prints `doctor: ok`.
 - No Gate is open, no Agent is paused, resting or retired, and every Agent is at definition version 1.
 - Never drive a home that `launch.sh` did not create. The helpers refuse a directory without `run.env`.
 
 ## Driving conventions
 
-- Every feature drive starts from the baseline. The drives touch different Agents (Org: Rin and Ines; Agent: Rin's Coaching and Revision; Gates: Bram and Mabel; Ledger: Thorne), so they run in any order on one run.
+- Every feature drive starts from the baseline. The drives touch different Agents (Org: Rin and Ines; Agent: Rin's Coaching and Revision; Gates: Bram and Mabel; Ledger: Thorne; Chat: two Operator Messages in RM-lab), so they run in any order on one run.
 - Drive each feature once per run. A second Org drive on the same run fails at Rest, because Ines is already resting; launch a fresh run to drive a feature again. The Ledger drive alone resumes Thorne when an earlier drive left him paused.
 - Address elements by the handles the views draw: `id`, `data-agent`, `data-task`, `data-lane`, `data-gate`, `data-action`, `data-route`, and the hash route. Never by position or coordinates.
 - Run an Operator action the way the Operator does: through the view's form (`form[data-action]`) or the Action bar above every page (`#action`). `scripts/api.sh act` posts to the same endpoint, `POST /api/actions/<verb>`; use it for a second client or a refusal check, not as the proof of a view's form.
@@ -35,6 +35,7 @@ Each feature file starts with an H1 title and one paragraph describing the behav
 - [Agent page](./agent.md) covers Charter, Persona, Vitality, Merit after each Review, Coaching and authoring a Revision.
 - [Gates](./gates.md) covers the open Gates waiting on the Operator, the proposed-change table, and approve and reject with a reason.
 - [Ledger view](./ledger.md) covers the newest-first Event table, the chain verdict and Verify, paging with `before`, cause links, and live Events.
+- [Chat view](./chat.md) covers the Lab Room's Messages newest last with the sayer's name, the box that says the Operator's text through `room-say`, and the redraw on another client's Message.
 
 ## Further surfaces, no feature file yet
 

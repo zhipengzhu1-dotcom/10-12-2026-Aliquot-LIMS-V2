@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { navigation, paramsOf, VIEWS, viewOf } from "./views.js";
 
 describe("the interface's views", () => {
-	it("routes each of the eight views by its hash, and any other hash to Org", () => {
+	it("routes each of the nine views by its hash, and any other hash to Org", () => {
 		expect(VIEWS.map((v) => v.name)).toEqual([
 			"org",
 			"flow",
 			"agent",
+			"chat",
 			"rooms",
 			"scripts",
 			"gates",

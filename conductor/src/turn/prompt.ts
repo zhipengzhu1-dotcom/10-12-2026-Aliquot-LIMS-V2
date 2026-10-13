@@ -1,9 +1,11 @@
 import { gateState } from "../gate/projection.js";
-import type { AgentId } from "../ids.js";
+import type { AgentId, ArtifactId } from "../ids.js";
 import type { Projections } from "../projections.js";
-import { roomsOf } from "../room/projection.js";
+import { type Message, roomsOf } from "../room/projection.js";
+import { LAB_ROOM } from "../room/seed.js";
 import { LIVE_TAGS } from "../task/projection.js";
 import { ACTIONS, charterActions } from "../tools/actions.js";
+import { messagesById, PARSE_MESSAGE } from "../tools/message.js";
 import { TOOLS } from "../tools/table.js";
 import { actorText } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
@@ -11,6 +13,7 @@ import type { Task } from "../types/task.js";
 import type { Policy } from "../types/vitality.js";
 import { reviewerOf } from "../vitality/reviewers.js";
 import { reviewSampleOf } from "../vitality/trust.js";
+import { STAGES } from "../workflow/stages.js";
 import type { TurnRecord } from "./projection.js";
 
 /**
@@ -45,6 +48,18 @@ const POLICY_WORDS: { readonly [K in keyof Policy]: [string, string] } = {
 	mustNameBlocker: ["Your next Message must name what blocks you.", ""],
 	schedulable: ["", "You may call no Tool."],
 };
+
+const [, RECEIPT, WORK_ORDER] = STAGES;
+if (RECEIPT === undefined || WORK_ORDER === undefined) {
+	throw new Error("the stage table has no stage 2 or 3");
+}
+
+/**
+ * The Director's judgement on a Message in the Lab Room: received Samples
+ * are work for the Specialist who works stage 2, and an unreadable report
+ * gets a reply naming what is missing.
+ */
+const RECEIVING_WORK = `A Message in ${LAB_ROOM.id} that reports received Samples is work. When it names the Client, the product, the Lot, the Product Code, the quantity, the Sample Type and the TAT, propose a Task whose one input is the Message's Artifact id below, with the goal: store the Message with store_message, run S-${PARSE_MESSAGE} on it, run S-${RECEIPT.script} (stage ${RECEIPT.number} ${RECEIPT.name}) on its Submission Record and S-${WORK_ORDER.script} (stage ${WORK_ORDER.number} ${WORK_ORDER.name}) on the Receiving Log row and toy LIMS database that writes, all with the Task's id, then reply to the Message in ${LAB_ROOM.id} with each Lab Reference and the Work Order's due date. Then assign it to ${RECEIPT.worked_by}, who works stage ${RECEIPT.number}. When the Message cannot be read so, reply to it in ${LAB_ROOM.id} with send_message, naming what is missing, and propose no Task.`;
 
 const policyWords = (policy: Policy): string[] =>
 	(Object.keys(POLICY_WORDS) as (keyof Policy)[])
@@ -126,10 +141,21 @@ const standing = (
 	].join("\n\n");
 };
 
-const taskLine = (task: Task, projections: Projections) => {
+const taskLine = (
+	task: Task,
+	projections: Projections,
+	messages: ReadonlyMap<ArtifactId, Message>,
+) => {
 	const inputs = task.inputs.map((a) => {
 		const type = projections.artifacts.artifacts.get(a)?.artifact_type;
-		return type === undefined ? a : `${a} (${type})`;
+		const message = messages.get(a);
+		const said =
+			message &&
+			`the Operator's Message seq ${message.seq} in ${message.room_id}`;
+		if (said === undefined) return type === undefined ? a : `${a} (${type})`;
+		return type === undefined
+			? `${a} (${said}, not stored yet: store it with store_message)`
+			: `${a} (${type}, ${said})`;
 	});
 	return `${task.id} ${task.title}: ${task.goal}\n  Inputs: ${inputs.length === 0 ? "none" : inputs.join(", ")}. Priority ${task.priority}, TAT ${task.tat_class}.${reviewNote(task, projections)}`;
 };
@@ -156,6 +182,7 @@ const reviewNote = (task: Task, projections: Projections): string => {
 const tasksByState = (projections: Projections, agent: AgentId): string => {
 	const { tasks } = projections.tasks;
 	const { proposedBy } = projections.proposals;
+	const messages = messagesById(projections);
 	const mine = (task: Task) => {
 		if ("assignee" in task.state) return task.state.assignee === agent;
 		const proposer = proposedBy.get(task.id);
@@ -167,7 +194,9 @@ const tasksByState = (projections: Projections, agent: AgentId): string => {
 		);
 		return inState.length === 0
 			? []
-			: [`${tag}:\n${list(inState.map((t) => taskLine(t, projections)))}`];
+			: [
+					`${tag}:\n${list(inState.map((t) => taskLine(t, projections, messages)))}`,
+				];
 	});
 	return byState.length === 0 ? "None." : byState.join("\n\n");
 };
@@ -185,7 +214,7 @@ const work = (
 	);
 	const messages = projections.rooms.messages
 		.filter((m) => m.seq > since && rooms.has(m.room_id))
-		.map((m) => `${m.room_id}, ${actorText(m.actor)}: ${m.body}`);
+		.map((m) => `seq ${m.seq}, ${m.room_id}, ${actorText(m.actor)}: ${m.body}`);
 	const help = [...projections.tasks.help.entries()].flatMap(
 		([task_id, requests]) => {
 			const state = projections.tasks.tasks.get(task_id)?.state.tag;
@@ -226,6 +255,14 @@ const work = (
 			.map((a) => `${a.id}${a.filename === undefined ? "" : ` ${a.filename}`}`);
 		parts.push(
 			section("Submission Forms no Task has been proposed for", list(forms)),
+			section(
+				`The Operator's Messages in ${LAB_ROOM.id} since your last Turn`,
+				`${RECEIVING_WORK}\n\n${list(
+					[...messagesById(projections)]
+						.filter(([, m]) => m.seq > since && m.room_id === LAB_ROOM.id)
+						.map(([id, m]) => `seq ${m.seq}, Artifact ${id}: ${m.body}`),
+				)}`,
+			),
 		);
 	}
 	return [

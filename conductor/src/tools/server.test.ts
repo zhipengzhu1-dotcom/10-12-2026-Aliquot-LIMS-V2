@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Event } from "../events.js";
 import { sha256Hex } from "../hash.js";
-import { AgentId, ArtifactId, TaskId } from "../ids.js";
+import { AgentId, ArtifactId, RoomId, TaskId } from "../ids.js";
 import { openLedger } from "../ledger.js";
+import { say } from "../room/lifecycle.js";
 import { seedRooms } from "../room/seed.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
 import { assign, propose, start } from "../task/lifecycle.js";
@@ -125,7 +126,7 @@ describe("the Agent's MCP server", () => {
 		const listed = await rin.list();
 
 		expect(listed.map((t) => t.name)).toEqual(TOOLS.map((t) => t.name));
-		expect(listed).toHaveLength(24);
+		expect(listed).toHaveLength(25);
 	});
 
 	it("walks a Task through propose, assign, start, Help, Memory note, complete, Review and completion, each as the calling Agent", async () => {
@@ -292,6 +293,56 @@ describe("the Agent's MCP server", () => {
 		});
 		expect(await ines.call("read_room", { room_id: "RM-rin-pia" })).toEqual({
 			text: "read_room refused: history refused: A-ines is not a member of RM-rin-pia",
+			error: true,
+		});
+	});
+
+	it("stores the Operator's Message as an Other Artifact of its JSON, naming its MessageSent, once", async () => {
+		const [bram, rin] = [await as("bram"), await as("rin")];
+		seedRooms(s.ledger);
+		const { seq } = say(s.ledger, {
+			actor: { tag: "Operator" },
+			room_id: RoomId.parse("RM-lab"),
+			body: 'Received 3 bottles, "Lot 2403A"',
+		});
+		const json = `{"seq":${seq},"room":"RM-lab","said_by":"Operator","ts":"2026-10-12T09:00:00.000Z","body":"Received 3 bottles, \\"Lot 2403A\\""}`;
+		const id = ArtifactId.parse(sha256Hex(json));
+
+		const stored = await done(bram, "store_message", { seq });
+
+		expect(stored.artifact).toMatchObject({
+			id,
+			artifact_type: "Other",
+			media_type: "application/json",
+			produced_by: { tag: "Operator" },
+			lineage: [],
+			filename: `message-${seq}.json`,
+		});
+		expect(eventAt(stored.seq)).toMatchObject({
+			kind: "ArtifactStored",
+			actor: agent("bram"),
+			causation_id: seq,
+		});
+		expect(openArtifacts({ ledger: s.ledger, home }).read(id).toString()).toBe(
+			json,
+		);
+		const count = s.events().length;
+		expect(
+			(await done(rin, "store_message", { seq })).seq,
+			"storing it again returns the first ArtifactStored",
+		).toBe(stored.seq);
+		expect(s.events()).toHaveLength(count);
+
+		const reply = await done(rin, "send_message", {
+			room_id: "RM-lab",
+			body: "Logged",
+		});
+		expect(await bram.call("store_message", { seq: reply.seq })).toEqual({
+			text: `store_message refused: seq ${reply.seq} was said by A-rin; only the Operator's Messages are stored as Artifacts`,
+			error: true,
+		});
+		expect(await bram.call("store_message", { seq: 999 })).toEqual({
+			text: "store_message refused: seq 999 is not a Message",
 			error: true,
 		});
 	});

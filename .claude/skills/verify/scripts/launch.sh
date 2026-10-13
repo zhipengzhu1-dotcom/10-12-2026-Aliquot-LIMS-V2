@@ -31,6 +31,11 @@ step pnpm --silent -C "$REPO/conductor" build
 step aliquot --home "$AQ_HOME" org seed
 step aliquot --home "$AQ_HOME" workflow run "$REPO/fixtures/submission-form-seed1.docx"
 step aliquot --home "$AQ_HOME" intake "$REPO/fixtures/submission-form-seed2.docx"
+step aliquot --home "$AQ_HOME" room seed
+greeting='Morning, everyone. What is the lab waiting on?'
+printf '$ echo %s | aliquot --home %s room say RM-lab --as A-odile\n' "'$greeting'" "$AQ_HOME" >>"$log"
+printf '%s\n' "$greeting" | aliquot --home "$AQ_HOME" room say RM-lab --as A-odile >>"$log" 2>&1 ||
+	die "room say failed; see $log"
 
 printf '$ aliquot --home %s serve --port %s --no-schedule\n' "$AQ_HOME" "$port" >>"$log"
 nohup env -u ALIQUOT_API_KEY -u ANTHROPIC_API_KEY -u ALIQUOT_LIVE_TURN -u ALIQUOT_SCRIPTED_MODEL \
@@ -76,7 +81,7 @@ cat >"$PROOF/proof.md" <<EOF
 
 - Run directory: \`$RUN\`
 - Commit: $(git -C "$REPO" rev-parse --short HEAD) on $(git -C "$REPO" branch --show-current)
-- Home: \`$AQ_HOME\`, seeded by [launch.log](launch.log): \`org seed\`, \`workflow run\` on seed 1, \`intake\` of seed 2
+- Home: \`$AQ_HOME\`, seeded by [launch.log](launch.log): \`org seed\`, \`workflow run\` on seed 1, \`intake\` of seed 2, \`room seed\` and one Message by Odile in RM-lab
 - Interface: $url, \`serve --no-schedule\`, pid $server, output in [serve.log](serve.log)
 EOF
 
