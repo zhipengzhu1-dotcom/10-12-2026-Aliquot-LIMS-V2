@@ -1,19 +1,20 @@
 /**
  * The stage Evaluations.
  *
- * Stage 1: every required field of the submission record is present and
- * every TAT code is valid. The record is the `submission.json` that
- * `sandbox/scripts/parse_submission/main.py` writes (schema `submission/1`,
+ * Stage 1: the submission record lists at least one Sample, every required
+ * field of it and of each Sample is present, and every TAT code is valid.
+ * The record is the `submission.json` that
+ * `sandbox/scripts/parse_submission/main.py` writes (schema `submission/2`,
  * documented in that Script).
  *
  * Stage 2: the Receiving Log rows and the next toy LIMS database version
  * that `sandbox/scripts/log_receipt/main.py` writes match the record the
- * Run read.
+ * Run read, one row per container of every Sample.
  *
  * Stage 3: the Work Order that `sandbox/scripts/create_work_order/main.py`
- * writes has the due date this module computes on its own, a Test for
- * every Sample on the Receiving Log row, and `work_orders` rows that agree
- * with it.
+ * writes gives every Sample on the Receiving Log row the due date this module
+ * computes on its own, its Lot and a Test, is due with its last Sample, and
+ * has `work_orders` rows that agree with it.
  *
  * Stage 4: the Result Worksheet that `sandbox/scripts/compute_results/main.py`
  * writes computes every average and the mean by formula from the weighings,
@@ -44,7 +45,8 @@ import type { RunArtifacts, StageArtifact } from "./stages.js";
 
 /**
  * Required fields per section: the record key, then each field's record key
- * and its label on the Submission Form. Mirrors `REQUIRED_PARTY_FIELDS`,
+ * and its label on the Submission Form, and the same for each of the
+ * record's `samples`. Mirrors `REQUIRED_PARTY_FIELDS`,
  * `REQUIRED_SAMPLE_FIELDS` and `REQUIRED_RECEIPT_FIELDS` in
  * `sandbox/synth/submission_form.py`; change both together.
  */
@@ -73,18 +75,6 @@ export const REQUIRED_FIELDS = {
 		label: "Report To",
 		fields: { company: "Company", contact: "Contact", email: "Email" },
 	},
-	sample: {
-		label: "Sample",
-		fields: {
-			sample_description: "Sample Description",
-			sample_type: "Sample Type",
-			tat_code: "TAT Code",
-			lot: "Lot",
-			product_code: "Product Code",
-			product_type: "Product Type",
-			no_of_containers: "No. of Containers",
-		},
-	},
 	receipt: {
 		label: "Receipt",
 		fields: {
@@ -95,15 +85,25 @@ export const REQUIRED_FIELDS = {
 	},
 } as const;
 
+export const REQUIRED_SAMPLE_FIELDS = {
+	sample_description: "Sample Description",
+	sample_type: "Sample Type",
+	tat_code: "TAT Code",
+	lot: "Lot",
+	product_code: "Product Code",
+	product_type: "Product Type",
+	no_of_containers: "No. of Containers",
+} as const;
+
 const VALID_TAT_CODES: readonly string[] = Object.keys(TAT_CODES);
 
-const objectAt = (value: unknown, key: string): Record<string, unknown> => {
-	if (typeof value !== "object" || value === null) return {};
-	const inner = (value as Record<string, unknown>)[key];
-	return typeof inner === "object" && inner !== null
-		? (inner as Record<string, unknown>)
+const asObject = (value: unknown): Record<string, unknown> =>
+	typeof value === "object" && value !== null
+		? (value as Record<string, unknown>)
 		: {};
-};
+
+const objectAt = (value: unknown, key: string): Record<string, unknown> =>
+	asObject(asObject(value)[key]);
 
 const filled = (value: unknown): value is string =>
 	typeof value === "string" && value.trim() !== "";
@@ -111,22 +111,32 @@ const filled = (value: unknown): value is string =>
 export const evaluateSubmission = (record: unknown): Scored => {
 	const findings: string[] = [];
 	let checks = 0;
+	const check = (ok: boolean, finding: string) => {
+		checks++;
+		if (!ok) findings.push(finding);
+	};
 	for (const [section, { label, fields }] of Object.entries(REQUIRED_FIELDS)) {
 		const values = objectAt(record, section);
 		for (const [key, field] of Object.entries(fields)) {
-			checks++;
-			if (!filled(values[key])) findings.push(`${label}: ${field} is missing`);
+			check(filled(values[key]), `${label}: ${field} is missing`);
 		}
 	}
 
-	checks++;
-	const tat = objectAt(record, "sample").tat_code;
-	if (typeof tat !== "string" || !VALID_TAT_CODES.includes(tat)) {
+	const listed = asObject(record).samples;
+	const samples = Array.isArray(listed) ? listed.map(asObject) : [];
+	check(samples.length > 0, "Samples: the record lists no Sample");
+	samples.forEach((sample, i) => {
+		const label = `Sample ${filled(sample.no) ? sample.no : i + 1}`;
+		for (const [key, field] of Object.entries(REQUIRED_SAMPLE_FIELDS)) {
+			check(filled(sample[key]), `${label}: ${field} is missing`);
+		}
+		const tat = sample.tat_code;
 		const shown = tat === undefined ? "(none)" : JSON.stringify(tat);
-		findings.push(
-			`Sample: TAT Code ${shown} is not a valid TAT code (${VALID_TAT_CODES.slice(0, -1).join(", ")} or ${VALID_TAT_CODES.at(-1)})`,
+		check(
+			typeof tat === "string" && VALID_TAT_CODES.includes(tat),
+			`${label}: TAT Code ${shown} is not a valid TAT code (${VALID_TAT_CODES.slice(0, -1).join(", ")} or ${VALID_TAT_CODES.at(-1)})`,
 		);
-	}
+	});
 
 	return {
 		score: (checks - findings.length) / checks,
@@ -176,12 +186,32 @@ const LOT = RECEIVING_LOG_COLUMNS.indexOf("LOT#");
 
 /** The record fields stage 2 checks the rows against. */
 const ReceivedRecord = z.object({
-	sample: z.object({
-		lot: z.string(),
-		product_code: z.string(),
-		no_of_containers: z.string().regex(/^\d+$/, "is not a whole number"),
+	samples: z
+		.array(
+			z.object({
+				sample_description: z.string(),
+				sample_type: z.string(),
+				lot: z.string(),
+				product_code: z.string(),
+				no_of_containers: z.string().regex(/^\d+$/, "is not a whole number"),
+			}),
+		)
+		.min(1),
+	submitted_by: z.object({ company: z.string(), contact: z.string() }),
+	receipt: z.object({
+		date_received: z.iso.date(),
+		time_received: z.string(),
+		received_by: z.string(),
 	}),
 });
+type ReceivedRecord = z.infer<typeof ReceivedRecord>;
+type ReceivedSample = ReceivedRecord["samples"][number];
+
+/** Each container's Sample, Sample by Sample in form order, as stage 2 numbers them. */
+const containersOf = (record: ReceivedRecord): readonly ReceivedSample[] =>
+	record.samples.flatMap((sample) =>
+		Array.from({ length: Number(sample.no_of_containers) }, () => sample),
+	);
 
 /** `receipt.json` (schema `receipt/1`): the sheet as the Script read back its xlsx. */
 const ReadBack = z.object({
@@ -265,23 +295,6 @@ const readDatabase = (artifact: StageArtifact): DatabaseVersion =>
 const ofType = (artifacts: readonly StageArtifact[], type: ArtifactType) =>
 	artifacts.find((a) => a.artifact_type === type);
 
-/** The record fields the Shadow's rows are checked against. */
-const ShadowedRecord = z.object({
-	submitted_by: z.object({ company: z.string(), contact: z.string() }),
-	sample: z.object({
-		sample_description: z.string(),
-		sample_type: z.string(),
-		lot: z.string(),
-		product_code: z.string(),
-	}),
-	receipt: z.object({
-		date_received: z.iso.date(),
-		time_received: z.string(),
-		received_by: z.string(),
-	}),
-});
-type ShadowedRecord = z.infer<typeof ShadowedRecord>;
-
 /** Each coordinate that holds a value, and its text. */
 const Cells = z.record(z.string(), z.string());
 
@@ -315,10 +328,10 @@ const SHADOW_COLUMNS = {
 	year: {
 		B: ["Rec. DATE", (r) => r.receipt.date_received],
 		C: ["Rec. Time", (r) => r.receipt.time_received],
-		D: ["Product Code", (r) => r.sample.product_code],
-		E: ["PRODUCT NAME", (r) => r.sample.sample_description],
-		F: ["TYPE", (r) => r.sample.sample_type],
-		G: ["LOT#", (r) => r.sample.lot],
+		D: ["Product Code", (_, s) => s.product_code],
+		E: ["PRODUCT NAME", (_, s) => s.sample_description],
+		F: ["TYPE", (_, s) => s.sample_type],
+		G: ["LOT#", (_, s) => s.lot],
 		H: ["CLIENT", (r) => r.submitted_by.company],
 		J: ["QTY RECD", () => "1"],
 		K: ["SENT BY", (r) => r.submitted_by.contact],
@@ -326,16 +339,19 @@ const SHADOW_COLUMNS = {
 	},
 	day: {
 		B: ["DATE", (r) => r.receipt.date_received],
-		C: ["PRODUCT NAME", (r) => r.sample.sample_description],
-		D: ["TYPE", (r) => r.sample.sample_type],
-		E: ["LOT#", (r) => r.sample.lot],
+		C: ["PRODUCT NAME", (_, s) => s.sample_description],
+		D: ["TYPE", (_, s) => s.sample_type],
+		E: ["LOT#", (_, s) => s.lot],
 		F: ["CLIENT", (r) => r.submitted_by.company],
 		H: ["QTY RECD", () => "1"],
 		I: ["RECD BY", (r) => r.receipt.received_by],
 	},
 } satisfies Record<
 	string,
-	Record<string, readonly [string, (r: ShadowedRecord) => string]>
+	Record<
+		string,
+		readonly [string, (r: ReceivedRecord, s: ReceivedSample) => string]
+	>
 >;
 
 /** The column of each sheet that holds the Lab Reference. */
@@ -354,17 +370,18 @@ const daySheetName = (date: string): string => {
 /**
  * The Shadow against the record and the receipt's Lab References: the year's
  * sheet and the day's sheet are the ones the date received names, each has
- * one new row per container holding the record's values in the lab's
- * columns, no cell of the lab's workbook changed or went missing, and
- * nothing was written outside the new rows but the day's sheet when it is
- * new.
+ * one new row per container holding the record's values and its Sample's in
+ * the lab's columns, no cell of the lab's workbook changed or went missing,
+ * and nothing was written outside the new rows but the day's sheet when it
+ * is new.
  */
 const checkShadow = (
 	check: (ok: boolean, finding: string) => void,
-	record: ShadowedRecord,
+	record: ReceivedRecord,
 	refs: readonly string[],
 	held: ShadowReadBack,
 ) => {
+	const containers = containersOf(record);
 	const received = record.receipt.date_received;
 	check(
 		held.year.sheet === received.slice(0, 4),
@@ -383,12 +400,14 @@ const checkShadow = (
 			`the Shadow's sheet ${sheet} has ${rows.length} new rows for ${refs.length} containers`,
 		);
 		rows.forEach((row, i) => {
+			const sample = containers[i];
+			if (sample === undefined) return;
 			const expected: [string, string, string][] = [
 				...Object.entries(SHADOW_COLUMNS[part]).map(
 					([col, [field, value]]): [string, string, string] => [
 						col,
 						field,
-						value(record),
+						value(record, sample),
 					],
 				),
 				[SHADOW_LAB_REFERENCE[part], "Lab Reference", refs[i] ?? ""],
@@ -442,17 +461,18 @@ const checkShadow = (
 
 /**
  * Stage 2's Evaluation of its Run. Against the SubmissionRecord it read:
- * one Receiving Log row per container, each with the record's Lot and
- * Product Code; one `samples` row per row's Lab Reference with that Lot and
- * one `lots` row for the Lot in the database it wrote; and no row's Lab
- * Reference in the database version it carried. The rows come from
+ * one Receiving Log row per container of every Sample, in form order, each
+ * with its Sample's Lot and Product Code; one `samples` row per row's Lab
+ * Reference with that Lot and one `lots` row for each Lot in the database it
+ * wrote; and no row's Lab Reference in the database version it carried. The
+ * rows come from
  * `receipt.json`, because the Conductor has no xlsx reader. When the Run read
  * the lab's Receiving Log, the Shadow it wrote passes `checkShadow`, read
  * from `shadow.json` for the same reason.
  */
 export const evaluateReceipt = ({ inputs, outputs }: RunArtifacts): Scored => {
 	try {
-		const { sample } = readJson(
+		const record = readJson(
 			ofType(inputs, "SubmissionRecord"),
 			"SubmissionRecord",
 			ReceivedRecord,
@@ -480,36 +500,40 @@ export const evaluateReceipt = ({ inputs, outputs }: RunArtifacts): Scored => {
 			checks++;
 			if (!ok) findings.push(finding);
 		};
-		const containers = Number(sample.no_of_containers);
+		const containers = containersOf(record);
 		check(
-			sheet.rows.length === containers,
-			`${sheet.rows.length} Receiving Log rows for ${containers} containers`,
+			sheet.rows.length === containers.length,
+			`${sheet.rows.length} Receiving Log rows for ${containers.length} containers`,
 		);
 		sheet.rows.forEach((row, i) => {
 			const ref = row[LAB_REFERENCE] ?? "";
 			const at = `row ${i + 1} (${ref})`;
+			const lot = containers[i]?.lot;
+			const productCode = containers[i]?.product_code;
 			check(
-				row[LOT] === sample.lot,
-				`${at}: LOT# ${row[LOT]} is not the record's Lot ${sample.lot}`,
+				row[LOT] === lot,
+				`${at}: LOT# ${row[LOT]} is not the record's Lot ${lot}`,
 			);
 			check(
-				row[PRODUCT_CODE] === sample.product_code,
-				`${at}: Product Code ${row[PRODUCT_CODE]} is not the record's ${sample.product_code}`,
+				row[PRODUCT_CODE] === productCode,
+				`${at}: Product Code ${row[PRODUCT_CODE]} is not the record's ${productCode}`,
 			);
 			check(
-				database.samples.get(ref) === sample.lot,
-				`${at}: the database has no samples row for ${ref} with Lot ${sample.lot}`,
+				database.samples.get(ref) === lot,
+				`${at}: the database has no samples row for ${ref} with Lot ${lot}`,
 			);
 			check(
 				!before.has(ref),
 				`${at}: Lab Reference ${ref} is already in the carried database`,
 			);
 		});
-		const lots = database.lots.filter((lot) => lot === sample.lot).length;
-		check(
-			lots === 1,
-			`the database has ${lots} lots rows for Lot ${sample.lot}, not 1`,
-		);
+		for (const lot of new Set(record.samples.map((s) => s.lot))) {
+			const rows = database.lots.filter((l) => l === lot).length;
+			check(
+				rows === 1,
+				`the database has ${rows} lots rows for Lot ${lot}, not 1`,
+			);
+		}
 		if (ofType(inputs, "ReceivingLog")) {
 			if (!ofType(outputs, "ShadowReceivingLog")) {
 				throw new Unreadable(
@@ -518,11 +542,7 @@ export const evaluateReceipt = ({ inputs, outputs }: RunArtifacts): Scored => {
 			}
 			checkShadow(
 				check,
-				readJson(
-					ofType(inputs, "SubmissionRecord"),
-					"SubmissionRecord",
-					ShadowedRecord,
-				),
+				record,
 				sheet.rows.map((row) => row[LAB_REFERENCE] ?? ""),
 				readJson(
 					outputs.find((a) => a.filename === "shadow.json"),
@@ -565,19 +585,35 @@ export const dueDate = (received: string, tat: TatClass): string => {
 	return day.toISOString().slice(0, 10);
 };
 
-export const WORK_ORDER_COLUMNS = ["Lab Reference", "Test"] as const;
+export const WORK_ORDER_COLUMNS = [
+	"Lab Reference",
+	"Test",
+	"Lot",
+	"Product Code",
+	"TAT Class",
+	"Due Date",
+] as const;
 
 /**
- * `work_order.json` (schema `work_order/1`): the Receiving Log row's Lab
+ * `work_order.json` (schema `work_order/2`): the Receiving Log row's Lab
  * References and dates as the Script read them, and the Work Order as it
- * read back its xlsx.
+ * read back its xlsx, a row being `WORK_ORDER_COLUMNS`.
  */
 const WorkOrderReadBack = z.object({
-	schema: z.literal("work_order/1"),
+	schema: z.literal("work_order/2"),
 	receiving_log_row: z.array(z.tuple([z.string(), z.iso.date()])),
 	header: z.object({ "Work Order": z.string(), "Due Date": z.string() }),
 	columns: z.array(z.string()),
-	rows: z.array(z.tuple([z.string(), z.string()])),
+	rows: z.array(
+		z.tuple([
+			z.string(),
+			z.string(),
+			z.string(),
+			z.string(),
+			z.string(),
+			z.string(),
+		]),
+	),
 });
 
 type WorkOrderRow = {
@@ -588,18 +624,24 @@ type WorkOrderRow = {
 };
 
 type WorkOrders = {
-	/** Each `samples` row's TAT class, by Lab Reference. */
-	readonly tatClasses: ReadonlyMap<string, string>;
+	/** Each `samples` row's TAT class and Lot, by Lab Reference. */
+	readonly samples: ReadonlyMap<
+		string,
+		{ readonly tat_class: string; readonly lot: string }
+	>;
 	readonly rows: readonly WorkOrderRow[];
 };
 
 const readWorkOrders = (artifact: StageArtifact): WorkOrders =>
 	queryDatabase(artifact, (db) => ({
-		tatClasses: new Map(
+		samples: new Map(
 			db
-				.prepare("SELECT lab_reference, tat_class FROM samples")
+				.prepare("SELECT lab_reference, tat_class, lot FROM samples")
 				.all()
-				.map((row) => [String(row.lab_reference), String(row.tat_class)]),
+				.map((row) => [
+					String(row.lab_reference),
+					{ tat_class: String(row.tat_class), lot: String(row.lot) },
+				]),
 		),
 		rows: db
 			.prepare(
@@ -616,10 +658,11 @@ const readWorkOrders = (artifact: StageArtifact): WorkOrders =>
 
 /**
  * Stage 3's Evaluation of its Run. For every Sample on the Receiving Log
- * row: the Work Order's due date is the one computed here from the row's
- * date received and the Sample's TAT class in the database version the Run
- * carried, and the Work Order has a Test for it. Every Work Order row names
- * a Sample on the Receiving Log row, the Work Order number is new, and the
+ * row: the Work Order has a Test for it, and each of its rows' due date is
+ * the one computed here from the row's date received and the Sample's TAT
+ * class in the database version the Run carried. Every Work Order row names
+ * a Sample on the Receiving Log row with that Sample's Lot, the Work Order's
+ * own due date is its last row's, the Work Order number is new, and the
  * `work_orders` rows of the version the Run wrote agree with the document.
  * The Work Order comes from `work_order.json`, because the Conductor has no
  * xlsx reader.
@@ -654,12 +697,14 @@ export const evaluateWorkOrder = ({
 		};
 		const { "Work Order": number, "Due Date": due } = sheet.header;
 		for (const [ref, received] of sheet.receiving_log_row) {
-			const tat = TatClass.safeParse(before.tatClasses.get(ref));
+			const rows = sheet.rows.filter(([onRow]) => onRow === ref);
+			const tat = TatClass.safeParse(before.samples.get(ref)?.tat_class);
 			if (tat.success) {
 				const expected = dueDate(received, tat.data);
+				const wrong = rows.find((row) => row[5] !== expected)?.[5];
 				check(
-					due === expected,
-					`${ref}: due date ${due} is not ${expected}, ${TAT_BUSINESS_DAYS[tat.data]} business days after ${received} for TAT class ${tat.data}`,
+					wrong === undefined,
+					`${ref}: due date ${wrong} is not ${expected}, ${TAT_BUSINESS_DAYS[tat.data]} business days after ${received} for TAT class ${tat.data}`,
 				);
 			} else {
 				check(
@@ -667,23 +712,37 @@ export const evaluateWorkOrder = ({
 					`${ref}: the carried database has no samples row for it with a TAT class`,
 				);
 			}
-			check(
-				sheet.rows.some(([onRow]) => onRow === ref),
-				`${ref}: the Work Order has no Test for it`,
-			);
+			check(rows.length > 0, `${ref}: the Work Order has no Test for it`);
 		}
 		const received = new Set(sheet.receiving_log_row.map(([ref]) => ref));
-		sheet.rows.forEach(([ref], i) => {
+		sheet.rows.forEach(([ref, , lot], i) => {
 			check(
 				received.has(ref),
 				`Work Order row ${i + 1}: ${ref} is not on the Receiving Log row`,
 			);
+			const sampled = before.samples.get(ref)?.lot;
+			check(
+				lot === sampled,
+				sampled === undefined
+					? `Work Order row ${i + 1}: the carried database has no samples row for ${ref}`
+					: `Work Order row ${i + 1}: Lot ${lot} is not ${ref}'s Lot ${sampled}`,
+			);
 		});
+		const last = sheet.rows
+			.map((row) => row[5])
+			.sort()
+			.at(-1);
+		check(
+			due === last,
+			`the Work Order's due date ${due} is not its last Sample's, ${last}`,
+		);
 		check(
 			!before.rows.some((row) => row.work_order === number),
 			`Work Order ${number} is already in the carried database`,
 		);
-		const document = sheet.rows.map(([ref, test]) => `${ref} ${test} ${due}`);
+		const document = sheet.rows.map(
+			([ref, test, , , , rowDue]) => `${ref} ${test} ${rowDue}`,
+		);
 		const database = after.rows
 			.filter((row) => row.work_order === number)
 			.map((row) => `${row.lab_reference} ${row.test} ${row.due_date}`);

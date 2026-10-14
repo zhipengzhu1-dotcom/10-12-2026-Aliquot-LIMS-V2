@@ -152,6 +152,35 @@ def test_the_shadow_adds_one_row_per_container_to_the_year_and_a_new_days_sheet(
     }
 
 
+def test_each_shadow_row_holds_its_own_samples_values(tmp_path):
+    record = json.loads(
+        (
+            REAL_LAYOUT / "improvised" / "received-2026-06-26-form-2.expected.json"
+        ).read_text()
+    )
+
+    result, outputs, _ = run(tmp_path, record)
+
+    assert result.returncode == 0, result.stderr
+    shadow = load_workbook(outputs / "receiving_log_shadow.xlsx")
+    year, day = shadow["2026"], shadow["June 26"]
+    held = json.loads((outputs / "shadow.json").read_text())
+    expected = [
+        (s["product_code"], s["sample_description"], s["lot"])
+        for s in record["samples"]
+    ]
+    assert [
+        (year.cell(r, 4).value, year.cell(r, 5).value, year.cell(r, 7).value)
+        for r in held["year"]["rows"]
+    ] == expected
+    assert [
+        (day.cell(r, 3).value, day.cell(r, 5).value) for r in held["day"]["rows"]
+    ] == [(name, lot) for _, name, lot in expected]
+    assert [year.cell(r, 13).value for r in held["year"]["rows"]] == [
+        f"LR-2026-000{n}" for n in range(1, 9)
+    ]
+
+
 def test_no_cell_of_the_lab_workbook_changes_in_the_shadow_or_on_disk(tmp_path):
     before = hashlib.sha256(LAB_LOG.read_bytes()).hexdigest()
 

@@ -136,7 +136,7 @@ const scriptWithoutLot = () => {
 			"code = parse.main()",
 			"out = Path(sys.argv[sys.argv.index('--outputs') + 1]) / 'submission.json'",
 			"record = json.loads(out.read_text())",
-			"del record['sample']['lot']",
+			"del record['samples'][0]['lot']",
 			"out.write_text(json.dumps(record))",
 			"sys.exit(code)",
 			"",
@@ -159,15 +159,18 @@ const scriptWithWrongLot = (stage: Stage) => {
 		join(dir, "main.py"),
 		[
 			"import sys",
+			"from dataclasses import replace",
 			"",
 			"import log_receipt",
 			"",
 			"write_rows = log_receipt.write_rows",
 			"",
 			"",
-			"def wrong_lot(path, record, on, at, refs):",
-			"    sample = {**record['sample'], 'lot': 'LT-000000'}",
-			"    write_rows(path, {**record, 'sample': sample}, on, at, refs)",
+			"def wrong_lot(path, record, on, at, containers):",
+			"    wrong = [",
+			"        replace(c, sample={**c.sample, 'lot': 'LT-000000'}) for c in containers",
+			"    ]",
+			"    write_rows(path, record, on, at, wrong)",
 			"",
 			"",
 			"log_receipt.write_rows = wrong_lot",
@@ -215,8 +218,7 @@ const dueDateOneDayLate = workOrderCopy("due_date_one_day_late", [
 const lastSampleWithoutTest = workOrderCopy("last_sample_without_test", [
 	"tests_of = original.tests_of",
 	"original.tests_of = lambda samples: [",
-	"    (ref, test) for ref, test in tests_of(samples)",
-	"    if ref != samples[-1].lab_reference",
+	"    row for row in tests_of(samples) if row[0] != samples[-1].lab_reference",
 	"]",
 ]);
 
@@ -503,11 +505,11 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 		expect(result?.evaluation).toMatchObject({
 			passed: false,
-			findings: ["Sample: Lot is missing"],
+			findings: ["Sample 1: Lot is missing"],
 		});
 		expect(result?.state).toMatchObject({
 			tag: "Failed",
-			reason: expect.stringContaining("Sample: Lot is missing"),
+			reason: expect.stringContaining("Sample 1: Lot is missing"),
 		});
 		const failed = s.events().at(-1);
 		expect(failed?.kind).toBe("TaskFailed");

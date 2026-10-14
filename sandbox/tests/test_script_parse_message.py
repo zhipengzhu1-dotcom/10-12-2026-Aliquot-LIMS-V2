@@ -75,7 +75,7 @@ def test_reads_every_value_the_message_states(tmp_path):
         ("company", "contact", "address", "city", "phone", "email"), ""
     )
     assert json.loads((outputs / "submission_record.json").read_text()) == {
-        "schema": "submission/1",
+        "schema": "submission/2",
         "date_submitted": "",
         "submitted_by": {**blank, "company": "Acme Nutrition"},
         "bill_to": blank,
@@ -86,17 +86,19 @@ def test_reads_every_value_the_message_states(tmp_path):
             "address": "12 Harbor Road",
             "city": "Portland, OR 97201",
         },
-        "sample": {
-            "no": "1",
-            "sample_description": "Vitamin C 500 mg capsules",
-            "sample_type": "FP",
-            "tat_code": "1",
-            "tat_class": "Regular",
-            "lot": "2403A",
-            "product_code": "VC500",
-            "product_type": "60 ct HDPE bottle",
-            "no_of_containers": "3",
-        },
+        "samples": [
+            {
+                "no": "1",
+                "sample_description": "Vitamin C 500 mg capsules",
+                "sample_type": "FP",
+                "tat_code": "1",
+                "tat_class": "Regular",
+                "lot": "2403A",
+                "product_code": "VC500",
+                "product_type": "60 ct HDPE bottle",
+                "no_of_containers": "3",
+            }
+        ],
         "receipt": {
             "date_received": "2026-10-13",
             "time_received": "09:30",
@@ -198,7 +200,7 @@ def test_reads_the_report_to_partys_phone_and_email_and_ignores_its_labels_elsew
         "phone": "(201) 555-0142",
         "email": "dana.reyes@acme.example",
     }
-    assert record["sample"]["sample_description"] == "Contact Lens Solution"
+    assert record["samples"][0]["sample_description"] == "Contact Lens Solution"
 
 
 def test_refuses_a_report_to_value_stated_twice(tmp_path):
@@ -214,8 +216,9 @@ def test_leaves_a_value_the_message_does_not_state_blank(tmp_path):
 
     assert result.returncode == 0, result.stderr
     record = json.loads((outputs / "submission_record.json").read_text())
-    assert record["sample"]["tat_code"] == "", "a bare 'rush' names no TAT code"
-    assert record["sample"]["sample_type"] == ""
+    [sample] = record["samples"]
+    assert sample["tat_code"] == "", "a bare 'rush' names no TAT code"
+    assert sample["sample_type"] == ""
     assert record["report_to"]["phone"] == ""
     assert record["report_to"]["email"] == ""
     assert record["submitted_by"]["contact"] == ""
@@ -235,7 +238,7 @@ def test_reads_the_rush_tat_codes(tmp_path, phrase, code, tat_class):
     )
 
     assert result.returncode == 0, result.stderr
-    sample = json.loads((outputs / "submission_record.json").read_text())["sample"]
+    [sample] = json.loads((outputs / "submission_record.json").read_text())["samples"]
     assert (sample["tat_code"], sample["tat_class"], sample["sample_type"]) == (
         code,
         tat_class,

@@ -6,24 +6,27 @@ Sandbox Script convention: run as
     python /script/main.py --inputs /inputs --outputs /outputs
 with /inputs/manifest.json listing the inputs and each input at
 /inputs/<artifact_id>/<filename>. The inputs must hold exactly one
-`SubmissionRecord` (the `submission/1` record `parse_submission` writes) and
+`SubmissionRecord` (the `submission/2` record `parse_submission` writes) and
 at most one `LimsDatabase`, the version of the toy LIMS database the stage
 carries. With none, this Script creates the database with the schema in
 `lims_schema.py`.
 
-Each container gets a Lab Reference, `LR-<year received>-<n>` with n written
-as four digits or more: n is one more than the highest n for that year in
-`samples`, and the containers take consecutive numbers in order.
+The record's containers are each Sample's `no_of_containers`, Sample by
+Sample in form order. Each container gets a Lab Reference, `LR-<year
+received>-<n>` with n written as four digits or more: n is one more than the
+highest n for that year in `samples`, and the containers take consecutive
+numbers in order, across all the Samples. Each container's number, which the
+weighings name, counts on from 1 in the same order.
 
 Outputs, typed in `/outputs/manifest.json`:
 
 - `receiving_log_row.xlsx` (`ReceivingLogRow`): one sheet named for the day
   received (MM-DD), the ten Receiving Log columns in row 1, and one row per
-  container. `#` holds the container's Lab Reference. `EXP DATE` is blank,
-  because the Submission Form gives no expiry date, and `QTY RECD` is 1, one
-  container per row.
+  container, holding its Sample's values. `#` holds the container's Lab
+  Reference. `EXP DATE` is blank, because the Submission Form gives no expiry
+  date, and `QTY RECD` is 1, one container per row.
 - `lims.sqlite` (`LimsDatabase`): the carried database, or a new one, with
-  one `lots` row for the Lot (an existing row for the Lot is kept) and one
+  one `lots` row for each Lot (an existing row for the Lot is kept) and one
   `samples` row per container. Each new row's `source_artifact` is the
   record's Artifact id.
 - `receipt.json` (`Other`): the sheet as this Script reads it back from the
@@ -65,7 +68,7 @@ from pathlib import Path
 
 from lims_schema import SCHEMA_VERSION, create_schema
 from openpyxl import Workbook, load_workbook
-from shadow import ShadowError, write_shadow
+from shadow import Container, ShadowError, write_shadow
 
 COLUMNS = (
     "#",
@@ -122,20 +125,26 @@ def inputs_of(inputs: Path) -> tuple[Path, str, Path | None, Path | None]:
     )
 
 
-def received(record: dict) -> tuple[date, time, int]:
-    """The date and time received and the number of containers."""
-    receipt, sample = record["receipt"], record["sample"]
+def received(record: dict) -> tuple[date, time, list[dict]]:
+    """The date and time received, and each container's Sample in order."""
+    receipt, samples = record["receipt"], record["samples"]
     try:
         on = date.fromisoformat(receipt["date_received"])
         at = time.fromisoformat(receipt["time_received"])
     except ValueError as error:
         raise ReceiptError(f"the record's receipt is unreadable: {error}") from error
-    containers = sample["no_of_containers"]
-    if not containers.isdigit() or int(containers) < 1:
-        raise ReceiptError(
-            f"No. of Containers {containers!r} is not a whole number of at least 1"
-        )
-    return on, at, int(containers)
+    if not samples:
+        raise ReceiptError("the record lists no Sample")
+    containers = []
+    for sample in samples:
+        count = sample["no_of_containers"]
+        if not count.isdigit() or int(count) < 1:
+            raise ReceiptError(
+                f"Sample {sample['no']}: No. of Containers {count!r} is not"
+                " a whole number of at least 1"
+            )
+        containers.extend([sample] * int(count))
+    return on, at, containers
 
 
 def next_lab_references(db: sqlite3.Connection, year: int, count: int) -> list[str]:
@@ -148,32 +157,34 @@ def next_lab_references(db: sqlite3.Connection, year: int, count: int) -> list[s
 
 
 def write_database(
-    db: sqlite3.Connection, record: dict, source: str, refs: list[str]
+    db: sqlite3.Connection, record: dict, source: str, containers: list[Container]
 ) -> None:
-    sample, receipt = record["sample"], record["receipt"]
-    db.execute(
-        "INSERT INTO lots (lot, product_code, product_name, product_type, client,"
-        " exp_date, source_artifact) VALUES (?, ?, ?, ?, ?, NULL, ?)"
-        " ON CONFLICT (lot) DO NOTHING",
-        (
-            sample["lot"],
-            sample["product_code"],
-            sample["sample_description"],
-            sample["product_type"],
-            record["submitted_by"]["company"],
-            source,
-        ),
-    )
+    receipt = record["receipt"]
+    for sample in record["samples"]:
+        db.execute(
+            "INSERT INTO lots (lot, product_code, product_name, product_type,"
+            " client, exp_date, source_artifact) VALUES (?, ?, ?, ?, ?, NULL, ?)"
+            " ON CONFLICT (lot) DO NOTHING",
+            (
+                sample["lot"],
+                sample["product_code"],
+                sample["sample_description"],
+                sample["product_type"],
+                record["submitted_by"]["company"],
+                source,
+            ),
+        )
     parties = {
         f"{party}_{field}": record[party].get(field, "")
         for party in PARTIES
         for field in PARTY_FIELDS
     }
-    for container, ref in enumerate(refs, start=1):
+    for container in containers:
+        sample = container.sample
         row = {
-            "lab_reference": ref,
+            "lab_reference": container.lab_reference,
             "lot": sample["lot"],
-            "container": container,
+            "container": container.number,
             "qty_received": 1,
             "sample_type": sample["sample_type"],
             "tat_code": sample["tat_code"],
@@ -192,16 +203,18 @@ def write_database(
         )
 
 
-def write_rows(path: Path, record: dict, on: date, at: time, refs: list[str]) -> None:
-    sample = record["sample"]
+def write_rows(
+    path: Path, record: dict, on: date, at: time, containers: list[Container]
+) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = f"{on:%m-%d}"
     ws.append(COLUMNS)
-    for ref in refs:
+    for container in containers:
+        sample = container.sample
         ws.append(
             (
-                ref,
+                container.lab_reference,
                 on,
                 at,
                 sample["product_code"],
@@ -243,7 +256,7 @@ def read_back(path: Path) -> dict:
 def log_receipt(inputs: Path, outputs: Path) -> list[str]:
     record_path, source, carried, lab_log = inputs_of(inputs)
     record = json.loads(record_path.read_text())
-    on, at, containers = received(record)
+    on, at, sample_of_each = received(record)
 
     with tempfile.TemporaryDirectory() as work:
         database = Path(work) / "lims.sqlite"
@@ -259,12 +272,18 @@ def log_receipt(inputs: Path, outputs: Path) -> list[str]:
                     f" this Script writes version {SCHEMA_VERSION}"
                 )
             db.execute("PRAGMA foreign_keys = ON")
-            refs = next_lab_references(db, on.year, containers)
-            write_database(db, record, source, refs)
+            refs = next_lab_references(db, on.year, len(sample_of_each))
+            containers = [
+                Container(ref, number, sample)
+                for number, (ref, sample) in enumerate(
+                    zip(refs, sample_of_each, strict=True), start=1
+                )
+            ]
+            write_database(db, record, source, containers)
             db.commit()
         shutil.copyfile(database, outputs / "lims.sqlite")
 
-    write_rows(outputs / "receiving_log_row.xlsx", record, on, at, refs)
+    write_rows(outputs / "receiving_log_row.xlsx", record, on, at, containers)
     receipt = read_back(outputs / "receiving_log_row.xlsx")
     (outputs / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     manifest = {
@@ -280,7 +299,7 @@ def log_receipt(inputs: Path, outputs: Path) -> list[str]:
     }
     if lab_log is not None:
         held = write_shadow(
-            lab_log, outputs / "receiving_log_shadow.xlsx", record, on, at, refs
+            lab_log, outputs / "receiving_log_shadow.xlsx", record, on, at, containers
         )
         (outputs / "shadow.json").write_text(json.dumps(held, indent=2) + "\n")
         manifest["receiving_log_shadow.xlsx"] = {

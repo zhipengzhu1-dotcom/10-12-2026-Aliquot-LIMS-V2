@@ -9,14 +9,19 @@ same log and blank always give the same bytes.
 From the log's year sheet, the rows the lab received on one date from one
 Client make one submission, in the order the log holds them, and each row is
 one Sample line on its form. The blank has ten Sample rows, so a longer
-submission continues on another form. Each line carries the row's PRODUCT
+submission continues on another form, and it breaks there only between lines
+of different Lots or Product Codes while it can: a Comparison reads one form
+at a time, and pairs a Shadow row with the first lab row of its day, Lot and
+Product Code that agrees best, so lines alike on two forms of one day would
+pair with the same lab rows. Each line carries the row's PRODUCT
 NAME, LOT# and Product Code, and its TYPE when that is a Sample Type code;
 any other TYPE (a stability condition or a scrubbed label) is written as FP,
 the only Sample Type stage 3 plans a Test for. The form's date and time
 received, Client (the company line) and receiver's initials are the first
-row's. Its `Comments:` holds the containers of the first line, which is the
-Sample the workflow reads: the rows the form lists with that line's Lot and
-Product Code, and the unit of its QTY RECD as the package.
+row's. Each line is one Sample in one container, as the lab logs one row per
+line, so its `Comments:` entry is `1 x <unit>`, the unit of the row's QTY
+RECD as the package. The weighings number the form's containers on from 1 in
+line order, as stage 2 numbers them.
 
 Everything the log does not hold is invented with one seeded generator: the
 date submitted, contacts, streets, cities, phones and emails, the TAT code,
@@ -119,15 +124,27 @@ def _submission(row: LogRow) -> tuple[date, str]:
     return row.received_on, row.client
 
 
+def _forms(rows: list[LogRow]) -> list[list[LogRow]]:
+    """The rows in forms of at most `FORM_LINES`, each run of lines with one
+    Lot and Product Code kept on one form while it fits."""
+    forms: list[list[LogRow]] = [[]]
+    for _, run in groupby(rows, key=lambda r: (r.lot, r.product_code)):
+        lines = list(run)
+        if forms[-1] and len(forms[-1]) + len(lines) > FORM_LINES:
+            forms.append([])
+        for line in lines:
+            if len(forms[-1]) == FORM_LINES:
+                forms.append([])
+            forms[-1].append(line)
+    return forms
+
+
 def submissions(rows: list[LogRow]) -> list[tuple[str, list[LogRow]]]:
     """Each form's stem and rows: one submission, at most a form's worth of rows."""
     out = []
     ordered = sorted(rows, key=lambda r: (_submission(r), r.number))
     for (on, _), group in groupby(ordered, key=_submission):
-        rows_of = list(group)
-        forms = [
-            rows_of[i : i + FORM_LINES] for i in range(0, len(rows_of), FORM_LINES)
-        ]
+        forms = _forms(list(group))
         stem = f"received-{on.isoformat()}"
         if len(forms) == 1:
             out.append((stem, forms[0]))
@@ -199,6 +216,9 @@ def _form(
     for row in rows:
         sample_type = _sample_type(row)
         tests, limits = inventor.tests(sample_type)
+        quantity = QUANTITY.match(row.quantity)
+        if quantity is None:
+            raise ValueError(f"row {row.number}: QTY RECD {row.quantity!r} has no unit")
         lines.append(
             SampleLine(
                 description=row.product_name,
@@ -207,15 +227,11 @@ def _form(
                 lot=row.lot,
                 product_code=row.product_code,
                 tests=tests,
+                containers=1,
+                product_type=quantity.group(2),
                 limits=limits,
             )
         )
-    quantity = QUANTITY.match(first.quantity)
-    if quantity is None:
-        raise ValueError(f"row {first.number}: QTY RECD {first.quantity!r} has no unit")
-    containers = sum(
-        r.lot == first.lot and r.product_code == first.product_code for r in rows
-    )
     return FilledForm(
         submitted_on=first.received_on - timedelta(days=inventor.rng.randint(1, 3)),
         submitter=submitter,
@@ -225,8 +241,6 @@ def _form(
         received_on=first.received_on,
         received_at=first.received_at,
         received_by=first.received_by,
-        containers=containers,
-        product_type=quantity.group(2),
         document_time=datetime.combine(first.received_on, time(8, 0)),
     )
 
@@ -268,7 +282,8 @@ def improvise(log: Path) -> list[Improvised]:
             stem += "-lot-mistyped"
             lines = tuple(replace(line, lot=_mistyped(line.lot)) for line in form.lines)
             form = replace(form, lines=lines)
-        out.append(Improvised(stem, form, inventor.weighings(form.containers)))
+        containers = sum(line.containers for line in form.lines)
+        out.append(Improvised(stem, form, inventor.weighings(containers)))
     return out
 
 
@@ -284,7 +299,7 @@ def _party(party: Party) -> dict[str, str]:
 
 
 def expected_record(form: FilledForm) -> dict:
-    """The `submission/1` record the form carries, as `parse_submission` reads it."""
+    """The `submission/2` record the form carries, as `parse_submission` reads it."""
     submitted_by = _party(form.submitter)
     if form.bill_to is None:
         bill_to = dict(submitted_by)
@@ -296,24 +311,26 @@ def expected_record(form: FilledForm) -> dict:
         "phone": form.report_to.phone,
         "email": form.report_to.email,
     }
-    line = form.lines[0]
     return {
-        "schema": "submission/1",
+        "schema": "submission/2",
         "date_submitted": form.submitted_on.isoformat(),
         "submitted_by": submitted_by,
         "bill_to": bill_to,
         "report_to": report_to,
-        "sample": {
-            "no": "1",
-            "sample_description": line.description,
-            "sample_type": line.sample_type,
-            "tat_code": line.tat_code,
-            "tat_class": str(TAT_CODES[line.tat_code]),
-            "lot": line.lot,
-            "product_code": line.product_code,
-            "product_type": form.product_type,
-            "no_of_containers": str(form.containers),
-        },
+        "samples": [
+            {
+                "no": str(number),
+                "sample_description": line.description,
+                "sample_type": line.sample_type,
+                "tat_code": line.tat_code,
+                "tat_class": str(TAT_CODES[line.tat_code]),
+                "lot": line.lot,
+                "product_code": line.product_code,
+                "product_type": line.product_type,
+                "no_of_containers": str(line.containers),
+            }
+            for number, line in enumerate(form.lines, start=1)
+        ],
         "receipt": {
             "date_received": form.received_on.isoformat(),
             "time_received": f"{form.received_at:%H:%M}",

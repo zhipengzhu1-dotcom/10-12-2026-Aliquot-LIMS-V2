@@ -218,7 +218,8 @@ describe.skipIf(!requireDocker())(suite, () => {
 		);
 		expect(record.submitted_by.company).toBe("Acme Nutrition");
 		expect(record.report_to).toEqual({ ...REPORT_TO, phone: "", email: "" });
-		expect(record.sample).toMatchObject({
+		expect(record.samples).toHaveLength(1);
+		expect(record.samples[0]).toMatchObject({
 			sample_description: "Vitamin C 500 mg capsules",
 			lot: "2403A",
 			product_code: "VC500",

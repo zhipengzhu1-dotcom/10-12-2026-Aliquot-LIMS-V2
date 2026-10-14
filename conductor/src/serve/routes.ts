@@ -23,11 +23,19 @@ const liveAgentIds = (projections: Projections) =>
 /** An Artifact's bytes, as the Artifact store reads them. */
 export type ReadArtifact = (id: ArtifactId) => Buffer;
 
-const SubmissionLot = z.object({
-	sample: z.object({ lot: z.string().min(1) }),
-});
+const Lotted = z.object({ lot: z.string().min(1) });
 
-/** The Lot a `SubmissionRecord` names, or undefined when its bytes name none. */
+/**
+ * The Samples' Lots, in either shape a Ledger holds: `submission/2` lists
+ * `samples`, and the `submission/1` records stored before it held one
+ * `sample` (ADR-0012).
+ */
+const SubmissionLots = z.union([
+	z.object({ samples: z.array(Lotted).min(1) }).transform((r) => r.samples),
+	z.object({ sample: Lotted }).transform((r) => [r.sample]),
+]);
+
+/** The Lots a `SubmissionRecord` names, or undefined when its bytes name none. */
 const lotOf = (bytes: Buffer): string | undefined => {
 	let record: unknown;
 	try {
@@ -35,8 +43,10 @@ const lotOf = (bytes: Buffer): string | undefined => {
 	} catch {
 		return undefined;
 	}
-	const parsed = SubmissionLot.safeParse(record);
-	return parsed.success ? parsed.data.sample.lot : undefined;
+	const parsed = SubmissionLots.safeParse(record);
+	return parsed.success
+		? [...new Set(parsed.data.map((s) => s.lot))].join(", ")
+		: undefined;
 };
 
 /**

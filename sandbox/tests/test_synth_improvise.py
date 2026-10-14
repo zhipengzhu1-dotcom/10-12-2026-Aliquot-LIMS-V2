@@ -40,16 +40,35 @@ def test_each_form_has_its_expected_record_and_one_weighing_per_container():
     assert len(forms) >= 6
     for stem, record in records().items():
         weighings = json.loads((IMPROVISED / f"{stem}.weighings.json").read_text())
-        containers = int(record["sample"]["no_of_containers"])
+        containers = sum(int(s["no_of_containers"]) for s in record["samples"])
         assert [w["container"] for w in weighings] == list(range(1, containers + 1))
     assert sorted(records()) == forms
 
 
+def test_each_line_of_the_log_is_one_sample_line_in_one_container():
+    lines = sum(len(r["samples"]) for r in records().values())
+    assert lines == len(read_log(LOG)) + 1, "the log's rows and the unlogged Sample"
+    for stem, record in records().items():
+        assert [s["no"] for s in record["samples"]] == [
+            str(n) for n in range(1, len(record["samples"]) + 1)
+        ], stem
+        assert {s["no_of_containers"] for s in record["samples"]} == {"1"}, stem
+
+
+def test_a_submission_on_two_forms_keeps_each_lots_lines_on_one_form():
+    first, second = (
+        records()[f"received-2026-06-26-form-{n}"]["samples"] for n in (1, 2)
+    )
+    lines = {(s["lot"], s["product_code"]) for s in first}
+    assert len(first) + len(second) > 10
+    assert lines.isdisjoint((s["lot"], s["product_code"]) for s in second)
+
+
 def test_the_set_covers_the_kinds_the_lab_sees():
-    samples = [r["sample"] for r in records().values()]
+    samples = [s for r in records().values() for s in r["samples"]]
     assert {"FP", "RM", "IP"} <= {s["sample_type"] for s in samples}
-    containers = {int(s["no_of_containers"]) for s in samples}
-    assert 1 in containers and max(containers) > 1
+    lines = {len(r["samples"]) for r in records().values()}
+    assert 1 in lines and max(lines) > 1
     classes = {s["tat_class"] for s in samples}
     assert "Regular" in classes and classes - {"Regular"}
     report_to_differs = {
@@ -64,13 +83,14 @@ def test_the_set_covers_the_kinds_the_lab_sees():
 def test_the_faithful_forms_carry_the_logs_rows_and_the_off_ones_do_not():
     logged = {(r.received_on.isoformat(), r.lot, r.product_code) for r in read_log(LOG)}
     for stem, record in records().items():
-        key = (
-            record["receipt"]["date_received"],
-            record["sample"]["lot"],
-            record["sample"]["product_code"],
-        )
         faithful = stem.startswith("received-") and "lot-mistyped" not in stem
-        assert (key in logged) == faithful, stem
+        for sample in record["samples"]:
+            key = (
+                record["receipt"]["date_received"],
+                sample["lot"],
+                sample["product_code"],
+            )
+            assert (key in logged) == faithful, f"{stem} line {sample['no']}"
 
 
 def test_the_log_is_read_by_position_from_its_year_sheet():

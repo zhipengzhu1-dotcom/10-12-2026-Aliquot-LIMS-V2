@@ -18,5 +18,25 @@
     "container": 4,
     "weight_of_20_g": 8.2571,
     "weight_taken_g": 0.4021
+  },
+  {
+    "container": 5,
+    "weight_of_20_g": 8.1896,
+    "weight_taken_g": 0.394
+  },
+  {
+    "container": 6,
+    "weight_of_20_g": 8.441,
+    "weight_taken_g": 0.4431
+  },
+  {
+    "container": 7,
+    "weight_of_20_g": 8.325,
+    "weight_taken_g": 0.4209
+  },
+  {
+    "container": 8,
+    "weight_of_20_g": 8.4131,
+    "weight_taken_g": 0.4544
   }
 ]

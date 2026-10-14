@@ -114,6 +114,24 @@ def test_the_blank_real_form_is_read_as_the_real_layout_with_every_field_blank(
     ]
     assert values and all(value == "" for value in values), record
     assert record["date_submitted"] == ""
+    assert record["samples"] == []
+
+
+def test_every_sample_line_of_a_form_is_a_sample_with_its_own_containers(tmp_path):
+    form = REAL_LAYOUT / "improvised" / "received-2026-06-26-form-2.docx"
+
+    samples = parsed(form, tmp_path)["samples"]
+
+    assert [(s["no"], s["lot"], s["product_code"]) for s in samples] == [
+        *[(str(n), "H159531", "1988U") for n in range(1, 7)],
+        ("7", "A383081", "6442V"),
+        ("8", "F782437", "2251V"),
+    ]
+    assert [(s["no_of_containers"], s["product_type"]) for s in samples] == [
+        *[("1", "Sjtgdw")] * 4,
+        *[("1", "Xsmmejc")] * 2,
+        *[("1", "Sjtgdw")] * 2,
+    ]
 
 
 def test_a_blank_bill_to_block_on_the_real_form_is_the_submitters_party(tmp_path):

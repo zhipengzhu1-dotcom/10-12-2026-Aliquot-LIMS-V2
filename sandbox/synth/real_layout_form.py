@@ -16,9 +16,10 @@ How the record lands in the real form, which `parse_submission` reads back:
   email. The real form has no cell for the report-to company or address.
 - Sample table: one row per Sample line from the first row, each with its No.,
   description, Sample Type, TAT code, Lot, Product Code, Test requested and
-  limits. `parse_submission` reads the first line only.
+  limits.
 - Lab-use table: the date and time received and the receiver's initials follow
-  their labels, and `Comments:` holds the count received and the package as
+  their labels, and `Comments:` holds the count received and the package of
+  each Sample line, in line order, one per line of text, as
   `<containers> x <Product Type>`.
 """
 
@@ -46,6 +47,8 @@ class SampleLine:
     lot: str
     product_code: str
     tests: str
+    containers: int
+    product_type: str
     limits: str = ""
 
 
@@ -65,8 +68,6 @@ class FilledForm:
     received_on: date
     received_at: time
     received_by: str
-    containers: int
-    product_type: str
     document_time: datetime
 
 
@@ -165,9 +166,13 @@ def write_filled_form(form: FilledForm, blank: Path, path: Path) -> None:
     _after_label(receipt.rows[0], DATE_RECEIVED, f"{form.received_on:%m/%d/%Y}")
     _after_label(receipt.rows[0], "Time received:", f"{form.received_at:%H:%M}")
     _after_label(receipt.rows[0], "Received By:", form.received_by)
-    _after_label(
-        receipt.rows[1], "Comments:", f"{form.containers} x {form.product_type}"
+    comments = next(
+        cell
+        for cell in dict.fromkeys(receipt.rows[1].cells)
+        if cell.text.strip().startswith("Comments:")
     )
+    first, *rest = [f"{line.containers} x {line.product_type}" for line in form.lines]
+    _write(comments, f" {first}", *rest)
 
     save_reproducibly(doc.save, path, form.document_time)
 
@@ -180,6 +185,8 @@ def write_real_layout_submission_form(record: Record, blank: Path, path: Path) -
         lot=record.lot,
         product_code=record.product_code,
         tests=TEST_REQUESTED,
+        containers=len(record.containers),
+        product_type=record.product_type,
     )
     form = FilledForm(
         submitted_on=record.submitted_on,
@@ -190,8 +197,6 @@ def write_real_layout_submission_form(record: Record, blank: Path, path: Path) -
         received_on=record.received_on,
         received_at=record.received_at,
         received_by=record.received_by,
-        containers=len(record.containers),
-        product_type=record.product_type,
         document_time=record.document_time,
     )
     write_filled_form(form, blank, path)

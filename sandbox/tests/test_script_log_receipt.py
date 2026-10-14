@@ -43,9 +43,9 @@ lims_schema = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lims_schema)
 
 
-def stage(inputs: Path, database: Path | None = None) -> None:
+def stage(inputs: Path, database: Path | None = None, record: Path = RECORD) -> None:
     (inputs / RECORD_ID).mkdir(parents=True)
-    shutil.copyfile(RECORD, inputs / RECORD_ID / "submission.json")
+    shutil.copyfile(record, inputs / RECORD_ID / "submission.json")
     manifest = [
         {
             "artifact_id": RECORD_ID,
@@ -69,10 +69,10 @@ def stage(inputs: Path, database: Path | None = None) -> None:
     (inputs / "manifest.json").write_text(json.dumps(manifest))
 
 
-def run_script(tmp_path: Path, database: Path | None = None):
+def run_script(tmp_path: Path, database: Path | None = None, record: Path = RECORD):
     inputs, outputs = tmp_path / "inputs", tmp_path / "outputs"
     outputs.mkdir(parents=True)
-    stage(inputs, database)
+    stage(inputs, database, record)
     result = subprocess.run(
         [
             sys.executable,
@@ -279,6 +279,58 @@ def test_a_second_receipt_of_the_same_lot_keeps_its_one_lots_row(tmp_path):
         ("LR-2026-0004",),
     ]
     assert query(again / "lims.sqlite", "SELECT count(*) FROM lots") == [(1,)]
+
+
+def test_every_container_of_every_sample_gets_a_row_numbered_on_in_form_order(
+    tmp_path,
+):
+    record = json.loads(RECORD.read_text())
+    [first] = record["samples"]
+    second = {
+        **first,
+        "no": "2",
+        "lot": "LT-269999",
+        "product_code": "TLB-2000",
+        "sample_description": "Tallowby Zinc Picolinate 30 mg Capsules",
+        "no_of_containers": "1",
+    }
+    record["samples"] = [first, second]
+    two_samples = tmp_path / "two-samples.json"
+    two_samples.write_text(json.dumps(record))
+
+    result, outputs = run_script(tmp_path, record=two_samples)
+
+    assert result.returncode == 0, result.stderr
+    _, rows = sheet_rows(outputs)
+    assert [(row[0], row[3], row[4], row[6]) for row in rows[1:]] == [
+        ("LR-2026-0001", "TLB-1475", first["sample_description"], "LT-268123"),
+        ("LR-2026-0002", "TLB-1475", first["sample_description"], "LT-268123"),
+        ("LR-2026-0003", "TLB-2000", second["sample_description"], "LT-269999"),
+    ]
+    assert query(
+        outputs / "lims.sqlite",
+        "SELECT lab_reference, lot, container FROM samples ORDER BY lab_reference",
+    ) == [
+        ("LR-2026-0001", "LT-268123", 1),
+        ("LR-2026-0002", "LT-268123", 2),
+        ("LR-2026-0003", "LT-269999", 3),
+    ]
+    assert query(
+        outputs / "lims.sqlite", "SELECT lot, product_code FROM lots ORDER BY lot"
+    ) == [("LT-268123", "TLB-1475"), ("LT-269999", "TLB-2000")]
+
+
+def test_it_refuses_a_record_that_lists_no_sample(tmp_path):
+    record = json.loads(RECORD.read_text())
+    record["samples"] = []
+    none = tmp_path / "no-samples.json"
+    none.write_text(json.dumps(record))
+
+    result, outputs = run_script(tmp_path, record=none)
+
+    assert result.returncode == 1
+    assert "the record lists no Sample" in result.stderr
+    assert list(outputs.iterdir()) == []
 
 
 def test_it_refuses_inputs_without_a_submission_record(tmp_path):

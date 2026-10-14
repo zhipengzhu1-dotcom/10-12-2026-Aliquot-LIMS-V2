@@ -317,7 +317,7 @@ The class of a Sample: FP (finished product), IP (in-process), RM (raw material)
 _Avoid_: category, material type
 
 **Submission Form**:
-The form a Client completes to send Samples, listing each Sample, its Sample Type, its TAT code, and its Lot.
+The form a Client completes to send Samples, listing each Sample, its Sample Type, its TAT code, and its Lot, one Sample per line. In the toy workflow, stage 1 reads every line into the record.
 _Avoid_: request form, chain of custody, intake form
 
 **Receiving Log**:
@@ -325,7 +325,7 @@ The lab's record of received containers, one row per container, with date, time,
 _Avoid_: intake sheet, receipt log
 
 **Work Order**:
-The lab document that lists the Tests and the due date for a group of Samples. A Work Order is not a Task. In the toy workflow, stage 3 writes one Work Order per Receiving Log row, as `WO-<year received>-<n>`.
+The lab document that lists the Tests and the due dates for a group of Samples. A Work Order is not a Task. In the toy workflow, stage 3 writes one Work Order per Receiving Log row, as `WO-<year received>-<n>`: a row per Sample and Test with the Sample's Lot and due date, the Work Order due with its last Sample.
 _Avoid_: job, test request
 
 **Test**:

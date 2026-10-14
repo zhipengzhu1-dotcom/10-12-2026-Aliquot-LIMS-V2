@@ -31,7 +31,10 @@ const forms = readdirSync(improvised)
  * Fields a faithful form's Shadow row fills another way than the lab does:
  * EXP DATE, QTY RECD and SENT BY by #76's conventions (no expiry cell, one row
  * per container, the contact's name), and TYPE because the generator writes
- * FP for a stability condition so that stage 3 plans a Test.
+ * FP for a stability condition so that stage 3 plans a Test. Stage 1 reads
+ * every line of a form, so each line's Shadow row pairs with the lab's row
+ * for it, and a lab row is missing in a form's Shadow only when it is the
+ * line of another form of the same day.
  */
 const FILLED_ANOTHER_WAY = ["TYPE", "EXP DATE", "QTY RECD", "SENT BY"];
 
@@ -85,13 +88,17 @@ const latestComparison = (): Comparison => {
 	}
 };
 
-const expectedLot = (form: string): string =>
+const expectedLots = (form: string): string[] =>
 	JSON.parse(
 		readFileSync(
 			join(improvised, form.replace(/\.docx$/, ".expected.json")),
 			"utf8",
 		),
-	).sample.lot;
+	).samples.map((s: { lot: string }) => s.lot);
+
+/** The day a faithful form's submission was received, from its stem. */
+const dayOf = (form: string): string =>
+	form.slice(0, "received-YYYY-MM-DD".length);
 
 describe.skipIf(!requireDocker())(suite, () => {
 	beforeAll(() => {
@@ -151,18 +158,59 @@ describe.skipIf(!requireDocker())(suite, () => {
 		}
 	});
 
+	it("pairs every lab row of a faithful form's day: one missing in a form's Shadow is the line of another form of that day", () => {
+		const faithful = forms.filter(
+			(f) => f.startsWith("received-") && !f.includes("lot-mistyped"),
+		);
+		const pairedOn = new Map<string, Set<number>>();
+		for (const form of faithful) {
+			const paired = pairedOn.get(dayOf(form)) ?? new Set<number>();
+			for (const row of comparisons.get(form)?.rows ?? []) {
+				if (row.status !== "missing_in_shadow" && row.lab_row !== null) {
+					paired.add(row.lab_row);
+				}
+			}
+			pairedOn.set(dayOf(form), paired);
+		}
+		const twoForms = faithful.filter((f) => f.includes("-form-"));
+		expect(twoForms.length, "a day whose lines fill two forms").toBe(2);
+		for (const form of faithful) {
+			const missing = (comparisons.get(form)?.rows ?? []).filter(
+				(r) => r.status === "missing_in_shadow",
+			);
+			if (!twoForms.includes(form)) {
+				expect(missing, form).toEqual([]);
+			}
+			for (const row of missing) {
+				expect(
+					pairedOn.get(dayOf(form))?.has(row.lab_row ?? -1),
+					`${form} lab row ${row.lab_row}`,
+				).toBe(true);
+			}
+		}
+		const day = twoForms.map((f) => comparisons.get(f)?.rows ?? []);
+		const shadowRows = day.flat().filter((r) => r.shadow_row !== null);
+		const labRows = new Set(day.flat().map((r) => r.lab_row));
+		expect(
+			pairedOn.get(dayOf(twoForms[0] ?? "")),
+			"each lab row of the day pairs with exactly one line of its forms",
+		).toEqual(labRows);
+		expect(labRows.size).toBe(shadowRows.length);
+	});
+
 	it("shows the mistyped Lot as a differing LOT# on every row of its form", () => {
 		const [form] = forms.filter((f) => f.includes("lot-mistyped"));
-		const lot = expectedLot(form ?? "");
+		const lots = expectedLots(form ?? "");
 		const rows = comparisons.get(form ?? "")?.rows ?? [];
-		expect(rows.length).toBeGreaterThan(0);
-		for (const row of rows) {
+		expect(rows.length).toBe(lots.length);
+		rows.forEach((row, i) => {
+			const lot = lots[i] ?? "";
 			expect(row.status).toBe("differs");
 			const differs = row.differences.find((d) => d.field === "LOT#");
 			expect(differs?.shadow).toBe(lot);
 			expect(differs?.lab).not.toBe(lot);
 			expect(differs?.lab.slice(0, -1)).toBe(lot.slice(0, -1));
-		}
+		});
 	});
 
 	it("shows the unlogged Sample as missing in the lab's", () => {
