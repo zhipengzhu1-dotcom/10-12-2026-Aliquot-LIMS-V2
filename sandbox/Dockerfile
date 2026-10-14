@@ -11,6 +11,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY image-requirements.txt /tmp/image-requirements.txt
 RUN pip install --require-hashes --only-binary=:all: -r /tmp/image-requirements.txt \
     && rm /tmp/image-requirements.txt \
+    # The slim base ships no bytecode and the root filesystem is read-only at
+    # run time, so without this every Run compiles the stdlib it imports.
+    && python -m compileall -q -j 0 /usr/local/lib/python3.13 \
     && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin sandbox
 
 USER 10001:10001
