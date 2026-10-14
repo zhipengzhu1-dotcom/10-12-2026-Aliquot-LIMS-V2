@@ -30,12 +30,17 @@ def results(
     weighings: Path = WEIGHINGS,
     with_weighings=True,
     more: tuple[dict, ...] = (),
+    requests: dict | None = None,
 ):
     """Stages 2, 3 and 4 on seed 1's expected record, with `more` Samples after
-    its own: stage 4's run and outputs."""
-    made, stage3 = work_order(
-        tmp_path / "stage3", receipt(tmp_path, "Rush3to4Days", more=more)
-    )
+    its own and its own Sample's `requests` for stage 3: stage 4's run and
+    outputs."""
+    logged = receipt(tmp_path, "Rush3to4Days", more=more)
+    if requests is not None:
+        record = json.loads((tmp_path / "submission.json").read_text())
+        record["samples"][0].update(requests)
+        (tmp_path / "submission.json").write_text(json.dumps(record))
+    made, stage3 = work_order(tmp_path / "stage3", logged)
     assert made.returncode == 0, made.stderr
     inputs, outputs = tmp_path / "inputs", tmp_path / "outputs"
     put(inputs, WORK_ORDER_ID, stage3 / "work_order.xlsx", "work_order.xlsx")
@@ -214,3 +219,148 @@ def test_it_refuses_weighings_that_name_two_notebook_references(tmp_path):
     assert result.returncode == 1
     assert "do not all name one notebook reference" in result.stderr
     assert list(outputs.iterdir()) == []
+
+
+NITROSAMINE_TEST = "Nitrosamine impurities"
+NITROSAMINE_REQUESTS = {
+    "tests_requested": "Nitrosamines: NDEA, NDMA",
+    "limits": "NDEA: 46.4 ng/day; NDMA: 0.02 ppm",
+}
+
+
+def reading(concentration: float) -> dict:
+    return {"concentration_ng_ml": concentration, "reporting_limit_ng_ml": 0.05}
+
+
+# The hand-worked example. Container 1: 250 mg to 5 mL undiluted is 50 mg/mL;
+# NDEA 1.5 ng/mL is 0.03 ppm, times 1500 mg/day is 45 ng/day, within 46.4;
+# NDMA 1.2 ng/mL is 0.024 ppm, over 0.02. Container 2 has no daily dose:
+# 400 mg to 10 mL diluted 2 is 80 mg/mL; NDEA 0.04 ng/mL is below the
+# reporting limit; NDMA 0.8 ng/mL is 0.01 ppm.
+READINGS = [
+    {
+        "container": 1,
+        "nitrosamines": {
+            "weight_taken_mg": 250,
+            "final_volume_ml": 5,
+            "dilution": 1,
+            "max_daily_dose_mg": 1500,
+            "readings": {"NDEA": reading(1.5), "NDMA": reading(1.2)},
+        },
+    },
+    {
+        "container": 2,
+        "nitrosamines": {
+            "weight_taken_mg": 400,
+            "final_volume_ml": 10,
+            "dilution": 2,
+            "readings": {"NDEA": reading(0.04), "NDMA": reading(0.8)},
+        },
+    },
+]
+
+
+def nitrosamine_results(tmp_path: Path, readings: list[dict] = READINGS):
+    path = tmp_path / "readings.json"
+    tmp_path.mkdir(exist_ok=True)
+    path.write_text(json.dumps(readings))
+    return results(tmp_path, weighings=path, requests=NITROSAMINE_REQUESTS)
+
+
+def test_it_computes_the_hand_worked_nitrosamine_example_by_the_worksheets_formulas(
+    tmp_path,
+):
+    result, outputs = nitrosamine_results(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    sheet = json.loads((outputs / "result_worksheet.json").read_text())["sheet"]
+    assert sheet[0][0] == "Result Worksheet: Nitrosamine Impurities"
+    assert sheet[2][:2] == ["Test", NITROSAMINE_TEST]
+    assert sheet[4] == [
+        "#",
+        "Analyte",
+        "Wt Taken (mg)",
+        "VF (mL)",
+        "Dilution",
+        "Conc. (mg/mL)",
+        "Measured (ng/mL)",
+        "Reporting Limit (ng/mL)",
+        "Content (ppm)",
+        "Max Daily Dose (mg/day)",
+        "Intake (ng/day)",
+        "Limit",
+        "Judgement",
+    ]
+    assert sheet[5:] == [
+        [1, "NDEA", 250, 5, 1, "=C6/D6*E6", 1.5, 0.05, "=G6/F6", 1500, "=I6*J6",
+         "46.4 ng/day", "Pass"],
+        [1, "NDMA", 250, 5, 1, "=C7/D7*E7", 1.2, 0.05, "=G7/F7", 1500, "=I7*J7",
+         "0.02 ppm", "Fail"],
+        [2, "NDEA", 400, 10, 2, "=C8/D8*E8", 0.04, 0.05, "=G8/F8", None, None,
+         "46.4 ng/day", "Pass"],
+        [2, "NDMA", 400, 10, 2, "=C9/D9*E9", 0.8, 0.05, "=G9/F9", None, None,
+         "0.02 ppm", "Pass"],
+    ]  # fmt: skip
+    rows = query(
+        outputs / "lims.sqlite",
+        "SELECT lab_reference, test, value, unit FROM results"
+        " ORDER BY lab_reference, test",
+    )
+    assert [
+        (ref, test.removeprefix(f"{NITROSAMINE_TEST}: "), *r) for ref, test, *r in rows
+    ] == [
+        ("LR-2026-0001", "NDEA", pytest.approx(0.03), "ppm"),
+        ("LR-2026-0001", "NDEA, intake", pytest.approx(45.0), "ng/day"),
+        ("LR-2026-0001", "NDMA", pytest.approx(0.024), "ppm"),
+        ("LR-2026-0001", "NDMA, intake", pytest.approx(36.0), "ng/day"),
+        ("LR-2026-0002", "NDEA", pytest.approx(0.0005), "ppm"),
+        ("LR-2026-0002", "NDMA", pytest.approx(0.01), "ppm"),
+    ]
+    assert all(test.startswith(f"{NITROSAMINE_TEST}: ") for _, test, *_ in rows)
+
+
+def test_it_refuses_nitrosamine_readings_that_miss_an_analyte_of_the_work_order(
+    tmp_path,
+):
+    short = json.loads(json.dumps(READINGS))
+    del short[1]["nitrosamines"]["readings"]["NDMA"]
+
+    result, outputs = nitrosamine_results(tmp_path, short)
+
+    assert result.returncode == 1
+    assert "LR-2026-0002: no reading for 'NDMA'" in result.stderr
+    assert list(outputs.iterdir()) == []
+
+
+def compute_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "compute_results", ROOT / "sandbox" / "scripts" / "compute_results" / "main.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    ("limit", "content", "intake", "below", "judged"),
+    [
+        ("46.4 ng/day", 0.03, 45.0, False, "Pass"),
+        ("46.4 ng/day", 0.04, 60.0, False, "Fail"),
+        ("46.4 ng/day", 0.03, None, False, "No daily dose"),
+        ("0.02 ppm", 0.024, None, False, "Fail"),
+        ("0.02 ppm", 0.02, None, False, "Pass"),
+        ("30 ng/g", 0.024, None, False, "Pass"),
+        ("20 ng/g", 0.024, None, False, "Fail"),
+        ("0.02 ppm", 0.5, 9.0, True, "Pass"),
+        ("46.4 ng/day", 0.5, None, True, "Pass"),
+        ("unread: as low as possible", 0.5, None, False, "Limit unread"),
+        ("unread: as low as possible", 0.5, None, True, "Limit unread"),
+        ("", 0.5, 9.0, False, "No limit"),
+    ],
+)
+def test_each_judgement_is_against_the_limit_in_its_own_unit(
+    limit, content, intake, below, judged
+):
+    assert compute_module().judgement(limit, content, intake, below) == judged

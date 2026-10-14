@@ -54,6 +54,12 @@ const IMAGE = `aliquot-sandbox:chains-${process.pid}`;
 const SEED_1 = fileURLToPath(
 	new URL("../../../fixtures/submission-form-seed1.docx", import.meta.url),
 );
+const UNLOGGED_SAMPLE = fileURLToPath(
+	new URL(
+		"../../../fixtures/real-layout/improvised/unlogged-sample.docx",
+		import.meta.url,
+	),
+);
 const RESULTS_MESSAGE =
 	"Lab Ref 26-0412, notebook NB-07 p.31. Container 1: 10.246 g for 20 capsules, 10.246 g taken. Container 2: 10.198 g for 20 capsules, 10.198 g taken. Container 3: 10.302 g for 20 capsules, 10.302 g taken.";
 const NO_PRODUCT_TYPE = READABLE.replace(`Product Type ${PRODUCT_TYPE}, `, "");
@@ -254,12 +260,12 @@ describe.skipIf(!requireDocker())(suite, () => {
 	};
 
 	/** Stages 1 to 3 on the Fixture, so the home holds a toy LIMS database. */
-	const holdDatabase = async () => {
+	const holdDatabase = async (formPath = SEED_1) => {
 		await runWorkflow({
 			ledger: s.ledger,
 			home,
 			operator: TEST_OPERATOR,
-			formPath: SEED_1,
+			formPath,
 			plan: STAGES.slice(0, 3).map((stage) => {
 				const script = ensureScript({
 					ledger: s.ledger,
@@ -460,6 +466,28 @@ describe.skipIf(!requireDocker())(suite, () => {
 			const decided = s.ledger.projections.gates.gates.get(GateId.parse("G-1"));
 			expect(decided && gateState(decided, s.now())).toBe("Approved");
 			expect(s.ledger.verify().ok).toBe(true);
+		} finally {
+			await chat.close();
+		}
+	}, 300_000);
+
+	it("answers results for a Nitrosamine impurities Work Order that its readings are entered by file, with no Run beyond the parse", async () => {
+		registerLabRoomScripts(s, home, image);
+		const chat = await serving();
+		try {
+			await holdDatabase(UNLOGGED_SAMPLE);
+			const tasks = s.ledger.projections.tasks.tasks.size;
+			const { seq, reply } = await chat.sayInChat(
+				"Results for Lot O354510, notebook NB-07 p.31. Container 1: 11.6715 g for 20 capsules, 0.588 g taken.",
+			);
+
+			expect(reply?.payload).toMatchObject({
+				room_id: LAB,
+				body: "I cannot record these results yet: nitrosamine readings are entered by file for now.",
+			});
+			expect(runsAfter(seq)).toEqual([`S-${PARSE_RESULTS_MESSAGE} no Task`]);
+			expect(s.ledger.projections.tasks.tasks.size, "no Task").toBe(tasks);
+			expect(leadsBackTo(seq)).toEqual([]);
 		} finally {
 			await chat.close();
 		}

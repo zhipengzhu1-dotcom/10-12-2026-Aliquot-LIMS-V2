@@ -15,6 +15,7 @@ import {
 	evaluateVerification,
 	evaluateWorkOrder,
 	MEAN_AVERAGE_WEIGHT,
+	NITROSAMINE_COLUMNS,
 	NITROSAMINE_IMPURITIES,
 	NOTEBOOK_LABEL,
 	pdfText,
@@ -1360,6 +1361,7 @@ const RESULT_G = Number(SEED1_MEAN.toFixed(4));
 /** Seed 1's Sample: its `samples` row joined to its `lots` row. */
 const SEED1_SAMPLE = {
 	lab_reference: REF,
+	container: 1,
 	lot: LOT,
 	date_received: "2026-01-06",
 	time_received: "15:17",
@@ -1387,6 +1389,7 @@ const seed1LogRow = (): Record<string, string> =>
 const reportSheet = (
 	cells: Record<string, string>,
 	notebook?: string,
+	results: Cell[][] = [[TEST, "QAL-SOP-114", "Report value", RESULT_G, "g"]],
 ): Cell[][] => {
 	const labelled = (label: string): Cell[] => [
 		label || null,
@@ -1415,7 +1418,7 @@ const reportSheet = (
 		[null, null],
 		[null, null],
 		[...REPORT_RESULT_COLUMNS],
-		[TEST, "QAL-SOP-114", "Report value", RESULT_G, "g"],
+		...results,
 		[null, null],
 		[null, null],
 		["Rendered By", null, "Verified By"],
@@ -1514,8 +1517,10 @@ const reportRun = ({
 	reports,
 	weighings = SEED1_WEIGHINGS,
 	notebook,
+	results,
 }: {
-	record?: VerificationRecordJson;
+	record?: VerificationRecordJson | object;
+	results?: Cell[][];
 	logRow?: Record<string, string>;
 	cells?: Record<string, string>;
 	pdf?: Buffer;
@@ -1558,7 +1563,7 @@ const reportRun = ({
 					JSON.stringify({
 						schema: "report_of_analysis/1",
 						receiving_log_row: logRow,
-						sheet: reportSheet(cells, notebook),
+						sheet: reportSheet(cells, notebook, results),
 					}),
 				),
 			),
@@ -1709,6 +1714,245 @@ describe("evaluateReport", () => {
 			passed: false,
 			findings: ["the Run wrote no PDF Report of Analysis"],
 		});
+	});
+});
+
+/**
+ * The hand-worked example: 250 mg to 5 mL undiluted is 50 mg/mL; NDEA
+ * 1.5 ng/mL is 0.03 ppm and, at 1500 mg/day, 45 ng/day, within 46.4 ng/day;
+ * NDMA 1.2 ng/mL is 0.024 ppm, over 0.02 ppm.
+ */
+const READINGS = [
+	{
+		container: 1,
+		nitrosamines: {
+			weight_taken_mg: 250,
+			final_volume_ml: 5,
+			dilution: 1,
+			max_daily_dose_mg: 1500,
+			readings: {
+				NDEA: { concentration_ng_ml: 1.5, reporting_limit_ng_ml: 0.05 },
+				NDMA: { concentration_ng_ml: 1.2, reporting_limit_ng_ml: 0.05 },
+			},
+		},
+	},
+];
+
+/** The sheet `compute_results` writes for the example, as its read-back holds it. */
+const nitrosamineSheet = (): Cell[][] => [
+	["Result Worksheet: Nitrosamine Impurities", ...Array(12).fill(null)],
+	["Work Order", WO, ...Array(11).fill(null)],
+	["Test", NITROSAMINE_IMPURITIES, ...Array(11).fill(null)],
+	Array(13).fill(null),
+	[...NITROSAMINE_COLUMNS],
+	[
+		1,
+		"NDEA",
+		250,
+		5,
+		1,
+		"=C6/D6*E6",
+		1.5,
+		0.05,
+		"=G6/F6",
+		1500,
+		"=I6*J6",
+		"46.4 ng/day",
+		"Pass",
+	],
+	[
+		1,
+		"NDMA",
+		250,
+		5,
+		1,
+		"=C7/D7*E7",
+		1.2,
+		0.05,
+		"=G7/F7",
+		1500,
+		"=I7*J7",
+		"0.02 ppm",
+		"Fail",
+	],
+];
+
+/** A database version planning Nitrosamine impurities for LR-2026-0001, container 1. */
+const nitrosamineDatabase = (
+	results: readonly (readonly [string, string, number])[] = [],
+): Buffer => {
+	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
+	try {
+		const path = join(dir, "lims.sqlite");
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TABLE samples (lab_reference TEXT PRIMARY KEY, container INTEGER); CREATE TABLE work_orders (work_order TEXT, lab_reference TEXT, test TEXT); CREATE TABLE results (lab_reference TEXT, test TEXT, value REAL)",
+		);
+		db.prepare("INSERT INTO samples VALUES (?, 1)").run(REF);
+		db.prepare("INSERT INTO work_orders VALUES (?, ?, ?)").run(
+			WO,
+			REF,
+			NITROSAMINE_IMPURITIES,
+		);
+		for (const row of results) {
+			db.prepare("INSERT INTO results VALUES (?, ?, ?)").run(...row);
+		}
+		db.close();
+		return readFileSync(path);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+const NITROSAMINE_RESULTS = [
+	[REF, `${NITROSAMINE_IMPURITIES}: NDEA`, 0.03],
+	[REF, `${NITROSAMINE_IMPURITIES}: NDEA, intake`, 45],
+	[REF, `${NITROSAMINE_IMPURITIES}: NDMA`, 0.024],
+	[REF, `${NITROSAMINE_IMPURITIES}: NDMA, intake`, 36],
+] as const;
+
+const nitrosamineResultsRun = (sheet = nitrosamineSheet()) => ({
+	inputs: [
+		stageArtifact("WorkOrder", "work_order.xlsx", Buffer.from("the xlsx")),
+		stageArtifact(
+			"Other",
+			"weighings.json",
+			Buffer.from(JSON.stringify(READINGS)),
+		),
+		stageArtifact("LimsDatabase", "lims.sqlite", nitrosamineDatabase()),
+	],
+	outputs: [
+		stageArtifact(
+			"LimsDatabase",
+			"lims.sqlite",
+			nitrosamineDatabase(NITROSAMINE_RESULTS),
+		),
+		stageArtifact(
+			"Other",
+			"result_worksheet.json",
+			Buffer.from(JSON.stringify({ schema: "result_worksheet/1", sheet })),
+		),
+	],
+});
+
+/** The record `verify_results` writes for the example's worksheet. */
+const nitrosamineRecord = () => ({
+	...seed1Record(WORKSHEET.id, NITROSAMINE_WEIGHINGS.id),
+	rows: [],
+	mean: null,
+	nitrosamines: [
+		{
+			analyte: "NDEA",
+			limit: "46.4 ng/day",
+			content: 0.03,
+			intake: 45,
+			judgement: "Pass",
+		},
+		{
+			analyte: "NDMA",
+			limit: "0.02 ppm",
+			content: 0.024,
+			intake: 36,
+			judgement: "Fail",
+		},
+	].map(({ analyte, limit, content, intake, judgement }, i) => ({
+		row: 6 + i,
+		container: 1,
+		analyte,
+		limit,
+		below_reporting_limit: false,
+		content_ppm: { recomputed: content },
+		intake_ng_day: { recomputed: intake },
+		judgement,
+		expected_judgement: judgement,
+	})),
+});
+
+const NITROSAMINE_WEIGHINGS = stageArtifact(
+	"Other",
+	"weighings.json",
+	Buffer.from(JSON.stringify(READINGS)),
+);
+
+describe("Nitrosamine impurities in stages 4 to 6", () => {
+	it("passes the worksheet of the hand-worked example, and fails a judgement that is not the limit's, naming the row", () => {
+		expect(evaluateResults(nitrosamineResultsRun())).toMatchObject({
+			passed: true,
+			findings: [],
+		});
+		const sheet = nitrosamineSheet();
+		(sheet[6] as Cell[])[12] = "Pass";
+		expect(evaluateResults(nitrosamineResultsRun(sheet)).findings).toEqual([
+			"row 7 (container 1, NDMA): Judgement is Pass, not Fail against the limit 0.02 ppm",
+		]);
+	});
+
+	it("passes the record of the example, and fails one whose recomputed content disagrees though its verdict is pass", () => {
+		const run = (record: object) => ({
+			inputs: [WORKSHEET, NITROSAMINE_WEIGHINGS],
+			outputs: [
+				stageArtifact(
+					"VerificationRecord",
+					"verification_record.json",
+					Buffer.from(JSON.stringify(record)),
+				),
+			],
+		});
+		expect(evaluateVerification(run(nitrosamineRecord()))).toMatchObject({
+			passed: true,
+			findings: [],
+		});
+		const wrong = nitrosamineRecord();
+		const [ndea, ndma] = wrong.nitrosamines;
+		const { findings } = evaluateVerification(
+			run({
+				...wrong,
+				nitrosamines: [ndea, { ...ndma, content_ppm: { recomputed: 0.018 } }],
+			}),
+		);
+		expect(findings).toHaveLength(2);
+		expect(findings[0]).toMatch(
+			/^container 1, NDMA: the record recomputes 0.018 ppm/,
+		);
+		expect(findings[1]).toMatch(
+			/verdict is pass, but a recomputation disagrees/,
+		);
+	});
+
+	it("passes a report of a row per analyte in the unit of its limit, and fails a row that is not the record's", () => {
+		const rows: Cell[][] = [
+			[
+				`${NITROSAMINE_IMPURITIES}: NDEA`,
+				"QAL-SOP-207",
+				"NMT 46.4 ng/day",
+				45,
+				"ng/day",
+				"Pass",
+			],
+			[
+				`${NITROSAMINE_IMPURITIES}: NDMA`,
+				"QAL-SOP-207",
+				"NMT 0.02 ppm",
+				0.024,
+				"ppm",
+				"Fail",
+			],
+		];
+		const report = (results: Cell[][]) =>
+			evaluateReport(
+				reportRun({
+					record: nitrosamineRecord(),
+					results,
+					weighings: READINGS,
+					pdf: pdfShowing([REF, NAME, LOT, PRODUCT_CODE, "45.0000", "0.0240"]),
+				}),
+			);
+		expect(report(rows)).toMatchObject({ passed: true, findings: [] });
+		const typed = rows.map((r) => [...r]);
+		(typed[1] as Cell[])[3] = 0.02;
+		expect(report(typed).findings).toEqual([
+			`${NITROSAMINE_IMPURITIES}: NDMA: the report holds NMT 0.02 ppm, 0.02, ppm, Fail, not the record's NMT 0.02 ppm, 0.024, ppm, Fail`,
+		]);
 	});
 });
 

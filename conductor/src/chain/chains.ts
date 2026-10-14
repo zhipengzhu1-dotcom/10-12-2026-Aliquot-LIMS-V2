@@ -17,6 +17,7 @@ import { runArtifacts, runScriptBy } from "../tools/run-script.js";
 import type { ArtifactType } from "../types/artifact.js";
 import type { Run } from "../types/script.js";
 import { reviewerOf } from "../vitality/reviewers.js";
+import { NITROSAMINE_IMPURITIES } from "../workflow/evaluate.js";
 import { STAGES, type Stage, type StageArtifact } from "../workflow/stages.js";
 
 /**
@@ -67,6 +68,8 @@ type Chain = {
 	readonly title: string;
 	/** How a reply that names why nothing was done opens. */
 	readonly refused: string;
+	/** Why the Chain stops after its parse, given the Tests the given Work Order plans, or nothing. */
+	readonly gap?: (tests: ReadonlySet<string>) => string | undefined;
 	/** What follows the Task's completion, and the reply's text. */
 	readonly finish: (done: Finished) => string;
 };
@@ -106,6 +109,10 @@ const CHAINS: Readonly<Record<ChainKind, Chain>> = {
 		stages: [4, 5, 6],
 		title: "Record the results the Operator reported",
 		refused: "I cannot record these results yet",
+		gap: (tests) =>
+			tests.has(NITROSAMINE_IMPURITIES)
+				? "nitrosamine readings are entered by file for now"
+				: undefined,
 		finish: ({ ledger, ran, completed }) => {
 			const pdf = named(ran, "report_of_analysis.pdf").id;
 			const xlsx = named(ran, "report_of_analysis.xlsx").id;
@@ -207,6 +214,28 @@ export const openChains = ({
 			.split("\n")
 			.at(-1)
 			?.replace(/^\w+ refused its inputs?: /, "") ?? "";
+
+	/**
+	 * The Tests an Artifact plans when it is a Work Order: read from the
+	 * `work_order.json` the stage 3 Run that wrote it wrote beside it, since
+	 * the Conductor has no xlsx reader. Nothing for any other Artifact.
+	 */
+	const testsOf = (id: ArtifactId): string[] =>
+		(ledger.projections.artifacts.productions.get(id) ?? []).flatMap(
+			({ record }) => {
+				if (record.produced_by.tag !== "Run") return [];
+				const run = ledger.projections.runs.runs.get(record.produced_by.id)
+					?.finished?.run;
+				const read = run
+					? runArtifacts(ledger, home, run).outputs.find(
+							(o) => o.filename === "work_order.json",
+						)
+					: undefined;
+				if (read === undefined) return [];
+				const { rows } = jsonOf(read) as { rows: unknown[][] };
+				return rows.map((row) => String(row[1]));
+			},
+		);
 
 	const finishedSeq = (run: Run): Seq => {
 		const seq = ledger.projections.runs.runs.get(run.id)?.finished?.seq;
@@ -342,6 +371,8 @@ export const openChains = ({
 		if (parsed.exit_code !== 0) {
 			return `${chain.refused}: ${refusalOf(parsed)}.`;
 		}
+		const gap = chain.gap?.(new Set(given.flatMap(testsOf)));
+		if (gap !== undefined) return `${chain.refused}: ${gap}.`;
 		const { task_id, reply } = await work(chain, stored, given, parsed);
 		report(`Chain: seq ${message.seq} ran ${task_id}`);
 		return reply;
