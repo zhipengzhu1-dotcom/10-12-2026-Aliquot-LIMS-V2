@@ -1,11 +1,11 @@
 {
   "bill_to": {
-    "address": "871 Quarry Hill Road",
+    "address": "251 Quarry Hill Road",
     "city": "Velmora Heights, NJ 07998",
     "company": "RXD",
-    "contact": "Calla Thorne-Ames",
-    "email": "calla.thorne-ames@rxd.example",
-    "phone": "(201) 555-0110"
+    "contact": "Maren Brisk",
+    "email": "maren.brisk@rxd.example",
+    "phone": "(201) 555-0158"
   },
   "date_submitted": "2026-09-02",
   "receipt": {
@@ -14,15 +14,16 @@
     "time_received": "04:56"
   },
   "report_to": {
-    "address": "871 Quarry Hill Road",
+    "address": "251 Quarry Hill Road",
     "city": "Velmora Heights, NJ 07998",
     "company": "RXD",
-    "contact": "Calla Thorne-Ames",
-    "email": "calla.thorne-ames@rxd.example",
-    "phone": "(201) 555-0110"
+    "contact": "Maren Brisk",
+    "email": "maren.brisk@rxd.example",
+    "phone": "(201) 555-0158"
   },
   "samples": [
     {
+      "limits": "",
       "lot": "O249289",
       "no": "1",
       "no_of_containers": "1",
@@ -31,16 +32,17 @@
       "sample_description": "Pmcxpcgkm Lpj Giucpljj Rgbw & Intt Nydlskj",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     }
   ],
   "schema": "submission/2",
   "submitted_by": {
-    "address": "871 Quarry Hill Road",
+    "address": "251 Quarry Hill Road",
     "city": "Velmora Heights, NJ 07998",
     "company": "RXD",
-    "contact": "Calla Thorne-Ames",
-    "email": "calla.thorne-ames@rxd.example",
-    "phone": "(201) 555-0110"
+    "contact": "Maren Brisk",
+    "email": "maren.brisk@rxd.example",
+    "phone": "(201) 555-0158"
   }
 }

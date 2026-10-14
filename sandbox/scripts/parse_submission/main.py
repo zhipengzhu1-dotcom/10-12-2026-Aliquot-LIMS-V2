@@ -27,8 +27,9 @@ copy in `fixtures/real-layout/` kept, and the values sit where
   The real form has no cell for the report-to company, street or city, so they
   are the submitter's.
 - The Sample table's columns are `No.`, `SAMPLE DESCRIPTION`, `TYPE` (the
-  Sample Type), `*TAT #`, `LOT NUMBER` and `PRODUCT CODE`, by the first line of
-  their header.
+  Sample Type), `*TAT #`, `LOT NUMBER`, `PRODUCT CODE`, `TESTS REQUESTED` and
+  `LIMITS`, by the first line of their header. The synthetic layout has no
+  column for the last two, so its lines request nothing.
 - The lab-use table's date received, time received and receiver follow their
   labels, and its `Comments:` holds one `<containers> x <Product Type>` per
   Sample line, in line order, one per line of text, as the receiver writes
@@ -49,7 +50,7 @@ Output `/outputs/submission.json` (keys sorted, two-space indent):
     Party = {"company", "contact", "address", "city", "phone", "email"}
     Sample = {"no", "sample_description", "sample_type", "tat_code",
               "tat_class", "lot", "product_code", "product_type",
-              "no_of_containers"}
+              "no_of_containers", "tests_requested", "limits"}
 
 Every value is a string holding the cell's text with surrounding whitespace
 removed; a blank cell, or a label the form lacks, gives "". Dates printed as
@@ -105,6 +106,8 @@ SAMPLE_COLUMNS = {
     "Product Code": "product_code",
     "Product Type": "product_type",
     "No. of Containers": "no_of_containers",
+    "Tests Requested": "tests_requested",
+    "Limits": "limits",
 }
 RECEIPT_FIELDS = {
     "Date Received": "date_received",
@@ -122,6 +125,8 @@ REAL_SAMPLE_COLUMNS = {
     "*TAT #": "tat_code",
     "LOT NUMBER": "lot",
     "PRODUCT CODE": "product_code",
+    "TESTS REQUESTED": "tests_requested",
+    "LIMITS": "limits",
 }
 REAL_SEND_TO = {"Attn": "contact", "Phone #": "phone", "Email ID": "email"}
 REAL_RECEIPT = {

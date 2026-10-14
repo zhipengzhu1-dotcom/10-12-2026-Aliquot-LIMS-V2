@@ -1,28 +1,29 @@
 {
   "bill_to": {
-    "address": "929 Juniper Mill Drive",
-    "city": "Westhallow, CT 06999",
+    "address": "754 Tamsin Lane",
+    "city": "Orrin Bay, NY 14999",
     "company": "RXD",
-    "contact": "Tobiah Vantongeren",
-    "email": "tobiah.vantongeren@rxd.example",
-    "phone": "(201) 555-0138"
+    "contact": "Idris Thorne-Ames",
+    "email": "idris.thorne-ames@rxd.example",
+    "phone": "(201) 555-0175"
   },
-  "date_submitted": "2026-06-24",
+  "date_submitted": "2026-06-25",
   "receipt": {
     "date_received": "2026-06-26",
     "received_by": "EX",
     "time_received": "12:01"
   },
   "report_to": {
-    "address": "929 Juniper Mill Drive",
-    "city": "Westhallow, CT 06999",
+    "address": "754 Tamsin Lane",
+    "city": "Orrin Bay, NY 14999",
     "company": "RXD",
-    "contact": "Idris Halloway",
-    "email": "idris.halloway@rxd.example",
-    "phone": "(201) 555-0168"
+    "contact": "Maren Thorne-Ames",
+    "email": "maren.thorne-ames@rxd.example",
+    "phone": "(201) 555-0172"
   },
   "samples": [
     {
+      "limits": "",
       "lot": "H159531",
       "no": "1",
       "no_of_containers": "1",
@@ -31,9 +32,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "H159531",
       "no": "2",
       "no_of_containers": "1",
@@ -42,9 +45,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "H159531",
       "no": "3",
       "no_of_containers": "1",
@@ -53,9 +58,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "H159531",
       "no": "4",
       "no_of_containers": "1",
@@ -64,9 +71,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "H159531",
       "no": "5",
       "no_of_containers": "1",
@@ -75,9 +84,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "H159531",
       "no": "6",
       "no_of_containers": "1",
@@ -86,9 +97,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "A383081",
       "no": "7",
       "no_of_containers": "1",
@@ -97,9 +110,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "F782437",
       "no": "8",
       "no_of_containers": "1",
@@ -108,16 +123,17 @@
       "sample_description": "Juxjjjxjpyxetil 84mg Nghjfqkc",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     }
   ],
   "schema": "submission/2",
   "submitted_by": {
-    "address": "929 Juniper Mill Drive",
-    "city": "Westhallow, CT 06999",
+    "address": "754 Tamsin Lane",
+    "city": "Orrin Bay, NY 14999",
     "company": "RXD",
-    "contact": "Tobiah Vantongeren",
-    "email": "tobiah.vantongeren@rxd.example",
-    "phone": "(201) 555-0138"
+    "contact": "Idris Thorne-Ames",
+    "email": "idris.thorne-ames@rxd.example",
+    "phone": "(201) 555-0175"
   }
 }

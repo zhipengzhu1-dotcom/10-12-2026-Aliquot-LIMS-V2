@@ -325,12 +325,28 @@ The lab's record of received containers, one row per container, with date, time,
 _Avoid_: intake sheet, receipt log
 
 **Work Order**:
-The lab document that lists the Tests and the due dates for a group of Samples. A Work Order is not a Task. In the toy workflow, stage 3 writes one Work Order per Receiving Log row, as `WO-<year received>-<n>`: a row per Sample and Test with the Sample's Lot and due date, the Work Order due with its last Sample.
+The lab document that lists the Tests and the due dates for a group of Samples. A Work Order is not a Task. In the toy workflow, stage 3 writes one Work Order per Receiving Log row, as `WO-<year received>-<n>`: a row per Sample, Test and analyte with the Sample's Lot and due date, the Work Order due with its last Sample.
 _Avoid_: job, test request
 
 **Test**:
 One analytical method applied to an Aliquot, such as heavy metals or average capsule weight.
 _Avoid_: assay, analysis
+
+**Test definition**:
+What the lab knows about a Test: its name, the words in a Client's request that map to it, and whether it has analytes. In the toy workflow, stage 3 maps each request in a Sample line's TESTS REQUESTED to a Test definition by its words and refuses a request it cannot map, quoting it. It knows two: Average capsule weight and Nitrosamine impurities.
+_Avoid_: test type, test code
+
+**Nitrosamine impurities**:
+The Test for N-nitrosamines in a drug substance or product. Its analytes are the nitrosamines the Client names: a small nitrosamine such as NDMA or NDEA, or a drug-substance-related one named "N-nitroso-…". A request that says nitrosamines without naming one is refused, asking which. Computing its results is #85.
+_Avoid_: NDSRI testing, nitrosamine screen
+
+**Analyte**:
+The substance a Test measures in a Sample, one row of the Work Order each, with its limit from the form's LIMITS. A Test such as Average capsule weight has none.
+_Avoid_: compound, component
+
+**Acceptable intake**:
+A nitrosamine limit given as the most a patient may take in per day, in ng/day. The other form of limit is a concentration in the material, in ppm or ng/g. Stage 3 keeps a limit in neither form as its text and marks it `unread:` on the Work Order.
+_Avoid_: daily limit, TTC
 
 **Result Worksheet**:
 The spreadsheet in which an analyst records weighings and readings and computes results by formula.

@@ -1,28 +1,29 @@
 {
   "bill_to": {
-    "address": "662 Larkspur Way",
-    "city": "Westhallow, CT 06999",
+    "address": "663 Tamsin Lane",
+    "city": "Tarrowfield, PA 19999",
     "company": "RXD",
-    "contact": "Anselm Halloway",
+    "contact": "Calla Lindgard",
     "email": "",
     "phone": ""
   },
-  "date_submitted": "2026-09-19",
+  "date_submitted": "2026-09-20",
   "receipt": {
     "date_received": "2026-09-21",
     "received_by": "EX",
     "time_received": "14:30"
   },
   "report_to": {
-    "address": "685 Larkspur Way",
-    "city": "Westhallow, CT 06999",
+    "address": "782 Juniper Mill Drive",
+    "city": "Tarrowfield, PA 19999",
     "company": "RXD",
-    "contact": "Tobiah Lindgard",
-    "email": "tobiah.lindgard@rxd.example",
-    "phone": "(201) 555-0119"
+    "contact": "Calla Thorne-Ames",
+    "email": "calla.thorne-ames@rxd.example",
+    "phone": "(201) 555-0141"
   },
   "samples": [
     {
+      "limits": "NDEA: 46.4 ng/day; NDMA: 0.02 ppm",
       "lot": "O354510",
       "no": "1",
       "no_of_containers": "1",
@@ -31,16 +32,17 @@
       "sample_description": "Magnesium Glycinate 200 mg Capsules",
       "sample_type": "IP",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Nitrosamines: NDEA, NDMA"
     }
   ],
   "schema": "submission/2",
   "submitted_by": {
-    "address": "685 Larkspur Way",
-    "city": "Westhallow, CT 06999",
+    "address": "782 Juniper Mill Drive",
+    "city": "Tarrowfield, PA 19999",
     "company": "RXD",
-    "contact": "Idris Vantongeren",
-    "email": "idris.vantongeren@rxd.example",
-    "phone": "(201) 555-0118"
+    "contact": "Anselm Vantongeren",
+    "email": "anselm.vantongeren@rxd.example",
+    "phone": "(201) 555-0142"
   }
 }

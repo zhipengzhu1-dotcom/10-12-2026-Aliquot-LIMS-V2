@@ -104,7 +104,7 @@ export const STAGES: readonly Stage[] = checkStages([
 		number: 3,
 		name: "Work Order",
 		script: "create_work_order",
-		inputs: ["ReceivingLogRow"],
+		inputs: ["ReceivingLogRow", "SubmissionRecord"],
 		carried: ["LimsDatabase"],
 		outputs: ["WorkOrder", "LimsDatabase"],
 		worked_by: AgentId.parse("A-bram"),

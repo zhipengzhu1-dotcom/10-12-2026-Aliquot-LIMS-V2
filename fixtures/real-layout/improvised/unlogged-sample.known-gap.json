@@ -1,5 +1,5 @@
 {
-  "stage": 3,
-  "issue": 82,
-  "reason": "its Sample is IP, and stage 3 plans Tests only for FP (no Tests for Sample type 'IP')"
+  "stage": 4,
+  "issue": 85,
+  "reason": "its IP Sample requests nitrosamines, and stage 4 computes only Average capsule weight until Nitrosamine impurities results land"
 }

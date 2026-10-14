@@ -15,8 +15,10 @@ at a time, and pairs a Shadow row with the first lab row of its day, Lot and
 Product Code that agrees best, so lines alike on two forms of one day would
 pair with the same lab rows. Each line carries the row's PRODUCT
 NAME, LOT# and Product Code, and its TYPE when that is a Sample Type code;
-any other TYPE (a stability condition or a scrubbed label) is written as FP,
-the only Sample Type stage 3 plans a Test for. The form's date and time
+any other TYPE (a stability condition or a scrubbed label) is written as FP.
+An FP line requests Average capsule weight, and an RM or IP line two
+nitrosamines, one limit as an acceptable intake in ng/day and the other in
+ppm (#82). The form's date and time
 received, Client (the company line) and receiver's initials are the first
 row's. Each line is one Sample in one container, as the lab logs one row per
 line, so its `Comments:` entry is `1 x <unit>`, the unit of the row's QTY
@@ -61,7 +63,7 @@ SEED = 81
 FIRST_ROW = 4  # the year sheet's headers are in row 3
 FORM_LINES = 10  # the blank's Sample table
 SAMPLE_TYPES = ("FP", "IP", "RM")
-OTHER_TESTS = ("Assay", "Identification", "Water content")
+NITROSAMINES = ("NDMA", "NDEA", "NMBA", "NDIPA", "NEIPA", "NDBA", "NMPA")
 QUANTITY = re.compile(r"^(\d+)\s+(.+)$")
 
 
@@ -177,9 +179,10 @@ class Inventor:
     def tests(self, sample_type: str) -> tuple[str, str]:
         if sample_type == "FP":
             return TEST_REQUESTED, ""
-        analyte = "".join(self.rng.choices(string.ascii_uppercase, k=7))
-        limit = f"{analyte} < {self.rng.uniform(10, 99):.1f}ng/day"
-        return self.rng.choice(OTHER_TESTS), limit
+        first, second = self.rng.sample(NITROSAMINES, 2)
+        intake, concentration = self.rng.uniform(18, 96), self.rng.uniform(0.01, 0.1)
+        limits = f"{first}: {intake:.1f} ng/day; {second}: {concentration:.2f} ppm"
+        return f"Nitrosamines: {first}, {second}", limits
 
     def weighings(self, containers: int) -> tuple[dict[str, float | int], ...]:
         rng = self.rng
@@ -328,6 +331,8 @@ def expected_record(form: FilledForm) -> dict:
                 "product_code": line.product_code,
                 "product_type": line.product_type,
                 "no_of_containers": str(line.containers),
+                "tests_requested": line.tests,
+                "limits": line.limits,
             }
             for number, line in enumerate(form.lines, start=1)
         ],

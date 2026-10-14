@@ -217,8 +217,10 @@ const dueDateOneDayLate = workOrderCopy("due_date_one_day_late", [
 
 const lastSampleWithoutTest = workOrderCopy("last_sample_without_test", [
 	"tests_of = original.tests_of",
-	"original.tests_of = lambda samples: [",
-	"    row for row in tests_of(samples) if row[0] != samples[-1].lab_reference",
+	"original.tests_of = lambda samples, lines: [",
+	"    row",
+	"    for row in tests_of(samples, lines)",
+	"    if row[0] != samples[-1].lab_reference",
 	"]",
 ]);
 
@@ -715,8 +717,10 @@ describe.skipIf(!requireDocker())(suite, () => {
 			[2, "Done"],
 			[3, "Done"],
 		]);
-		const [, receipt, workOrder] = stages;
-		if (!receipt || !workOrder) throw new Error("a stage did not run");
+		const [submission, receipt, workOrder] = stages;
+		if (!submission || !receipt || !workOrder) {
+			throw new Error("a stage did not run");
+		}
 		expect(workOrder.state).toEqual({ tag: "Done", assignee: bram });
 		expect(workOrder.evaluation).toEqual({
 			score: 1,
@@ -732,14 +736,15 @@ describe.skipIf(!requireDocker())(suite, () => {
 		);
 		const row = ofType(receipt.outputs, "ReceivingLogRow");
 		const version1 = ofType(receipt.outputs, "LimsDatabase");
-		expect(workOrder.run.inputs).toEqual([row.id, version1.id]);
+		const record = ofType(submission.outputs, "SubmissionRecord");
+		expect(workOrder.run.inputs).toEqual([row.id, record.id, version1.id]);
 		const document = ofType(workOrder.outputs, "WorkOrder");
 		expect(
 			lineageOf(s.ledger.projections.artifacts, document.id, {
 				tag: "Run",
 				id: workOrder.run.id,
 			}),
-		).toEqual([row.id, version1.id]);
+		).toEqual([row.id, record.id, version1.id]);
 		expect(
 			query(
 				ofType(workOrder.outputs, "LimsDatabase"),

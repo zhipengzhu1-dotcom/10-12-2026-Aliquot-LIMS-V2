@@ -23,6 +23,7 @@
   },
   "samples": [
     {
+      "limits": "",
       "lot": "LT-269173",
       "no": "1",
       "no_of_containers": "3",
@@ -31,7 +32,8 @@
       "sample_description": "Corvane Elderberry Extract 300 mg Capsules",
       "sample_type": "FP",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": ""
     }
   ],
   "schema": "submission/2",

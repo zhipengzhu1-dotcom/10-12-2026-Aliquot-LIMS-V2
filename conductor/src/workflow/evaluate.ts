@@ -592,7 +592,11 @@ export const WORK_ORDER_COLUMNS = [
 	"Product Code",
 	"TAT Class",
 	"Due Date",
+	"Analyte",
+	"Limit",
 ] as const;
+
+export const NITROSAMINE_IMPURITIES = "Nitrosamine impurities";
 
 /**
  * `work_order.json` (schema `work_order/2`): the Receiving Log row's Lab
@@ -606,6 +610,8 @@ const WorkOrderReadBack = z.object({
 	columns: z.array(z.string()),
 	rows: z.array(
 		z.tuple([
+			z.string(),
+			z.string(),
 			z.string(),
 			z.string(),
 			z.string(),
@@ -661,9 +667,11 @@ const readWorkOrders = (artifact: StageArtifact): WorkOrders =>
  * row: the Work Order has a Test for it, and each of its rows' due date is
  * the one computed here from the row's date received and the Sample's TAT
  * class in the database version the Run carried. Every Work Order row names
- * a Sample on the Receiving Log row with that Sample's Lot, the Work Order's
- * own due date is its last row's, the Work Order number is new, and the
- * `work_orders` rows of the version the Run wrote agree with the document.
+ * a Sample on the Receiving Log row with that Sample's Lot, every
+ * Nitrosamine impurities row names its analyte, the Work Order's own due
+ * date is its last row's, the Work Order number is new, and the
+ * `work_orders` rows of the version the Run wrote agree with the document's
+ * Samples, Tests and due dates.
  * The Work Order comes from `work_order.json`, because the Conductor has no
  * xlsx reader.
  */
@@ -715,11 +723,17 @@ export const evaluateWorkOrder = ({
 			check(rows.length > 0, `${ref}: the Work Order has no Test for it`);
 		}
 		const received = new Set(sheet.receiving_log_row.map(([ref]) => ref));
-		sheet.rows.forEach(([ref, , lot], i) => {
+		sheet.rows.forEach(([ref, test, lot, , , , analyte], i) => {
 			check(
 				received.has(ref),
 				`Work Order row ${i + 1}: ${ref} is not on the Receiving Log row`,
 			);
+			if (test === NITROSAMINE_IMPURITIES) {
+				check(
+					analyte !== "",
+					`Work Order row ${i + 1}: ${ref}'s ${test} names no analyte`,
+				);
+			}
 			const sampled = before.samples.get(ref)?.lot;
 			check(
 				lot === sampled,
@@ -740,9 +754,13 @@ export const evaluateWorkOrder = ({
 			!before.rows.some((row) => row.work_order === number),
 			`Work Order ${number} is already in the carried database`,
 		);
-		const document = sheet.rows.map(
-			([ref, test, , , , rowDue]) => `${ref} ${test} ${rowDue}`,
-		);
+		const document = [
+			...new Set(
+				sheet.rows.map(
+					([ref, test, , , , rowDue]) => `${ref} ${test} ${rowDue}`,
+				),
+			),
+		];
 		const database = after.rows
 			.filter((row) => row.work_order === number)
 			.map((row) => `${row.lab_reference} ${row.test} ${row.due_date}`);

@@ -46,12 +46,12 @@ describe("the stage table", () => {
 		});
 	});
 
-	it("has stage 3, Work Order: create_work_order from the ReceivingLogRow and the carried LimsDatabase to a WorkOrder and the next LimsDatabase, worked by Bram and reviewed by Pia", () => {
+	it("has stage 3, Work Order: create_work_order from the ReceivingLogRow, the SubmissionRecord and the carried LimsDatabase to a WorkOrder and the next LimsDatabase, worked by Bram and reviewed by Pia", () => {
 		expect(STAGES[2]).toMatchObject({
 			number: 3,
 			name: "Work Order",
 			script: "create_work_order",
-			inputs: ["ReceivingLogRow"],
+			inputs: ["ReceivingLogRow", "SubmissionRecord"],
 			carried: ["LimsDatabase"],
 			outputs: ["WorkOrder", "LimsDatabase"],
 			worked_by: "A-bram",

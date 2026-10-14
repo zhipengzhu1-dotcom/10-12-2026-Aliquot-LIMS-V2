@@ -23,6 +23,7 @@
   },
   "samples": [
     {
+      "limits": "",
       "lot": "LT-268123",
       "no": "1",
       "no_of_containers": "2",
@@ -31,7 +32,8 @@
       "sample_description": "Tallowby Milk Thistle 250 mg Capsules",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": ""
     }
   ],
   "schema": "submission/2",

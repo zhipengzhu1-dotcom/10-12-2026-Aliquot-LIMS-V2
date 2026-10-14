@@ -15,6 +15,7 @@ import {
 	evaluateVerification,
 	evaluateWorkOrder,
 	MEAN_AVERAGE_WEIGHT,
+	NITROSAMINE_IMPURITIES,
 	NOTEBOOK_LABEL,
 	pdfText,
 	RECEIVING_LOG_COLUMNS,
@@ -642,7 +643,16 @@ const SEED1_SAMPLES = [
 	["LR-2026-0002", "Rush3to4Days"],
 ] as const;
 
-type WorkOrderRow = readonly [string, string, string, string, string, string];
+type WorkOrderRow = readonly [
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+];
 
 /** A Work Order row for a Sample of seed 1's Lot, Rush3to4Days. */
 const planned = (
@@ -650,7 +660,7 @@ const planned = (
 	due = DUE,
 	lot = LOT,
 	tat = "Rush3to4Days",
-): WorkOrderRow => [ref, TEST, lot, PRODUCT_CODE, tat, due];
+): WorkOrderRow => [ref, TEST, lot, PRODUCT_CODE, tat, due, "", ""];
 
 /** Stage 3's Run on seed 1's Receiving Log row: two Samples, Rush3to4Days, received Tuesday 2026-01-06. */
 const workOrderRun = ({
@@ -875,9 +885,45 @@ describe("evaluateWorkOrder", () => {
 			score: 0,
 			passed: false,
 			findings: [
-				"the Work Order's columns are Lab Reference, not Lab Reference, Test, Lot, Product Code, TAT Class, Due Date",
+				"the Work Order's columns are Lab Reference, not Lab Reference, Test, Lot, Product Code, TAT Class, Due Date, Analyte, Limit",
 			],
 		});
+	});
+
+	it("passes one work_orders row for a Nitrosamine impurities Test of two analytes, and fails a row naming no analyte", () => {
+		const nitrosamines = (analyte: string, limit: string): WorkOrderRow => [
+			"LR-2026-0002",
+			NITROSAMINE_IMPURITIES,
+			LOT,
+			PRODUCT_CODE,
+			"Rush3to4Days",
+			DUE,
+			analyte,
+			limit,
+		];
+		const run = (rows: WorkOrderRow[]) =>
+			evaluateWorkOrder(
+				workOrderRun({
+					rows,
+					written: workOrderDatabase(SEED1_SAMPLES, [
+						[WO, "LR-2026-0001", TEST, DUE],
+						[WO, "LR-2026-0002", NITROSAMINE_IMPURITIES, DUE],
+					]),
+				}),
+			);
+
+		expect(
+			run([
+				planned("LR-2026-0001"),
+				nitrosamines("NDMA", "96 ng/day"),
+				nitrosamines("NDEA", "0.03 ppm"),
+			]),
+		).toEqual({ score: 1, passed: true, findings: [] });
+		expect(
+			run([planned("LR-2026-0001"), nitrosamines("", "")]).findings,
+		).toEqual([
+			`Work Order row 2: LR-2026-0002's ${NITROSAMINE_IMPURITIES} names no analyte`,
+		]);
 	});
 });
 
