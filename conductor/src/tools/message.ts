@@ -4,7 +4,7 @@ import type { Projections } from "../projections.js";
 import type { Message } from "../room/projection.js";
 import { refusal } from "../room/projection.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
-import { type Actor, actorText } from "../types/actor.js";
+import { type Actor, actorText, type EventActor } from "../types/actor.js";
 import { type ToolContext, ToolRefused } from "./tool.js";
 
 /** The Script that reads a stored Message into a Submission Record. */
@@ -55,9 +55,22 @@ export const storeMessage = (ctx: ToolContext, actor: Actor, seq: Seq) => {
 	}
 	const reason = refusal(rooms, org, message.room_id, actor);
 	if (reason !== undefined) throw new ToolRefused(reason);
+	return storeOperatorMessage(ctx, actor, message);
+};
+
+/**
+ * Store an Operator's Message as `storeMessage` does, by `actor`, which the
+ * caller has already found may store it: an Agent of its Room, or the
+ * Conductor taking it for a Chain (ADR-0020).
+ */
+export const storeOperatorMessage = (
+	ctx: Pick<ToolContext, "ledger" | "home">,
+	actor: EventActor,
+	message: Message,
+) => {
 	if (message.actor.tag !== "Operator") {
 		throw new ToolRefused(
-			`seq ${seq} was said by ${actorText(message.actor)}; only the Operator's Messages are stored as Artifacts`,
+			`seq ${message.seq} was said by ${actorText(message.actor)}; only the Operator's Messages are stored as Artifacts`,
 		);
 	}
 	return openArtifacts(ctx).store(
@@ -67,8 +80,8 @@ export const storeMessage = (ctx: ToolContext, actor: Actor, seq: Seq) => {
 			media_type: "application/json",
 			produced_by: message.actor,
 			lineage: [],
-			filename: `message-${seq}.json`,
+			filename: `message-${message.seq}.json`,
 		},
-		{ actor, cause: seq },
+		{ actor, cause: message.seq },
 	);
 };

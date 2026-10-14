@@ -4,22 +4,22 @@ import { canonicalJson, sha256Hex } from "../hash.js";
 import { GateId, nextId, type Seq, type Sha256, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { type Recorded, readBack } from "../lifecycle-support.js";
-import type { Actor, Person } from "../types/actor.js";
+import type { EventActor, Person } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import { type Gate, requestedGate } from "./projection.js";
 
 export const DEFAULT_LIFETIME_S = 86400;
 
 export type GateRequest = {
-	readonly actor: Actor;
+	readonly actor: EventActor;
 	readonly kind: GateKind;
 	readonly payload: Gate["payload"];
 	readonly lifetime_s?: number;
 };
 
-/** The Task a Gate blocks, and the cause the Task lifecycle names. */
+/** The Task a Gate blocks, if any, and the cause the request names. */
 type Blocking = {
-	readonly task_id: TaskId;
+	readonly task_id?: TaskId | undefined;
 	readonly causation_id: Seq | undefined;
 };
 
@@ -59,11 +59,17 @@ const requested = (
 		},
 	});
 
-/** Request a Gate that blocks no Task, under the next free gate id. */
+/**
+ * Request a Gate that blocks no Task, under the next free gate id, naming
+ * `causation_id` when the request follows from an Event.
+ */
 export const requestGate = (
 	ledger: Ledger,
-	request: GateRequest,
-): Recorded<"gate", Gate> => requested(ledger, request);
+	{
+		causation_id,
+		...request
+	}: GateRequest & { readonly causation_id?: Seq | undefined },
+): Recorded<"gate", Gate> => requested(ledger, request, { causation_id });
 
 /**
  * Request a Gate that blocks `task_id`, naming the cause the Task lifecycle

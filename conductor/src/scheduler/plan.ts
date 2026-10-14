@@ -1,3 +1,4 @@
+import { wakesAgents } from "../chain/projection.js";
 import { sha256Hex } from "../hash.js";
 import type { AgentId, TaskId } from "../ids.js";
 import { activeAgent } from "../org/projection.js";
@@ -271,7 +272,8 @@ const workFor = (
 		(m) =>
 			m.seq > since &&
 			myRooms.has(m.room_id) &&
-			!(m.actor.tag === "Agent" && m.actor.id === agent.id),
+			!(m.actor.tag === "Agent" && m.actor.id === agent.id) &&
+			wakesAgents(projections.chains, m),
 	).length;
 	if (messages > 0) {
 		reasons.push(

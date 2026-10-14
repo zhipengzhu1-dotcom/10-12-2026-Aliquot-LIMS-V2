@@ -26,10 +26,24 @@ const roomOpened: AppendGuard = (projections, event) => {
 	return undefined;
 };
 
-/** A Message is said by a member of an open Room, and answers one in it. */
+/**
+ * A Message is said by a member of an open Room, and answers one in it. The
+ * Conductor belongs to no Room, but it answers an Operator's Message it took
+ * to run as a Chain (ADR-0020), and only that one.
+ */
 const messageSent: AppendGuard = (projections, event) => {
 	if (event.kind !== "MessageSent") return undefined;
 	const { room_id } = event.payload;
+	if (event.actor.tag === "Conductor") {
+		const { causation_id } = event;
+		const taken =
+			causation_id === undefined
+				? undefined
+				: projections.chains.taken.get(causation_id);
+		return taken === room_id
+			? undefined
+			: `the Conductor says only a reply to an Operator's Message in ${room_id} it took for a Chain; seq ${causation_id ?? "none"} is not one`;
+	}
 	const reason = refusal(
 		projections.rooms,
 		projections.org,

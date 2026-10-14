@@ -3,7 +3,7 @@ import type { PayloadOf } from "../events.js";
 import { EvaluationId, nextId, type RunId, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Recorded } from "../lifecycle-support.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import { runFinishedFor } from "./guards.js";
 
 export type Evaluation = PayloadOf<"EvaluationRecorded">;
@@ -25,7 +25,7 @@ export const recordEvaluation = (
 		run_id,
 		...scored
 	}: Scored & {
-		readonly actor: Actor;
+		readonly actor: EventActor;
 		readonly stage: number;
 		readonly task_id: TaskId;
 		readonly run_id: RunId;

@@ -12,7 +12,7 @@ import { ArtifactId, type Seq, Sha256 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Recorded } from "../lifecycle-support.js";
 import { type Projection, Refusal } from "../reduce.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import type {
 	Artifact,
 	ArtifactFilename,
@@ -145,7 +145,7 @@ export type Artifacts = {
 	store(
 		bytes: Uint8Array,
 		meta: ArtifactMeta,
-		by: { readonly actor: Actor; readonly cause?: Seq },
+		by: { readonly actor: EventActor; readonly cause?: Seq },
 	): Recorded<"artifact", StoredArtifact>;
 	/** The bytes, checked against the id. */
 	read(id: ArtifactId): Buffer;

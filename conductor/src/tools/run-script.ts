@@ -1,8 +1,8 @@
-import type { ArtifactId, ScriptId, TaskId } from "../ids.js";
+import type { ArtifactId, ScriptId, Seq, TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { openArtifacts, productionOf } from "../sandbox/artifacts.js";
 import { runScript } from "../sandbox/runner.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import type { Run } from "../types/script.js";
 import { recordEvaluation, type Scored } from "../workflow/lifecycle.js";
 import type { RunArtifacts, Stage } from "../workflow/stages.js";
@@ -17,7 +17,11 @@ export const stageOfScript = (
 // `evaluateRun`; issue #51 keeps one copy.
 
 /** The Run's input Artifacts and every Artifact it wrote, typed as this Run recorded them. */
-const runArtifacts = (ledger: Ledger, home: string, run: Run): RunArtifacts => {
+export const runArtifacts = (
+	ledger: Ledger,
+	home: string,
+	run: Run,
+): RunArtifacts => {
 	const artifacts = openArtifacts({ ledger, home });
 	const { projections } = ledger;
 	const inputs = run.inputs.flatMap((id) => {
@@ -59,22 +63,35 @@ const scoreRun = (stage: Stage, run: Run, artifacts: RunArtifacts): Scored => {
 	return stage.evaluate(artifacts);
 };
 
+type RunInput = {
+	readonly script: ScriptId;
+	readonly version?: number | undefined;
+	readonly inputs: readonly ArtifactId[];
+	readonly task_id?: TaskId | undefined;
+};
+
 /**
- * Run a Script version, the latest when none is named, in the Sandbox as the
- * Agent, on a Task when one is named, whose previous Event is the Run's
- * cause. A stage Script's Run then records the stage's Evaluation, as the
- * workflow tracer does, so it needs the Task the Evaluation scores.
+ * Run a Script version as the Agent, as `runScriptBy` does. This is the
+ * `run_script` Tool's path.
  */
-export const runScriptAs = async (
-	ctx: ToolContext,
-	input: {
-		readonly script: ScriptId;
-		readonly version?: number | undefined;
-		readonly inputs: readonly ArtifactId[];
-		readonly task_id?: TaskId | undefined;
+export const runScriptAs = (ctx: ToolContext, input: RunInput) =>
+	runScriptBy({ ...ctx, actor: { tag: "Agent", id: ctx.agent } }, input);
+
+/**
+ * Run a Script version, the latest when none is named, in the Sandbox as
+ * `actor`, on a Task when one is named, whose previous Event is the Run's
+ * cause; without a Task, the Run names `causation_id`. A stage Script's Run
+ * then records the stage's Evaluation, as the workflow tracer does, so it
+ * needs the Task the Evaluation scores.
+ */
+export const runScriptBy = async (
+	ctx: Omit<ToolContext, "agent"> & {
+		readonly actor: EventActor;
+		readonly causation_id?: Seq | undefined;
 	},
+	input: RunInput,
 ) => {
-	const { ledger, home, agent, stages, timeoutMs } = ctx;
+	const { ledger, home, actor, stages, timeoutMs } = ctx;
 	const { script, task_id } = input;
 	const versions = ledger.projections.scripts.scripts.get(script) ?? [];
 	const version = input.version ?? versions.at(-1)?.version;
@@ -89,7 +106,6 @@ export const runScriptAs = async (
 			`${script} is the Script of stage ${stage.number} ${stage.name}, so its Run names the Task its Evaluation scores`,
 		);
 	}
-	const actor: Actor = { tag: "Agent", id: agent };
 	const run = await runScript({
 		ledger,
 		home,
@@ -99,7 +115,7 @@ export const runScriptAs = async (
 		task_id,
 		causation_id:
 			task_id === undefined
-				? undefined
+				? ctx.causation_id
 				: ledger.projections.tasks.lastSeq.get(task_id),
 		timeoutMs,
 	});

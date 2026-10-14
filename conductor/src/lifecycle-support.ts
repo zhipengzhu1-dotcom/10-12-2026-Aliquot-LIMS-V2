@@ -1,13 +1,13 @@
 import type { Seq } from "./ids.js";
-import type { Actor } from "./types/actor.js";
+import type { EventActor } from "./types/actor.js";
 
 /**
  * Who appends an Event, and the cause it names when that cause lies outside
  * the verb's domain. Without one, the verb names the cause the Projections
- * give.
+ * give. Whether the Conductor may append it is the guards' to say.
  */
 export type Origin = {
-	readonly actor: Actor;
+	readonly actor: EventActor;
 	readonly causation_id?: Seq | undefined;
 };
 

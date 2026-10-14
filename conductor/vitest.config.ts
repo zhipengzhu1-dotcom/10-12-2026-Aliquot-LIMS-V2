@@ -10,6 +10,10 @@ const IN_PROCESS = [
 	"ui/**/*.test.ts",
 ];
 
+// The Chains' tests assert how soon the Conductor replies, so they run after
+// every other suite, with the machine's Docker to themselves.
+const TIMED = ["src/chain/chains.test.ts"];
+
 export default defineConfig({
 	test: {
 		// Every command line a test spawns acts for this person, as README's
@@ -25,9 +29,19 @@ export default defineConfig({
 				test: {
 					name: "long timeouts",
 					include: ["src/**/*.test.ts"],
-					exclude: IN_PROCESS,
+					exclude: [...IN_PROCESS, ...TIMED],
 					testTimeout: 30_000,
 					hookTimeout: 30_000,
+				},
+			},
+			{
+				extends: true,
+				test: {
+					name: "timed",
+					include: TIMED,
+					testTimeout: 30_000,
+					hookTimeout: 30_000,
+					sequence: { groupOrder: 1 },
 				},
 			},
 		],

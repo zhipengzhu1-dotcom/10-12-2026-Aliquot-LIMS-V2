@@ -1,3 +1,4 @@
+import { wakesAgents } from "../chain/projection.js";
 import { gateState } from "../gate/projection.js";
 import type { AgentId, ArtifactId } from "../ids.js";
 import type { Projections } from "../projections.js";
@@ -339,7 +340,12 @@ const work = (
 				`The Operator's Messages in ${LAB_ROOM.id} since your last Turn`,
 				`${RECEIVING_WORK}\n\n${RESULTS_WORK}\n\n${list(
 					[...messagesById(projections)]
-						.filter(([, m]) => m.seq > since && m.room_id === LAB_ROOM.id)
+						.filter(
+							([, m]) =>
+								m.seq > since &&
+								m.room_id === LAB_ROOM.id &&
+								wakesAgents(projections.chains, m),
+						)
 						.map(([id, m]) => `seq ${m.seq}, Artifact ${id}: ${m.body}`),
 				)}`,
 			),

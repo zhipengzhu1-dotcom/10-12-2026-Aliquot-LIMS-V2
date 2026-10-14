@@ -3,6 +3,7 @@ import type { PayloadOf } from "../events.js";
 import type { AgentId, SkillId, TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Origin, Recorded } from "../lifecycle-support.js";
+import type { Actor } from "../types/actor.js";
 import type { MemoryNote, Skill } from "../types/skill.js";
 import { coachingRefusal, noteRefusal } from "./guards.js";
 import { nextVersion } from "./projection.js";
@@ -51,7 +52,7 @@ export const publishSkill = (
 		id,
 		title,
 		body_md,
-	}: Pick<Origin, "actor"> & {
+	}: { readonly actor: Actor } & {
 		readonly id: SkillId;
 		readonly title: string;
 		readonly body_md: string;
