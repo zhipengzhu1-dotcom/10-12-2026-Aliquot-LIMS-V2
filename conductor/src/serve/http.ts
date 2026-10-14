@@ -6,6 +6,7 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, extname, resolve, sep } from "node:path";
+import type { Chains } from "../chain/chains.js";
 import type { Ledger } from "../ledger.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
 import type { SchedulerReport } from "../scheduler/scheduler.js";
@@ -41,6 +42,8 @@ export type ServeOptions = {
 	readonly people: People;
 	/** The Scheduler's last Tick, for `GET /api/scheduler`; absent under `--no-schedule`. */
 	readonly scheduler?: () => SchedulerReport;
+	/** The Conductor's Chains, which take each Message the Operator says here that starts one. */
+	readonly chains?: Chains;
 };
 
 export type Serving = {
@@ -163,6 +166,14 @@ export const serve = async (
 				await readJsonBody(req),
 				person(email),
 			);
+			if (result.status === 200 && result.event.kind === "MessageSent") {
+				const { seq } = result.event;
+				const message = ledger.projections.rooms.messages.find(
+					(m) => m.seq === seq,
+				);
+				// Taken before the response, so no Tick sees the Message untaken.
+				if (message !== undefined) options.chains?.take(message);
+			}
 			return result.status === 200
 				? json(res, toJson(result.event))
 				: text(res, result.status, result.text);

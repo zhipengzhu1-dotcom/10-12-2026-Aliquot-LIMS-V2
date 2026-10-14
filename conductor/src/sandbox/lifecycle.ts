@@ -11,7 +11,7 @@ import {
 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Origin, Recorded } from "../lifecycle-support.js";
-import type { Actor } from "../types/actor.js";
+import type { Actor, EventActor } from "../types/actor.js";
 import type { ArtifactType, StoredArtifact } from "../types/artifact.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import { type ArtifactMeta, productionOf } from "./artifacts.js";
@@ -68,7 +68,7 @@ export const register = (
  */
 export const store = (
 	ledger: Ledger,
-	{ actor, cause }: { readonly actor: Actor; readonly cause?: Seq },
+	{ actor, cause }: { readonly actor: EventActor; readonly cause?: Seq },
 	facts: ArtifactMeta & { readonly sha256: Sha256 },
 ): Recorded<"artifact", StoredArtifact> => {
 	const { artifacts, runs } = ledger.projections;
@@ -135,7 +135,7 @@ export const startRun = (
 /** Finish a started Run, naming its RunStarted as the cause and its Task. */
 export const finishRun = (
 	ledger: Ledger,
-	{ actor, run }: { readonly actor: Actor; readonly run: Run },
+	{ actor, run }: { readonly actor: EventActor; readonly run: Run },
 ): Recorded<"run", Run> => {
 	const started = orRefuse(
 		"RunFinished",

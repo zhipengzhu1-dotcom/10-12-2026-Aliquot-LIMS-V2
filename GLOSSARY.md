@@ -109,7 +109,7 @@ The one Room every Agent belongs to, seeded with the roster, where the society s
 _Avoid_: general, lobby, all-hands
 
 **Message**:
-Text that an Agent or the Operator posts in a Room, recorded as a `MessageSent` Event. A reply names the Message it answers through `causation_id`.
+Text that an Agent or the Operator posts in a Room, or that the Conductor posts in reply to a Message it took for a Chain, recorded as a `MessageSent` Event. A reply names the Message it answers through `causation_id`.
 _Avoid_: chat, post, ping, DM
 
 **Gate**:
@@ -141,8 +141,12 @@ _Avoid_: provenance, ancestry, dependency graph
 ### Execution
 
 **Conductor**:
-The single process that owns the Ledger, schedules Turns, enforces Policy, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require and the records of its own acts, such as Turns, the Tool calls its hook refuses, and the Scheduler's assignments.
+The single process that owns the Ledger, schedules Turns, enforces Policy, runs Chains, and serves the Operator's interface. `aliquot serve` runs it. In the Ledger the Conductor is the actor `Conductor`, which authors only the tier Revisions that Merit and Gates require, the records of its own acts, such as Turns, the Tool calls its hook refuses, and the Scheduler's assignments, and the Events of its Chains.
 _Avoid_: orchestrator, server, backend, scheduler
+
+**Chain**:
+The work an Operator's receipt or results Message starts, which the Conductor runs in `aliquot serve` with no Turn and no model (ADR-0021): it stores the Message, runs the parse Script, runs the stages on one Task, and replies to the Message in the Lab Room. Each of its Events names its cause, back to the Message.
+_Avoid_: engine, fast path, automation
 
 **Scheduler**:
 The part of the Conductor that runs the society on its own inside `aliquot serve`. Every Tick it assigns the Proposed Tasks no one assigned within a Tick: a stage's Task to the Agent that works the stage when that Agent is active, any other Task by the weighted pick. It starts Turns for the Agents that have something to do, within the Policy, the Energy budget and the number of Turns allowed at once. It prints one line per decision and keeps the last Tick's decisions for the Interface.

@@ -1,7 +1,7 @@
 import type { RoomId, Seq } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { type Recorded, readBack } from "../lifecycle-support.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import type { Room } from "../types/room.js";
 import type { Message } from "./projection.js";
 
@@ -32,7 +32,7 @@ export const say = (
 		body,
 		reply_to,
 	}: {
-		readonly actor: Actor;
+		readonly actor: EventActor;
 		readonly room_id: RoomId;
 		readonly body: string;
 		readonly reply_to?: Seq | undefined;

@@ -1,3 +1,4 @@
+import { ChainProjection, type ChainState } from "./chain/projection.js";
 import type { Event } from "./events.js";
 import { GateProjection, type Gates } from "./gate/projection.js";
 import { OrgProjection, type OrgState } from "./org/projection.js";
@@ -38,6 +39,7 @@ export type Projections = {
 	readonly turns: TurnState;
 	readonly training: TrainingState;
 	readonly proposals: ProposalState;
+	readonly chains: ChainState;
 };
 
 const PROJECTIONS: { [K in keyof Projections]: Projection<Projections[K]> } = {
@@ -53,6 +55,7 @@ const PROJECTIONS: { [K in keyof Projections]: Projection<Projections[K]> } = {
 	turns: TurnProjection,
 	training: TrainingProjection,
 	proposals: ProposalProjection,
+	chains: ChainProjection,
 };
 
 const KEYS = Object.keys(PROJECTIONS) as (keyof Projections)[];

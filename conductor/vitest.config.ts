@@ -14,6 +14,10 @@ const IN_PROCESS = [
 // every other suite, when their containers no longer take the CPU.
 const ALONE = ["src/sandbox/warm.test.ts"];
 
+// The Chains' tests time the Conductor's reply against a bound, so they run
+// last of all, after the warm Sandbox suite too.
+const TIMED = ["src/chain/chains.test.ts"];
+
 export default defineConfig({
 	test: {
 		// Every command line a test spawns acts for this person, as README's
@@ -29,7 +33,7 @@ export default defineConfig({
 				test: {
 					name: "long timeouts",
 					include: ["src/**/*.test.ts"],
-					exclude: [...IN_PROCESS, ...ALONE],
+					exclude: [...IN_PROCESS, ...ALONE, ...TIMED],
 					testTimeout: 30_000,
 					hookTimeout: 30_000,
 				},
@@ -42,6 +46,16 @@ export default defineConfig({
 					testTimeout: 30_000,
 					hookTimeout: 30_000,
 					sequence: { groupOrder: 1 },
+				},
+			},
+			{
+				extends: true,
+				test: {
+					name: "timed",
+					include: TIMED,
+					testTimeout: 30_000,
+					hookTimeout: 30_000,
+					sequence: { groupOrder: 2 },
 				},
 			},
 		],

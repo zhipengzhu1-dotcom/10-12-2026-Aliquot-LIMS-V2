@@ -255,8 +255,10 @@ drive_ledger() {
 }
 
 drive_chat() {
-	local said=$((base + 1)) outside=$((base + 2))
+	local said=$((base + 1)) conductor='{"tag":"Conductor"}'
 	local report='Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A, Product Code VC500, Product Type 60 ct HDPE bottle, finished product, from Acme Nutrition, regular TAT. Report to: Acme Nutrition; Contact: Dana Reyes; Address: 12 Harbor Road; City: Portland, OR 97201'
+	local results='Lab Ref 26-0412, notebook NB-07 p.31. Container 1: 10.246 g for 20 capsules, 10.246 g taken. Container 2: 10.198 g for 20 capsules, 10.198 g taken. Container 3: 10.302 g for 20 capsules, 10.302 g taken.'
+	local second='verify: a second client says this'
 	browser ui goto '#/chat' mark \
 		wait '#chat-say' text 'li.message .said b' 'Odile' \
 		text '.note' 'aliquot intake' \
@@ -264,17 +266,42 @@ drive_chat() {
 		text '#answer' "Appended MessageSent at seq $said" \
 		text "li.message[data-seq=\"$said\"] .body" "$report" \
 		text "li.message[data-seq=\"$said\"] .said b" "$VERIFY_OPERATOR" \
-		outside room-say '{"room_id":"RM-lab","body":"verify: a second client says this"}' \
-		wait "li.message[data-seq=\"$outside\"]" wait "ol.chat > li:last-child[data-seq=\"$outside\"]" same-page
+		text 'ol.chat > li:last-child .said' "replying to seq $said" \
+		text 'ol.chat > li:last-child .said b' 'Conductor' \
+		text 'ol.chat > li:last-child .body' 'Logged LR-2026-0003, LR-2026-0004, LR-2026-0005 on WO-2026-0002, due ' \
+		same-page \
+		fill '#chat-body' "$results" click '#chat-say button' \
+		text 'ol.chat > li:last-child .said b' 'Conductor' \
+		text 'ol.chat > li:last-child .body' 'The Report of Analysis of LR-2026-0003 waits on G-' \
+		same-page \
+		outside room-say "$(jq -cn --arg b "$second" '{room_id: "RM-lab", body: $b}')" \
+		text 'ol.chat > li:last-child .body' "$second" same-page
 	step chat.json api get chat
-	expect "/api/chat ends with the box's Message and then the second client's, both by $VERIFY_OPERATOR, after Odile's from the baseline" \
-		same "$(jq -r '.messages | map("\(.name): \(.body)") | join(" | ")' "$out/chat.json")" \
-		"Odile: $(sql "select json_extract(payload, '$.body') from events where kind = 'MessageSent' and seq <= $base order by seq desc limit 1") | $VERIFY_OPERATOR: $report | $VERIFY_OPERATOR: verify: a second client says this"
+	step gates.json api get gates
+	local asked replied
+	asked=$(sql "select seq from events where kind = 'MessageSent' and seq > $said and json_extract(payload, '$.body') = '$results'")
+	expect "/api/chat ends with the receipt, the Conductor's reply naming the Lab References, the results, the Conductor's reply naming the Gate, then the second client's Message, after Odile's from the baseline" \
+		same "$(jq -r --argjson b "$base" '[.messages[] | select(.seq > $b) | "\(.name): \(.body[0:32])"] | join(" | ")' "$out/chat.json")" \
+		"$VERIFY_OPERATOR: ${report:0:32} | Conductor: Logged LR-2026-0003, LR-2026-000 | $VERIFY_OPERATOR: ${results:0:32} | Conductor: The Report of Analysis of LR-202 | $VERIFY_OPERATOR: ${second:0:32}"
 	expect "the Messages are in seq order, newest last" \
 		same "$(jq -c '[.messages[].seq] == ([.messages[].seq] | sort)' "$out/chat.json")" true
-	expect "the drive appended exactly two MessageSent rows, seq $said and $outside, by $VERIFY_OPERATOR in RM-lab" \
-		same "$(sql "select group_concat(seq || ':' || actor || ':' || json_extract(payload, '$.room_id'), ' ') from (select * from events where seq > $base order by seq)")" \
-		"$said:$VERIFY_ACTOR:RM-lab $outside:$VERIFY_ACTOR:RM-lab"
+	for m in "$said" "$asked"; do
+		replied=$(sql "select round((julianday(r.ts) - julianday(o.ts)) * 86400000) from events o join events r on r.causation_id = o.seq and r.kind = 'MessageSent' and r.actor = '$conductor' where o.seq = $m")
+		replied=${replied%.0}
+		printf 'seq %s answered after %s ms\n' "$m" "$replied" >>"$out/reply-times.txt"
+		expect "the Conductor's reply to seq $m was appended ${replied:-never} ms after it, within the 1000 ms bound ([reply-times.txt]($feature/reply-times.txt))" \
+			test "${replied:-99999}" -lt 1000
+	done
+	expect "no Agent got a Turn: no TurnStarted since the drive began" \
+		same "$(sql "select count(*) from events where seq > $base and kind = 'TurnStarted'")" 0
+	expect "the results Chain left ${conductor} an open ExternalMessage Gate naming the report's PDF and LR-2026-0003" \
+		same "$(jq -r '[.gates[] | select(.requester.tag == "Conductor") | "\(.kind) \(.payload.lab_reference) \(.decision == null)"] | join(",")' "$out/gates.json")" \
+		"ExternalMessage LR-2026-0003 true"
+	expect "every Event the Conductor appended reaches an Operator's MessageSent of this drive through its causes" \
+		same "$(sql "with recursive walk(start, at) as (select seq, causation_id from events where seq > $base and actor = '$conductor' union all select w.start, e.causation_id from walk w join events e on e.seq = w.at where not (e.kind = 'MessageSent' and e.actor = '$VERIFY_ACTOR')) select count(*) from events c where c.seq > $base and c.actor = '$conductor' and not exists (select 1 from walk w join events m on m.seq = w.at where w.start = c.seq and m.kind = 'MessageSent' and m.actor = '$VERIFY_ACTOR' and m.seq > $base)")" 0
+	expect "the drive's MessageSent rows are the Operator's three and the Conductor's two replies, each naming the Message it answers" \
+		same "$(sql "select group_concat(json_extract(actor, '$.tag') || ':' || ifnull(causation_id, '-'), ' ') from (select * from events where seq > $base and kind = 'MessageSent' order by seq)")" \
+		"Operator:- Conductor:$said Operator:- Conductor:$asked Operator:-"
 	rows_since
 	chain
 }

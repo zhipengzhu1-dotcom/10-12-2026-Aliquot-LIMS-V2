@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { openChains } from "../chain/chains.js";
 import { personOf } from "../cli-support.js";
 import { type Command, UsageError } from "../command.js";
 import { openLedger } from "../ledger.js";
@@ -187,11 +188,13 @@ export const serveCommand: Command = {
 							modelFor: () => model.run,
 							say,
 						});
+			const chains = openChains({ ledger, home, report: say });
 			const serving = await serve(ledger, {
 				port,
 				bind: values.bind,
 				ui: UI_DIR,
 				people,
+				chains,
 				...(scheduler === undefined ? {} : { scheduler: scheduler.report }),
 			});
 			ctx.stdout.write(`Serving ${home} at ${serving.url}\n`);
@@ -204,6 +207,7 @@ export const serveCommand: Command = {
 			signal = await stopSignal();
 			await scheduler?.stop();
 			await serving.close();
+			await chains.settled();
 		} finally {
 			restoreSandbox();
 			await sandbox.close();

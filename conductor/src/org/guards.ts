@@ -129,15 +129,40 @@ const CONDUCTOR_ACTS: ReadonlySet<EventKind> = new Set([
 ]);
 
 /**
- * Apart from its own acts, the Conductor authors only the tier Revisions that
- * Merit and Gates require (ADR-0011): each changes the tier and nothing else,
- * and names the Event where the projected tier last changed to the tier it
- * records. The rules every Revision follows, including that the tier is the
- * projected one, run after this in `orgGuard`.
+ * The Events the Conductor records when it runs a Chain (ADR-0021), the work
+ * an Operator's Message starts. Each names its cause, so the causes of every
+ * one reach that Message; the rules an Agent's act of the same kind meets
+ * apply unchanged.
+ */
+const CHAIN_ACTS: ReadonlySet<EventKind> = new Set([
+	"ArtifactStored",
+	"RunStarted",
+	"RunFinished",
+	"EvaluationRecorded",
+	"TaskProposed",
+	"TaskStarted",
+	"TaskCompleted",
+	"TaskFailed",
+	"GateRequested",
+	"MessageSent",
+]);
+
+/**
+ * Apart from its own acts and its Chains', the Conductor authors only
+ * the tier Revisions that Merit and Gates require (ADR-0011): each changes
+ * the tier and nothing else, and names the Event where the projected tier
+ * last changed to the tier it records. The rules every Revision follows,
+ * including that the tier is the projected one, run after this in
+ * `orgGuard`.
  */
 const conductorGuard: AppendGuard = (projections, event) => {
 	if (event.actor.tag !== "Conductor" || CONDUCTOR_ACTS.has(event.kind)) {
 		return undefined;
+	}
+	if (CHAIN_ACTS.has(event.kind)) {
+		return event.causation_id === undefined
+			? `the Conductor's ${event.kind} names no cause; each act of a Chain names the Event it follows from`
+			: undefined;
 	}
 	if (event.kind !== "AgentDefinitionRevised") {
 		return "the Conductor authors only tier Revisions";

@@ -16,7 +16,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import type { ArtifactId, Seq, TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
-import type { Actor } from "../types/actor.js";
+import type { EventActor } from "../types/actor.js";
 import { ArtifactFilename, ArtifactType } from "../types/artifact.js";
 import type { Run, ScriptRef } from "../types/script.js";
 import { type ArtifactMeta, openArtifacts } from "./artifacts.js";
@@ -159,7 +159,7 @@ export type RunScriptOptions = {
 	home: string;
 	script: ScriptRef;
 	inputs: readonly ArtifactId[];
-	actor: Actor;
+	actor: EventActor;
 	task_id?: TaskId | undefined;
 	causation_id?: Seq | undefined;
 	timeoutMs: number;
