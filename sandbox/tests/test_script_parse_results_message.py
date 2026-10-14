@@ -28,14 +28,23 @@ def work_order(path: Path, samples: int) -> None:
     for label, value in (
         ("Work Order", "WO-2026-0001"),
         ("Client", "Acme Nutrition"),
-        ("Lot", "2403A"),
-        ("Product Code", "VC500"),
+        ("Received", "2026-10-13"),
+        ("Due Date", "2026-10-27"),
     ):
         ws.append((label, value))
     ws.append(())
-    ws.append(("Lab Reference", "Test"))
+    ws.append(("Lab Reference", "Test", "Lot", "Product Code", "TAT Class", "Due Date"))
     for n in range(1, samples + 1):
-        ws.append((f"LR-2026-{n:04d}", "Average capsule weight"))
+        ws.append(
+            (
+                f"LR-2026-{n:04d}",
+                "Average capsule weight",
+                "2403A",
+                "VC500",
+                "Regular",
+                "2026-10-27",
+            )
+        )
     wb.save(path)
 
 

@@ -10,8 +10,7 @@ stored as `Other` JSON in the shape `store_message` writes:
      "ts": "2026-10-13T11:02:00.000Z", "body": "Lab Ref 26-0412, ..."}
 
 and exactly one `WorkOrder`, the sheet `create_work_order` writes, whose
-header block names the Lot and whose rows list one Lab Reference per
-container.
+rows list one Lab Reference per container, each with its Lot.
 
 The body is free text. Each value is read by a labelled pattern, never
 guessed:
@@ -23,8 +22,8 @@ guessed:
   in either order within the container's part of the body.
 
 The Script refuses (exit 1, the reason on stderr, no outputs) a Message
-that names no notebook reference, names a Lot other than the Work
-Order's, names a container twice, gives a container no weight of 20
+that names no notebook reference, names a Lot the Work Order does not
+list, names a container twice, gives a container no weight of 20
 capsules or no weight taken, or names a number of containers other than
 the number of Samples on the Work Order. A Lab Reference the Message
 names is not read: the Work Order input says which Samples it is about.
@@ -50,7 +49,7 @@ CONTAINER = re.compile(r"\bContainer\s+(\d+)\s*:", re.I)
 GRAMS = r"(\d+(?:\.\d+)?)\s*g\b"
 OF_20 = re.compile(rf"{GRAMS}\s+for\s+20\s+capsules", re.I)
 TAKEN = re.compile(rf"{GRAMS}\s+taken", re.I)
-WORK_ORDER_COLUMNS = ("Lab Reference", "Test")
+WORK_ORDER_COLUMNS = ("Lab Reference", "Test", "Lot")
 
 
 class ResultsMessageError(Exception):
@@ -79,15 +78,15 @@ def message_of(path: Path) -> dict:
     return message
 
 
-def work_order_of(path: Path) -> tuple[str, int]:
-    """The Work Order's Lot and the number of Samples it lists."""
+def work_order_of(path: Path) -> tuple[list[str], int]:
+    """The Work Order's Lots, in row order, and the number of Samples it lists."""
     rows = list(load_workbook(path).active.iter_rows(values_only=True))
-    header = {row[0]: row[1] for row in rows if row and row[0] is not None}
-    starts = [i for i, row in enumerate(rows) if tuple(row[:2]) == WORK_ORDER_COLUMNS]
-    if not header.get("Lot") or not starts:
-        raise ResultsMessageError("the Work Order has no Lot or no Lab Reference rows")
-    samples = {row[0] for row in rows[starts[0] + 1 :] if row and row[0] is not None}
-    return str(header["Lot"]), len(samples)
+    starts = [i for i, row in enumerate(rows) if tuple(row[:3]) == WORK_ORDER_COLUMNS]
+    planned = [row for row in rows[starts[0] + 1 :] if row[0]] if starts else []
+    if not planned or not all(row[2] for row in planned):
+        raise ResultsMessageError("the Work Order has no Lab Reference rows with a Lot")
+    lots = list(dict.fromkeys(str(row[2]) for row in planned))
+    return lots, len({row[0] for row in planned})
 
 
 def one(label: str, values: list[str]) -> str:
@@ -127,13 +126,14 @@ def weighings_of(body: str) -> dict[int, tuple[float, float]]:
     return weighed
 
 
-def parse(message: dict, lot: str, samples: int) -> list[dict]:
+def parse(message: dict, lots: list[str], samples: int) -> list[dict]:
+    lot = ", ".join(lots)
     body = message["body"]
     notebook = one("notebook reference", [m.group(1) for m in NOTEBOOK.finditer(body)])
     if not notebook:
         raise ResultsMessageError("the Message names no notebook reference")
     named = one("Lot", [m.group(1) for m in LOT.finditer(body)])
-    if named and named != lot:
+    if named and named not in lots:
         raise ResultsMessageError(
             f"the Message names Lot {named}, and the Work Order is for Lot {lot}"
         )
@@ -167,8 +167,8 @@ def main(argv: list[str] | None = None) -> int:
             return args.inputs / entry["artifact_id"] / entry["filename"]
 
         message = message_of(path(only(manifest, "Other")))
-        lot, samples = work_order_of(path(only(manifest, "WorkOrder")))
-        weighings = parse(message, lot, samples)
+        lots, samples = work_order_of(path(only(manifest, "WorkOrder")))
+        weighings = parse(message, lots, samples)
     except (ResultsMessageError, KeyError) as error:
         print(f"parse_results_message refused its inputs: {error}", file=sys.stderr)
         return 1
@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         + "\n"
     )
-    print(f"read {len(weighings)} weighings for Lot {lot}")
+    print(f"read {len(weighings)} weighings for Lot {', '.join(lots)}")
     return 0
 
 

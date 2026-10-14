@@ -1,4 +1,4 @@
-"""Stage 3 Script: write a Work Order for the Samples on a Receiving Log row.
+"""Stage 3 Script: write the Work Order for the Samples on a Receiving Log row.
 
 Sandbox Script convention: run as
     python /script/main.py --inputs /inputs --outputs /outputs
@@ -8,33 +8,37 @@ with /inputs/manifest.json listing the inputs and each input at
 `LimsDatabase`, the toy LIMS database version the stage carries, whose
 `samples` rows hold each Lab Reference's Lot, Sample type and TAT class.
 
-The Work Order number is `WO-<year received>-<n>` with n written as four
-digits or more: n is one more than the highest n for that year in
-`work_orders`. Each Sample gets the Tests its Sample type names in `TESTS`;
-in slice 1 every Sample is a finished product (`FP`) and gets "Average
-capsule weight". The due date is the TAT class's number of business days
+One Work Order plans every Sample on the row, which may hold several Lots
+and TAT classes: all the Samples one receipt logged. The Work Order number
+is `WO-<year received>-<n>` with n written as four digits or more: n is one
+more than the highest n for that year in `work_orders`. Each Sample gets the
+Tests its Sample type names in `TESTS`, and a Sample type with none is
+refused; today only a finished product (`FP`) has one, "Average capsule
+weight". A Sample's due date is its TAT class's number of business days
 (`TAT_BUSINESS_DAYS`) after the date received, counting Monday to Friday
-with no holiday calendar.
+with no holiday calendar, and the Work Order is due when its last Sample is.
 
 Outputs, typed in `/outputs/manifest.json`:
 
 - `work_order.xlsx` (`WorkOrder`): one sheet named for the Work Order
-  number. Rows 1 to 7 are the header block, a label in column A and its
-  value in column B (`HEADER`); row 8 is blank; row 9 holds the column
-  names `Lab Reference` and `Test`; then one row per Sample and Test.
+  number. Rows 1 to 4 are the header block, a label in column A and its
+  value in column B (`HEADER`); row 5 is blank; row 6 holds `COLUMNS`; then
+  one row per Sample and Test, with the Sample's Lot, Product Code, TAT class
+  and due date.
 - `lims.sqlite` (`LimsDatabase`): the carried database with one
-  `work_orders` row per Sample and Test, each with the due date and, as
-  `source_artifact`, the Receiving Log row's Artifact id.
+  `work_orders` row per Sample and Test, each with the Sample's due date and,
+  as `source_artifact`, the Receiving Log row's Artifact id.
 - `work_order.json` (`Other`): for the stage 3 Evaluation, which has no
   xlsx reader, the Receiving Log row's Lab References and dates as this
   Script read them, and the Work Order as it reads it back from the saved
-  xlsx: `{"schema": "work_order/1", "receiving_log_row": [[lab reference,
+  xlsx: `{"schema": "work_order/2", "receiving_log_row": [[lab reference,
   YYYY-MM-DD], ...], "header": {label: text, ...}, "columns": [...],
-  "rows": [[lab reference, test], ...]}`.
+  "rows": [[lab reference, test, lot, product code, TAT class, due date],
+  ...]}`.
 
 The Script refuses inputs it cannot read or plan one Work Order from (exit
 1, the reason on stderr) and judges nothing else: the stage 3 Evaluation
-decides whether the due date and the Tests are right.
+decides whether the due dates and the Tests are right.
 """
 
 import argparse
@@ -54,16 +58,8 @@ from openpyxl import Workbook, load_workbook
 SCHEMA_VERSION = 1
 TAT_BUSINESS_DAYS = {"Regular": 10, "Rush1to2Days": 2, "Rush3to4Days": 4}
 TESTS = {"FP": ("Average capsule weight",)}
-HEADER = (
-    "Work Order",
-    "Client",
-    "Lot",
-    "Product Code",
-    "Received",
-    "TAT Class",
-    "Due Date",
-)
-COLUMNS = ("Lab Reference", "Test")
+HEADER = ("Work Order", "Client", "Received", "Due Date")
+COLUMNS = ("Lab Reference", "Test", "Lot", "Product Code", "TAT Class", "Due Date")
 WORK_ORDER = re.compile(r"^WO-(\d{4})-(\d+)$")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -146,15 +142,26 @@ def due_date(received: date, tat_class: str) -> date:
     return day
 
 
-def tests_of(samples: list[Sample]) -> list[tuple[str, str]]:
-    """Each Sample's Lab Reference with each Test its Sample type names."""
+def tests_of(samples: list[Sample]) -> list[tuple[object, ...]]:
+    """One row per Sample and Test its Sample type names, in `COLUMNS` order."""
     for sample in samples:
         if sample.sample_type not in TESTS:
             raise WorkOrderError(
                 f"{sample.lab_reference}: no Tests for Sample type"
                 f" {sample.sample_type!r}"
             )
-    return [(s.lab_reference, test) for s in samples for test in TESTS[s.sample_type]]
+    return [
+        (
+            s.lab_reference,
+            test,
+            s.lot,
+            s.product_code,
+            s.tat_class,
+            due_date(s.received, s.tat_class),
+        )
+        for s in samples
+        for test in TESTS[s.sample_type]
+    ]
 
 
 def next_work_order(db: sqlite3.Connection, year: int) -> str:
@@ -166,29 +173,27 @@ def next_work_order(db: sqlite3.Connection, year: int) -> str:
     return f"WO-{year}-{highest + 1:04d}"
 
 
-def header_of(number: str, samples: list[Sample]) -> dict[str, object]:
-    """The header block's values, the same for every Sample on the row, or a refusal."""
+def header_of(
+    number: str, samples: list[Sample], rows: list[tuple[object, ...]]
+) -> dict[str, object]:
+    """The header block's values, or a refusal when the Samples were not
+    received together from one Client."""
     first = samples[0]
-    for field in ("received", "lot", "product_code", "client", "tat_class"):
+    for field in ("received", "client"):
         values = sorted({str(getattr(s, field)) for s in samples})
         if len(values) > 1:
             raise WorkOrderError(
                 f"the Receiving Log row's Samples differ in {field}: {values};"
                 " one Work Order needs one"
             )
-    values = (
-        number,
-        first.client,
-        first.lot,
-        first.product_code,
-        first.received,
-        first.tat_class,
-        due_date(first.received, first.tat_class),
-    )
+    due = COLUMNS.index("Due Date")
+    values = (number, first.client, first.received, max(row[due] for row in rows))
     return dict(zip(HEADER, values, strict=True))
 
 
-def write_sheet(path: Path, header: dict[str, object], rows: list[tuple[str, str]]):
+def write_sheet(
+    path: Path, header: dict[str, object], rows: list[tuple[object, ...]]
+) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = str(header["Work Order"])
@@ -200,6 +205,7 @@ def write_sheet(path: Path, header: dict[str, object], rows: list[tuple[str, str
     ws.append(COLUMNS)
     for row in rows:
         ws.append(row)
+        ws.cell(ws.max_row, len(COLUMNS)).number_format = "mm/dd/yyyy"
     wb.save(path)
 
 
@@ -218,7 +224,7 @@ def read_back(path: Path) -> dict:
     ]
     blank = len(HEADER)
     return {
-        "header": {label: value for label, value in rows[:blank]},
+        "header": {label: value for label, value, *_ in rows[:blank]},
         "columns": rows[blank + 1],
         "rows": rows[blank + 2 :],
     }
@@ -241,14 +247,14 @@ def create_work_order(inputs: Path, outputs: Path) -> str:
             db.execute("PRAGMA foreign_keys = ON")
             samples = samples_of(db, receiving_log_row)
             number = next_work_order(db, samples[0].received.year)
-            header = header_of(number, samples)
             rows = tests_of(samples)
+            header = header_of(number, samples, rows)
             db.executemany(
                 "INSERT INTO work_orders (work_order, lab_reference, test, due_date,"
                 " source_artifact) VALUES (?, ?, ?, ?, ?)",
                 [
-                    (number, ref, test, header["Due Date"].isoformat(), source)
-                    for ref, test in rows
+                    (number, ref, test, due.isoformat(), source)
+                    for ref, test, _, _, _, due in rows
                 ],
             )
             db.commit()
@@ -256,7 +262,7 @@ def create_work_order(inputs: Path, outputs: Path) -> str:
 
     write_sheet(outputs / "work_order.xlsx", header, rows)
     summary = {
-        "schema": "work_order/1",
+        "schema": "work_order/2",
         "receiving_log_row": [[ref, on.isoformat()] for ref, on in receiving_log_row],
         **read_back(outputs / "work_order.xlsx"),
     }

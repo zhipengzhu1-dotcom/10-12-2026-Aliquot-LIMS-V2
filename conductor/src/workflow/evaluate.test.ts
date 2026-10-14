@@ -25,8 +25,11 @@ import {
 } from "./evaluate.js";
 import type { StageArtifact } from "./stages.js";
 
+type Fields = Record<string, string>;
+type SubmissionRecord = Record<string, Fields | string> & { samples: Fields[] };
+
 /** The committed Fixture's expected record: a complete, valid submission. */
-const complete = (): Record<string, Record<string, string> | string> =>
+const complete = (): SubmissionRecord =>
 	JSON.parse(
 		readFileSync(
 			new URL(
@@ -37,8 +40,15 @@ const complete = (): Record<string, Record<string, string> | string> =>
 		),
 	);
 
-// 13 party fields + 7 Sample fields + 3 receipt fields + the TAT code check.
-const CHECKS = 24;
+const firstSample = (record: SubmissionRecord): Fields => {
+	const [sample] = record.samples;
+	if (sample === undefined) throw new Error("the Fixture lists no Sample");
+	return sample;
+};
+
+// 13 party fields + 3 receipt fields + a Sample listed + 7 fields and the
+// TAT code check of its one Sample.
+const CHECKS = 25;
 
 describe("evaluateSubmission", () => {
 	it("passes the Fixture's expected record with score 1 and no findings", () => {
@@ -51,13 +61,36 @@ describe("evaluateSubmission", () => {
 
 	it("fails a record whose Sample has no Lot, naming the field", () => {
 		const record = complete();
-		delete (record.sample as Record<string, string>).lot;
+		delete firstSample(record).lot;
 
 		const evaluation = evaluateSubmission(record);
 
 		expect(evaluation.passed).toBe(false);
 		expect(evaluation.score).toBeCloseTo((CHECKS - 1) / CHECKS);
-		expect(evaluation.findings).toEqual(["Sample: Lot is missing"]);
+		expect(evaluation.findings).toEqual(["Sample 1: Lot is missing"]);
+	});
+
+	it("checks every Sample of the record, naming the Sample by its line", () => {
+		const record = complete();
+		const first = firstSample(record);
+		record.samples.push({ ...first, no: "2", product_code: "" });
+
+		const evaluation = evaluateSubmission(record);
+
+		expect(evaluation.score).toBeCloseTo((CHECKS + 7) / (CHECKS + 8));
+		expect(evaluation.findings).toEqual(["Sample 2: Product Code is missing"]);
+	});
+
+	it("fails a record that lists no Sample", () => {
+		const record = complete();
+		record.samples = [];
+
+		const evaluation = evaluateSubmission(record);
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.findings).toEqual([
+			"Samples: the record lists no Sample",
+		]);
 	});
 
 	it("counts a blank required field as missing", () => {
@@ -80,14 +113,14 @@ describe("evaluateSubmission", () => {
 
 	it("fails a TAT code outside 1, 2 and 3", () => {
 		const record = complete();
-		(record.sample as Record<string, string>).tat_code = "4";
+		firstSample(record).tat_code = "4";
 
 		const evaluation = evaluateSubmission(record);
 
 		expect(evaluation.passed).toBe(false);
 		expect(evaluation.score).toBeCloseTo((CHECKS - 1) / CHECKS);
 		expect(evaluation.findings).toEqual([
-			'Sample: TAT Code "4" is not a valid TAT code (1, 2 or 3)',
+			'Sample 1: TAT Code "4" is not a valid TAT code (1, 2 or 3)',
 		]);
 	});
 
@@ -96,7 +129,10 @@ describe("evaluateSubmission", () => {
 
 		expect(evaluation.passed).toBe(false);
 		expect(evaluation.score).toBe(0);
-		expect(evaluation.findings).toHaveLength(CHECKS);
+		expect(evaluation.findings).toHaveLength(13 + 3 + 1);
+		expect(evaluation.findings).toContain(
+			"Samples: the record lists no Sample",
+		);
 	});
 
 	it("fails the checks of a party section that is missing", () => {
@@ -177,18 +213,20 @@ const receiptRun = ({
 	),
 	carried,
 	readBack = true,
+	record = complete(),
 }: {
 	rows?: string[][];
 	columns?: string[];
 	written?: Buffer;
 	carried?: Buffer;
 	readBack?: boolean;
+	record?: SubmissionRecord;
 } = {}) => ({
 	inputs: [
 		stageArtifact(
 			"SubmissionRecord",
 			"submission.json",
-			Buffer.from(JSON.stringify(complete())),
+			Buffer.from(JSON.stringify(record)),
 		),
 		...(carried ? [stageArtifact("LimsDatabase", "lims.sqlite", carried)] : []),
 	],
@@ -258,6 +296,60 @@ describe("evaluateReceipt", () => {
 
 		expect(evaluation.findings).toEqual([
 			"row 1 (LR-2026-0001): Product Code TLB-0000 is not the record's TLB-1475",
+		]);
+	});
+
+	it("checks each row against its own Sample when the record lists several, and each Lot's lots row", () => {
+		const record = complete();
+		record.samples.push({
+			...firstSample(record),
+			no: "2",
+			lot: "LT-269999",
+			no_of_containers: "1",
+		});
+		const written = database(
+			[
+				["LR-2026-0001", LOT],
+				["LR-2026-0002", LOT],
+				["LR-2026-0003", "LT-269999"],
+			],
+			[LOT, "LT-269999"],
+		);
+		const rows = [
+			row("LR-2026-0001"),
+			row("LR-2026-0002"),
+			row("LR-2026-0003", "LT-269999"),
+		];
+
+		expect(evaluateReceipt(receiptRun({ record, rows, written }))).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+		const swapped = evaluateReceipt(
+			receiptRun({
+				record,
+				rows: [
+					row("LR-2026-0001"),
+					row("LR-2026-0002", "LT-269999"),
+					row("LR-2026-0003"),
+				],
+				written: database(
+					[
+						["LR-2026-0001", LOT],
+						["LR-2026-0002", "LT-269999"],
+						["LR-2026-0003", LOT],
+					],
+					[LOT],
+				),
+			}),
+		);
+		expect(swapped.findings).toEqual([
+			`row 2 (LR-2026-0002): LOT# LT-269999 is not the record's Lot ${LOT}`,
+			`row 2 (LR-2026-0002): the database has no samples row for LR-2026-0002 with Lot ${LOT}`,
+			"row 3 (LR-2026-0003): LOT# LT-268123 is not the record's Lot LT-269999",
+			"row 3 (LR-2026-0003): the database has no samples row for LR-2026-0003 with Lot LT-269999",
+			"the database has 0 lots rows for Lot LT-269999, not 1",
 		]);
 	});
 
@@ -517,9 +609,12 @@ const TEST = "Average capsule weight";
 const WO = "WO-2026-0001";
 const DUE = "2026-01-12";
 
-/** A database version holding `samples` rows (Lab Reference, TAT class) and `work_orders` rows. */
+/**
+ * A database version holding `samples` rows (Lab Reference, TAT class, and
+ * Lot, seed 1's when not given) and `work_orders` rows.
+ */
 const workOrderDatabase = (
-	samples: readonly (readonly [string, string])[],
+	samples: readonly (readonly [string, string, string?])[],
 	workOrders: readonly (readonly [string, string, string, string])[] = [],
 ): Buffer => {
 	const dir = mkdtempSync(join(tmpdir(), "aliquot-evaluate-test-"));
@@ -527,10 +622,10 @@ const workOrderDatabase = (
 		const path = join(dir, "lims.sqlite");
 		const db = new DatabaseSync(path);
 		db.exec(
-			"CREATE TABLE samples (lab_reference TEXT PRIMARY KEY, tat_class TEXT NOT NULL); CREATE TABLE work_orders (work_order TEXT, lab_reference TEXT, test TEXT, due_date TEXT)",
+			"CREATE TABLE samples (lab_reference TEXT PRIMARY KEY, tat_class TEXT NOT NULL, lot TEXT NOT NULL); CREATE TABLE work_orders (work_order TEXT, lab_reference TEXT, test TEXT, due_date TEXT)",
 		);
-		for (const sample of samples) {
-			db.prepare("INSERT INTO samples VALUES (?, ?)").run(...sample);
+		for (const [ref, tat, lot = LOT] of samples) {
+			db.prepare("INSERT INTO samples VALUES (?, ?, ?)").run(ref, tat, lot);
 		}
 		for (const row of workOrders) {
 			db.prepare("INSERT INTO work_orders VALUES (?, ?, ?, ?)").run(...row);
@@ -547,23 +642,32 @@ const SEED1_SAMPLES = [
 	["LR-2026-0002", "Rush3to4Days"],
 ] as const;
 
+type WorkOrderRow = readonly [string, string, string, string, string, string];
+
+/** A Work Order row for a Sample of seed 1's Lot, Rush3to4Days. */
+const planned = (
+	ref: string,
+	due = DUE,
+	lot = LOT,
+	tat = "Rush3to4Days",
+): WorkOrderRow => [ref, TEST, lot, PRODUCT_CODE, tat, due];
+
 /** Stage 3's Run on seed 1's Receiving Log row: two Samples, Rush3to4Days, received Tuesday 2026-01-06. */
 const workOrderRun = ({
 	due = DUE,
-	rows = [
-		["LR-2026-0001", TEST],
-		["LR-2026-0002", TEST],
-	],
+	rows = [planned("LR-2026-0001", due), planned("LR-2026-0002", due)],
+	receivingLogRow = ["LR-2026-0001", "LR-2026-0002"],
 	columns = [...WORK_ORDER_COLUMNS],
 	carried = workOrderDatabase(SEED1_SAMPLES),
 	written = workOrderDatabase(
 		SEED1_SAMPLES,
-		rows.map(([ref, test]) => [WO, ref, test, due] as const),
+		rows.map(([ref, test, , , , rowDue]) => [WO, ref, test, rowDue] as const),
 	),
 	readBack = true,
 }: {
 	due?: string;
-	rows?: (readonly [string, string])[];
+	rows?: WorkOrderRow[];
+	receivingLogRow?: string[];
 	columns?: string[];
 	carried?: Buffer;
 	written?: Buffer;
@@ -587,18 +691,15 @@ const workOrderRun = ({
 						"work_order.json",
 						Buffer.from(
 							JSON.stringify({
-								schema: "work_order/1",
-								receiving_log_row: [
-									["LR-2026-0001", "2026-01-06"],
-									["LR-2026-0002", "2026-01-06"],
-								],
+								schema: "work_order/2",
+								receiving_log_row: receivingLogRow.map((ref) => [
+									ref,
+									"2026-01-06",
+								]),
 								header: {
 									"Work Order": WO,
 									Client: "Tallowby Botanicals LLC",
-									Lot: LOT,
-									"Product Code": PRODUCT_CODE,
 									Received: "2026-01-06",
-									"TAT Class": "Rush3to4Days",
 									"Due Date": due,
 								},
 								columns,
@@ -611,10 +712,11 @@ const workOrderRun = ({
 	],
 });
 
-// 2 per Sample (due date, a Test), 1 per Work Order row, the new number,
-// and the database's agreement.
+// 2 per Sample (due date, a Test), 2 per Work Order row (on the Receiving
+// Log row, its Lot), the Work Order's due date, the new number, and the
+// database's agreement.
 const workOrderChecks = (samples: number, rows: number) =>
-	2 * samples + rows + 2;
+	2 * samples + 2 * rows + 3;
 
 describe("evaluateWorkOrder", () => {
 	it("passes the due date 4 business days after receipt for Rush3to4Days, a Test for each Sample, and work_orders rows that agree", () => {
@@ -642,7 +744,7 @@ describe("evaluateWorkOrder", () => {
 
 	it("fails a Sample on the Receiving Log row that has no Test", () => {
 		const evaluation = evaluateWorkOrder(
-			workOrderRun({ rows: [["LR-2026-0001", TEST]] }),
+			workOrderRun({ rows: [planned("LR-2026-0001")] }),
 		);
 
 		expect(evaluation.passed).toBe(false);
@@ -655,9 +757,9 @@ describe("evaluateWorkOrder", () => {
 		const evaluation = evaluateWorkOrder(
 			workOrderRun({
 				rows: [
-					["LR-2026-0001", TEST],
-					["LR-2026-0002", TEST],
-					["LR-2026-0009", TEST],
+					planned("LR-2026-0001"),
+					planned("LR-2026-0002"),
+					planned("LR-2026-0009"),
 				],
 				written: workOrderDatabase(
 					[...SEED1_SAMPLES, ["LR-2026-0009", "Regular"]],
@@ -670,6 +772,52 @@ describe("evaluateWorkOrder", () => {
 
 		expect(evaluation.findings).toEqual([
 			"Work Order row 3: LR-2026-0009 is not on the Receiving Log row",
+			"Work Order row 3: the carried database has no samples row for LR-2026-0009",
+		]);
+	});
+
+	it("passes a Work Order that plans each of several Samples with its own Lot and due date, due with the last", () => {
+		const carried = workOrderDatabase([
+			...SEED1_SAMPLES,
+			["LR-2026-0003", "Regular", "LT-269999"],
+		]);
+		const rows = [
+			planned("LR-2026-0001"),
+			planned("LR-2026-0002"),
+			planned("LR-2026-0003", "2026-01-20", "LT-269999", "Regular"),
+		];
+		const run = (due: string, rowsOf = rows) =>
+			evaluateWorkOrder(
+				workOrderRun({
+					due,
+					rows: rowsOf,
+					receivingLogRow: ["LR-2026-0001", "LR-2026-0002", "LR-2026-0003"],
+					carried,
+				}),
+			);
+
+		expect(run("2026-01-20")).toEqual({ score: 1, passed: true, findings: [] });
+		expect(run(DUE).findings).toEqual([
+			`the Work Order's due date ${DUE} is not its last Sample's, 2026-01-20`,
+		]);
+		expect(
+			run("2026-01-20", [
+				planned("LR-2026-0001"),
+				planned("LR-2026-0002"),
+				planned("LR-2026-0003", "2026-01-20", LOT, "Regular"),
+			]).findings,
+		).toEqual([
+			`Work Order row 3: Lot ${LOT} is not LR-2026-0003's Lot LT-269999`,
+		]);
+		expect(
+			run("2026-01-20", [
+				planned("LR-2026-0001"),
+				planned("LR-2026-0002"),
+				planned("LR-2026-0003", DUE, "LT-269999", "Regular"),
+			]).findings,
+		).toEqual([
+			"LR-2026-0003: due date 2026-01-12 is not 2026-01-20, 10 business days after 2026-01-06 for TAT class Regular",
+			"the Work Order's due date 2026-01-20 is not its last Sample's, 2026-01-12",
 		]);
 	});
 
@@ -682,6 +830,7 @@ describe("evaluateWorkOrder", () => {
 
 		expect(evaluation.findings).toEqual([
 			"LR-2026-0002: the carried database has no samples row for it with a TAT class",
+			"Work Order row 2: the carried database has no samples row for LR-2026-0002",
 		]);
 	});
 
@@ -726,7 +875,7 @@ describe("evaluateWorkOrder", () => {
 			score: 0,
 			passed: false,
 			findings: [
-				"the Work Order's columns are Lab Reference, not Lab Reference, Test",
+				"the Work Order's columns are Lab Reference, not Lab Reference, Test, Lot, Product Code, TAT Class, Due Date",
 			],
 		});
 	});

@@ -30,33 +30,35 @@ copy in `fixtures/real-layout/` kept, and the values sit where
   Sample Type), `*TAT #`, `LOT NUMBER` and `PRODUCT CODE`, by the first line of
   their header.
 - The lab-use table's date received, time received and receiver follow their
-  labels, and its `Comments:` holds `<containers> x <Product Type>`, as the
-  receiver writes the count and the package. The real form has no other cell
-  for either.
+  labels, and its `Comments:` holds one `<containers> x <Product Type>` per
+  Sample line, in line order, one per line of text, as the receiver writes
+  the count and the package. The real form has no other cell for either.
 
 Output `/outputs/submission.json` (keys sorted, two-space indent):
 
     {
-      "schema": "submission/1",
+      "schema": "submission/2",
       "date_submitted": "YYYY-MM-DD",
       "submitted_by": Party,
       "bill_to": Party,
       "report_to": Party,
-      "sample": {
-        "no", "sample_description", "sample_type", "tat_code",
-        "tat_class", "lot", "product_code", "product_type",
-        "no_of_containers"
-      },
+      "samples": [Sample, ...],
       "receipt": {"date_received": "YYYY-MM-DD", "time_received": "HH:MM",
                   "received_by"}
     }
     Party = {"company", "contact", "address", "city", "phone", "email"}
+    Sample = {"no", "sample_description", "sample_type", "tat_code",
+              "tat_class", "lot", "product_code", "product_type",
+              "no_of_containers"}
 
 Every value is a string holding the cell's text with surrounding whitespace
 removed; a blank cell, or a label the form lacks, gives "". Dates printed as
 MM/DD/YYYY become ISO 8601 YYYY-MM-DD; any other date text is kept as
-printed. `sample` is the first Sample row. `tat_class` is derived from
-`tat_code` with the TAT code table below ("" for a code not in the table).
+printed. `samples` holds every Sample line in form order: every row of the
+Sample table with text in a cell other than `No.`, which the synthetic form
+prints on every row. `tat_class` is derived from `tat_code` with the TAT
+code table below ("" for a code not in the table). The earlier
+`submission/1` held one `sample`, the first line only.
 The Script reports what the form says and judges nothing: the stage 1
 Evaluation decides whether the record is complete.
 
@@ -75,7 +77,7 @@ from docx import Document
 from docx.table import Table
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-SCHEMA = "submission/1"
+SCHEMA = "submission/2"
 
 # Copied from sandbox/synth/tat.py: the container mounts only this directory,
 # so the Script cannot import `synth`.
@@ -172,16 +174,36 @@ def parties(table: Table | None) -> dict[str, dict[str, str]]:
     return record
 
 
-def first_row(table: Table | None, columns: dict[str, str]) -> dict[str, str]:
-    record = dict.fromkeys(columns.values(), "")
-    if table is None or len(table.rows) < 2:
-        return record
-    header = cells(table.rows[0])
-    values = cells(table.rows[1])
+def row_values(
+    header: list[str], row, columns: dict[str, str], fields: dict[str, str]
+) -> dict[str, str]:
+    """The row's value for each of `fields`, read in the columns `columns` names."""
+    record = dict.fromkeys(fields.values(), "")
+    values = cells(row)
     for col, title in enumerate(header):
         if title in columns and col < len(values):
             record[columns[title]] = values[col]
     return record
+
+
+def first_row(table: Table | None, columns: dict[str, str]) -> dict[str, str]:
+    if table is None or len(table.rows) < 2:
+        return dict.fromkeys(columns.values(), "")
+    return row_values(cells(table.rows[0]), table.rows[1], columns, columns)
+
+
+def sample_lines(
+    table: Table | None, header: list[str], columns: dict[str, str]
+) -> list[dict[str, str]]:
+    """Every row of the Sample table with text in a cell other than its `No.`."""
+    if table is None:
+        return []
+    samples = []
+    for row in table.rows[1:]:
+        sample = row_values(header, row, columns, SAMPLE_COLUMNS)
+        if any(value for key, value in sample.items() if key != "no"):
+            samples.append(sample)
+    return samples
 
 
 def parse_synthetic(doc, tables: list[Table]) -> dict:
@@ -192,12 +214,13 @@ def parse_synthetic(doc, tables: list[Table]) -> dict:
             date_submitted = iso_date(match.group(1).strip())
             break
 
-    sample = first_row(find_table(tables, "Sample Description"), SAMPLE_COLUMNS)
+    table = find_table(tables, "Sample Description")
+    header = cells(table.rows[0]) if table is not None else []
     receipt = first_row(find_table(tables, "Date Received"), RECEIPT_FIELDS)
     return {
         "date_submitted": date_submitted,
         **parties(find_table(tables, "Submitted By")),
-        "sample": sample,
+        "samples": sample_lines(table, header, SAMPLE_COLUMNS),
         "receipt": receipt,
     }
 
@@ -289,28 +312,28 @@ def real_parties(table: Table | None) -> dict:
 
 
 def parse_real(tables: list[Table]) -> dict:
-    samples = real_table(tables, "SAMPLE DESCRIPTION")
-    sample = dict.fromkeys(SAMPLE_COLUMNS.values(), "")
-    if samples is not None and len(samples.rows) >= 2:
-        header = [
-            text.splitlines()[0].strip() if text else ""
-            for text in cells(samples.rows[0])
-        ]
-        values = cells(samples.rows[1])
-        for col, title in enumerate(header):
-            if title in REAL_SAMPLE_COLUMNS and col < len(values):
-                sample[REAL_SAMPLE_COLUMNS[title]] = values[col]
+    table = real_table(tables, "SAMPLE DESCRIPTION")
+    header = (
+        [text.splitlines()[0].strip() if text else "" for text in cells(table.rows[0])]
+        if table is not None
+        else []
+    )
+    samples = sample_lines(table, header, REAL_SAMPLE_COLUMNS)
 
     lab_use = real_table(tables, "Date Sample(s) received:")
     rows = lab_use.rows if lab_use is not None else []
     receipt = labelled(rows, REAL_RECEIPT)
-    count = COUNT_AND_PACKAGE.match(labelled(rows, {"Comments:": "c"})["c"])
-    if count:
+    counts = [
+        count
+        for line in labelled(rows, {"Comments:": "c"})["c"].splitlines()
+        if (count := COUNT_AND_PACKAGE.match(line.strip()))
+    ]
+    for sample, count in zip(samples, counts, strict=False):
         sample["no_of_containers"] = count.group(1)
         sample["product_type"] = count.group(2).strip()
     return {
         **real_parties(real_table(tables, REAL_COMPANY)),
-        "sample": sample,
+        "samples": samples,
         "receipt": receipt,
     }
 
@@ -322,7 +345,8 @@ def parse(form: Path) -> dict:
         record = parse_real(tables)
     else:
         record = parse_synthetic(doc, tables)
-    record["sample"]["tat_class"] = TAT_CODES.get(record["sample"]["tat_code"], "")
+    for sample in record["samples"]:
+        sample["tat_class"] = TAT_CODES.get(sample["tat_code"], "")
     record["receipt"]["date_received"] = iso_date(record["receipt"]["date_received"])
     return {"schema": SCHEMA, **record}
 
@@ -369,7 +393,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         + "\n"
     )
-    print(f"parsed {form.name}: {record['sample']['lot'] or 'no Lot'}")
+    lots = ", ".join(s["lot"] or "no Lot" for s in record["samples"])
+    print(f"parsed {form.name}: {len(record['samples'])} Samples ({lots})")
     return 0
 
 

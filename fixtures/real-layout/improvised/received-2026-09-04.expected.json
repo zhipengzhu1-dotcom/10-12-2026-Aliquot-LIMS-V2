@@ -1,11 +1,11 @@
 {
   "bill_to": {
-    "address": "653 Larkspur Way",
-    "city": "Orrin Bay, NY 14999",
+    "address": "871 Quarry Hill Road",
+    "city": "Velmora Heights, NJ 07998",
     "company": "RXD",
-    "contact": "Senna Brisk",
-    "email": "senna.brisk@rxd.example",
-    "phone": "(201) 555-0189"
+    "contact": "Calla Thorne-Ames",
+    "email": "calla.thorne-ames@rxd.example",
+    "phone": "(201) 555-0110"
   },
   "date_submitted": "2026-09-02",
   "receipt": {
@@ -14,31 +14,33 @@
     "time_received": "04:56"
   },
   "report_to": {
-    "address": "653 Larkspur Way",
-    "city": "Orrin Bay, NY 14999",
+    "address": "871 Quarry Hill Road",
+    "city": "Velmora Heights, NJ 07998",
     "company": "RXD",
-    "contact": "Senna Brisk",
-    "email": "senna.brisk@rxd.example",
-    "phone": "(201) 555-0189"
+    "contact": "Calla Thorne-Ames",
+    "email": "calla.thorne-ames@rxd.example",
+    "phone": "(201) 555-0110"
   },
-  "sample": {
-    "lot": "O249289",
-    "no": "1",
-    "no_of_containers": "1",
-    "product_code": "5382",
-    "product_type": "Jycfvxy",
-    "sample_description": "Pmcxpcgkm Lpj Giucpljj Rgbw & Intt Nydlskj",
-    "sample_type": "FP",
-    "tat_class": "Rush3to4Days",
-    "tat_code": "3"
-  },
-  "schema": "submission/1",
+  "samples": [
+    {
+      "lot": "O249289",
+      "no": "1",
+      "no_of_containers": "1",
+      "product_code": "5382",
+      "product_type": "Jycfvxy",
+      "sample_description": "Pmcxpcgkm Lpj Giucpljj Rgbw & Intt Nydlskj",
+      "sample_type": "FP",
+      "tat_class": "Rush3to4Days",
+      "tat_code": "3"
+    }
+  ],
+  "schema": "submission/2",
   "submitted_by": {
-    "address": "653 Larkspur Way",
-    "city": "Orrin Bay, NY 14999",
+    "address": "871 Quarry Hill Road",
+    "city": "Velmora Heights, NJ 07998",
     "company": "RXD",
-    "contact": "Senna Brisk",
-    "email": "senna.brisk@rxd.example",
-    "phone": "(201) 555-0189"
+    "contact": "Calla Thorne-Ames",
+    "email": "calla.thorne-ames@rxd.example",
+    "phone": "(201) 555-0110"
   }
 }

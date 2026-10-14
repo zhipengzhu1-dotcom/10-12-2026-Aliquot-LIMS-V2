@@ -24,6 +24,7 @@ before is written.
 """
 
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
 
@@ -43,6 +44,16 @@ DAY_SHEET = re.compile(
 
 class ShadowError(Exception):
     """The lab's workbook is not a Receiving Log this Script can add rows to."""
+
+
+@dataclass(frozen=True)
+class Container:
+    """One received container: its Lab Reference, its number within its
+    Sample counted from 1, and the record's Sample it holds."""
+
+    lab_reference: str
+    number: int
+    sample: dict
 
 
 def cell_text(value: object) -> str:
@@ -132,7 +143,7 @@ def write_shadow(
     record: dict,
     on: date,
     at: time,
-    refs: list[str],
+    containers: list[Container],
 ) -> dict:
     """Write the shadow and return what it holds, for the stage 2 Evaluation."""
     try:
@@ -146,17 +157,18 @@ def write_shadow(
     year = wb[year_name]
     day, made = _day_sheet(wb, day_name)
 
-    sample, receipt = record["sample"], record["receipt"]
+    receipt = record["receipt"]
     received = datetime.combine(on, time(0, 0))
     client = record["submitted_by"]["company"]
-    year_rows = _year_rows(year, len(refs))
+    year_rows = _year_rows(year, len(containers))
     previous = (
         0
         if year_rows[0] == YEAR_FIRST_ROW
         else _number(cell_text(year.cell(year_rows[0] - 1, 1).value))
     )
-    for i, (row, ref) in enumerate(zip(year_rows, refs, strict=True)):
+    for i, (row, container) in enumerate(zip(year_rows, containers, strict=True)):
         number = "" if previous is None else str(previous + 1 + i)
+        sample = container.sample
         _put(
             year,
             row,
@@ -172,11 +184,12 @@ def write_shadow(
                 10: 1,
                 11: record["submitted_by"]["contact"],
                 12: receipt["received_by"],
-                13: ref,
+                13: container.lab_reference,
             },
         )
-    day_rows = _day_rows(day, len(refs))
-    for row, ref in zip(day_rows, refs, strict=True):
+    day_rows = _day_rows(day, len(containers))
+    for row, container in zip(day_rows, containers, strict=True):
+        sample = container.sample
         values: dict[int, object] = {
             2: received,
             3: sample["sample_description"],
@@ -185,7 +198,7 @@ def write_shadow(
             6: client,
             8: 1,
             9: receipt["received_by"],
-            10: ref,
+            10: container.lab_reference,
         }
         if day.cell(row, 1).value in (None, ""):
             above = _number(cell_text(day.cell(row - 1, 1).value))

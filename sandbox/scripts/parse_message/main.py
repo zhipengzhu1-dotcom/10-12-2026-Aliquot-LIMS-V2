@@ -42,8 +42,9 @@ city. The refusal names every one missing, so the Director can ask for
 them all at once; a Message that cannot reach a report never reaches stage 2.
 
 Output `/outputs/submission_record.json`, typed `SubmissionRecord`, in the
-`submission/1` shape `parse_submission` writes for stage 1, so stage 2 reads
-it the same way. The receipt is the Message: the date and time received are
+`submission/2` shape `parse_submission` writes for stage 1, with the one
+Sample the Message reports, so stage 2 reads it the same way. The receipt
+is the Message: the date and time received are
 its `ts` (UTC), and `received_by` is who said it. Nothing in a Message
 gives the submission date, the Bill To party or the Submitted By party's
 contact details, so those are "".
@@ -55,7 +56,7 @@ import re
 import sys
 from pathlib import Path
 
-SCHEMA = "submission/1"
+SCHEMA = "submission/2"
 PARTIES = ("submitted_by", "bill_to", "report_to")
 PARTY_FIELDS = ("company", "contact", "address", "city", "phone", "email")
 
@@ -163,7 +164,8 @@ def report_to(body: str) -> tuple[str, dict[str, str]]:
 
 
 # Every value the Report of Analysis is rendered from that a Message must
-# give: (its name, its section of the record, its key there).
+# give: (its name, its section of the record, its key there). `sample` is the
+# record's one Sample.
 REQUIRED = (
     ("Lot", "sample", "lot"),
     ("Product Code", "sample", "product_code"),
@@ -193,31 +195,32 @@ def parse(message: dict) -> dict:
     parties = {party: dict.fromkeys(PARTY_FIELDS, "") for party in PARTIES}
     parties["submitted_by"]["company"] = one("Client", matches(CLIENT, body))
     parties["report_to"] = report_to_party
-    record = {
+    sample = {
+        "no": "1",
+        "sample_description": product,
+        "sample_type": sample_type(body),
+        "tat_code": code,
+        "tat_class": TAT_CODES.get(code, ""),
+        "lot": lot,
+        "product_code": product_code,
+        "product_type": one("Product Type", matches(PRODUCT_TYPE, body)),
+        "no_of_containers": containers,
+    }
+    sections = {**parties, "sample": sample}
+    missing = [name for name, section, key in REQUIRED if not sections[section][key]]
+    if missing:
+        raise MessageError(f"the Message names no {' and no '.join(missing)}")
+    return {
         "schema": SCHEMA,
         "date_submitted": "",
         **parties,
-        "sample": {
-            "no": "1",
-            "sample_description": product,
-            "sample_type": sample_type(body),
-            "tat_code": code,
-            "tat_class": TAT_CODES.get(code, ""),
-            "lot": lot,
-            "product_code": product_code,
-            "product_type": one("Product Type", matches(PRODUCT_TYPE, body)),
-            "no_of_containers": containers,
-        },
+        "samples": [sample],
         "receipt": {
             "date_received": ts[:10],
             "time_received": ts[11:16],
             "received_by": message["said_by"],
         },
     }
-    missing = [name for name, section, key in REQUIRED if not record[section][key]]
-    if missing:
-        raise MessageError(f"the Message names no {' and no '.join(missing)}")
-    return record
 
 
 def message_of(inputs: Path) -> dict:
@@ -267,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         + "\n"
     )
-    sample = record["sample"]
+    [sample] = record["samples"]
     print(
         f"parsed Message seq {message['seq']}: Lot {sample['lot']},"
         f" Product Code {sample['product_code']}"

@@ -116,7 +116,19 @@ describe("the routes the Flow and Performance views read", () => {
 			"SubmissionRecord",
 			JSON.stringify({ sample: { lot: "LOT-0042" } }),
 		);
+		const several = stored(
+			"SubmissionRecord",
+			JSON.stringify({
+				schema: "submission/2",
+				samples: [
+					{ lot: "LOT-0043" },
+					{ lot: "LOT-0043" },
+					{ lot: "LOT-0044" },
+				],
+			}),
+		);
 		stored("SubmissionRecord", JSON.stringify({ sample: { lot: "" } }));
+		stored("SubmissionRecord", JSON.stringify({ samples: [] }));
 		stored("SubmissionRecord", "not JSON");
 		stored("Other", JSON.stringify({ sample: { lot: "LOT-9" } }));
 		const read = (id: ArtifactId) => {
@@ -127,7 +139,10 @@ describe("the routes the Flow and Performance views read", () => {
 
 		const lots = PROJECTION_ROUTES.lots(s.ledger.projections, s.now(), read);
 
-		expect(Object.fromEntries(lots)).toEqual({ [record]: "LOT-0042" });
+		expect(Object.fromEntries(lots)).toEqual({
+			[record]: "LOT-0042",
+			[several]: "LOT-0043, LOT-0044",
+		});
 	});
 
 	it("reviews serves every Review with its assignee and the Merit after it", () => {

@@ -49,10 +49,20 @@ def put(inputs: Path, artifact_id: str, source: Path, filename: str) -> None:
     (inputs / artifact_id / filename).chmod(0o444)
 
 
-def receipt(tmp_path: Path, tat_class: str, carried: Path | None = None) -> Path:
-    """Stage 2 on seed 1's expected record with `tat_class`: its outputs directory."""
+def receipt(
+    tmp_path: Path,
+    tat_class: str,
+    carried: Path | None = None,
+    more: tuple[dict, ...] = (),
+) -> Path:
+    """Stage 2 on seed 1's expected record with `tat_class`, and `more` Samples
+    after its own, each a change to seed 1's Sample: its outputs directory."""
     record = json.loads(RECORD.read_text())
-    record["sample"]["tat_class"] = tat_class
+    [sample] = record["samples"]
+    sample["tat_class"] = tat_class
+    record["samples"] += [
+        {**sample, "no": str(n), **change} for n, change in enumerate(more, start=2)
+    ]
     tmp_path.mkdir(exist_ok=True)
     (tmp_path / "submission.json").write_text(json.dumps(record))
     inputs = tmp_path / "receipt-inputs"
@@ -128,7 +138,7 @@ def test_the_due_date_counts_the_tat_class_business_days_after_receipt(
 
     assert result.returncode == 0, result.stderr
     summary = json.loads((outputs / "work_order.json").read_text())
-    assert summary["header"]["TAT Class"] == tat_class
+    assert {(row[4], row[5]) for row in summary["rows"]} == {(tat_class, due)}
     assert summary["header"]["Due Date"] == due
     assert query(
         outputs / "lims.sqlite", "SELECT DISTINCT due_date FROM work_orders"
@@ -158,21 +168,20 @@ def test_it_writes_the_header_block_one_test_per_sample_and_the_work_orders_rows
 
     ws = load_workbook(outputs / "work_order.xlsx").active
     assert ws.title == "WO-2026-0001"
+    due = datetime(2026, 1, 12)
     assert list(ws.iter_rows(values_only=True)) == [
-        ("Work Order", "WO-2026-0001"),
-        ("Client", "Tallowby Botanicals LLC"),
-        ("Lot", "LT-268123"),
-        ("Product Code", "TLB-1475"),
-        ("Received", datetime(2026, 1, 6)),
-        ("TAT Class", "Rush3to4Days"),
-        ("Due Date", datetime(2026, 1, 12)),
-        (None, None),
-        ("Lab Reference", "Test"),
-        ("LR-2026-0001", TEST),
-        ("LR-2026-0002", TEST),
+        ("Work Order", "WO-2026-0001", None, None, None, None),
+        ("Client", "Tallowby Botanicals LLC", None, None, None, None),
+        ("Received", datetime(2026, 1, 6), None, None, None, None),
+        ("Due Date", due, None, None, None, None),
+        (None,) * 6,
+        ("Lab Reference", "Test", "Lot", "Product Code", "TAT Class", "Due Date"),
+        ("LR-2026-0001", TEST, "LT-268123", "TLB-1475", "Rush3to4Days", due),
+        ("LR-2026-0002", TEST, "LT-268123", "TLB-1475", "Rush3to4Days", due),
     ]
+    row = [TEST, "LT-268123", "TLB-1475", "Rush3to4Days", "2026-01-12"]
     assert json.loads((outputs / "work_order.json").read_text()) == {
-        "schema": "work_order/1",
+        "schema": "work_order/2",
         "receiving_log_row": [
             ["LR-2026-0001", "2026-01-06"],
             ["LR-2026-0002", "2026-01-06"],
@@ -180,14 +189,18 @@ def test_it_writes_the_header_block_one_test_per_sample_and_the_work_orders_rows
         "header": {
             "Work Order": "WO-2026-0001",
             "Client": "Tallowby Botanicals LLC",
-            "Lot": "LT-268123",
-            "Product Code": "TLB-1475",
             "Received": "2026-01-06",
-            "TAT Class": "Rush3to4Days",
             "Due Date": "2026-01-12",
         },
-        "columns": ["Lab Reference", "Test"],
-        "rows": [["LR-2026-0001", TEST], ["LR-2026-0002", TEST]],
+        "columns": [
+            "Lab Reference",
+            "Test",
+            "Lot",
+            "Product Code",
+            "TAT Class",
+            "Due Date",
+        ],
+        "rows": [["LR-2026-0001", *row], ["LR-2026-0002", *row]],
     }
     assert query(
         outputs / "lims.sqlite",
@@ -196,6 +209,45 @@ def test_it_writes_the_header_block_one_test_per_sample_and_the_work_orders_rows
         ("WO-2026-0001", ref, TEST, "2026-01-12", ROW_ID)
         for ref in ("LR-2026-0001", "LR-2026-0002")
     ]
+
+
+def test_one_work_order_plans_each_sample_with_its_own_lot_and_due_date(tmp_path):
+    other = {
+        "lot": "LT-269999",
+        "product_code": "TLB-2000",
+        "tat_class": "Rush1to2Days",
+        "no_of_containers": "1",
+    }
+
+    result, outputs = work_order(tmp_path, receipt(tmp_path, "Regular", more=(other,)))
+
+    assert result.returncode == 0, result.stderr
+    summary = json.loads((outputs / "work_order.json").read_text())
+    assert summary["rows"] == [
+        ["LR-2026-0001", TEST, "LT-268123", "TLB-1475", "Regular", "2026-01-20"],
+        ["LR-2026-0002", TEST, "LT-268123", "TLB-1475", "Regular", "2026-01-20"],
+        ["LR-2026-0003", TEST, "LT-269999", "TLB-2000", "Rush1to2Days", "2026-01-08"],
+    ]
+    assert summary["header"]["Due Date"] == "2026-01-20", "due with its last Sample"
+    assert query(
+        outputs / "lims.sqlite",
+        "SELECT work_order, lab_reference, due_date FROM work_orders"
+        " ORDER BY lab_reference",
+    ) == [
+        ("WO-2026-0001", "LR-2026-0001", "2026-01-20"),
+        ("WO-2026-0001", "LR-2026-0002", "2026-01-20"),
+        ("WO-2026-0001", "LR-2026-0003", "2026-01-08"),
+    ]
+
+
+def test_it_refuses_a_row_with_a_sample_type_it_has_no_tests_for(tmp_path):
+    raw = {"lot": "RM-1", "sample_type": "RM", "no_of_containers": "1"}
+
+    result, outputs = work_order(tmp_path, receipt(tmp_path, "Regular", more=(raw,)))
+
+    assert result.returncode == 1
+    assert "LR-2026-0003: no Tests for Sample type 'RM'" in result.stderr
+    assert list(outputs.iterdir()) == []
 
 
 def test_numbering_continues_from_the_work_orders_of_the_carried_database(

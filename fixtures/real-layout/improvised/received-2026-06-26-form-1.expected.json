@@ -1,9 +1,9 @@
 {
   "bill_to": {
-    "address": "770 Juniper Mill Drive",
-    "city": "Velmora Heights, NJ 07998",
+    "address": "964 Tamsin Lane",
+    "city": "Lindqvist Park, DE 19998",
     "company": "RXD",
-    "contact": "Maren Quell",
+    "contact": "Delphine Vantongeren",
     "email": "",
     "phone": ""
   },
@@ -14,31 +14,99 @@
     "time_received": "12:01"
   },
   "report_to": {
-    "address": "847 Quarry Hill Road",
-    "city": "Velmora Heights, NJ 07998",
+    "address": "989 Quarry Hill Road",
+    "city": "Lindqvist Park, DE 19998",
     "company": "RXD",
-    "contact": "Maren Vantongeren",
-    "email": "maren.vantongeren@rxd.example",
-    "phone": "(201) 555-0122"
+    "contact": "Delphine Thorne-Ames",
+    "email": "delphine.thorne-ames@rxd.example",
+    "phone": "(201) 555-0145"
   },
-  "sample": {
-    "lot": "77243846",
-    "no": "1",
-    "no_of_containers": "1",
-    "product_code": "D11981",
-    "product_type": "Sjtgdw",
-    "sample_description": "Bnwwjqrowmpcivy TYx IE",
-    "sample_type": "RM",
-    "tat_class": "Regular",
-    "tat_code": "1"
-  },
-  "schema": "submission/1",
+  "samples": [
+    {
+      "lot": "77243846",
+      "no": "1",
+      "no_of_containers": "1",
+      "product_code": "D11981",
+      "product_type": "Sjtgdw",
+      "sample_description": "Bnwwjqrowmpcivy TYx IE",
+      "sample_type": "RM",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    },
+    {
+      "lot": "9906709",
+      "no": "2",
+      "no_of_containers": "1",
+      "product_code": "D11981",
+      "product_type": "Sjtgdw",
+      "sample_description": "Bnwwjqrowmpcivy TYx IE",
+      "sample_type": "RM",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    },
+    {
+      "lot": "Z970513",
+      "no": "3",
+      "no_of_containers": "1",
+      "product_code": "C37837",
+      "product_type": "Sjtgdw",
+      "sample_description": "Cptpqypjclpwlc",
+      "sample_type": "RM",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    },
+    {
+      "lot": "K294589",
+      "no": "4",
+      "no_of_containers": "1",
+      "product_code": "C37837",
+      "product_type": "Sjtgdw",
+      "sample_description": "Cptpqypjclpwlc",
+      "sample_type": "RM",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    },
+    {
+      "lot": "L631331",
+      "no": "5",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Sjtgdw",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    },
+    {
+      "lot": "L631331",
+      "no": "6",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Sjtgdw",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    },
+    {
+      "lot": "L631331",
+      "no": "7",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Xsmmejc",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    }
+  ],
+  "schema": "submission/2",
   "submitted_by": {
-    "address": "847 Quarry Hill Road",
-    "city": "Velmora Heights, NJ 07998",
+    "address": "989 Quarry Hill Road",
+    "city": "Lindqvist Park, DE 19998",
     "company": "RXD",
-    "contact": "Maren Vantongeren",
-    "email": "maren.vantongeren@rxd.example",
-    "phone": "(201) 555-0122"
+    "contact": "Delphine Thorne-Ames",
+    "email": "delphine.thorne-ames@rxd.example",
+    "phone": "(201) 555-0145"
   }
 }

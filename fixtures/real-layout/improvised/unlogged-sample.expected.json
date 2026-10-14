@@ -1,44 +1,46 @@
 {
   "bill_to": {
-    "address": "163 Larkspur Way",
-    "city": "Orrin Bay, NY 14999",
+    "address": "662 Larkspur Way",
+    "city": "Westhallow, CT 06999",
     "company": "RXD",
-    "contact": "Delphine Brisk",
+    "contact": "Anselm Halloway",
     "email": "",
     "phone": ""
   },
-  "date_submitted": "2026-09-20",
+  "date_submitted": "2026-09-19",
   "receipt": {
     "date_received": "2026-09-21",
     "received_by": "EX",
     "time_received": "14:30"
   },
   "report_to": {
-    "address": "54 Quarry Hill Road",
-    "city": "Orrin Bay, NY 14999",
-    "company": "RXD",
-    "contact": "Idris Vantongeren",
-    "email": "idris.vantongeren@rxd.example",
-    "phone": "(201) 555-0166"
-  },
-  "sample": {
-    "lot": "O354510",
-    "no": "1",
-    "no_of_containers": "1",
-    "product_code": "9141R",
-    "product_type": "Jcdmg",
-    "sample_description": "Magnesium Glycinate 200 mg Capsules",
-    "sample_type": "IP",
-    "tat_class": "Regular",
-    "tat_code": "1"
-  },
-  "schema": "submission/1",
-  "submitted_by": {
-    "address": "54 Quarry Hill Road",
-    "city": "Orrin Bay, NY 14999",
+    "address": "685 Larkspur Way",
+    "city": "Westhallow, CT 06999",
     "company": "RXD",
     "contact": "Tobiah Lindgard",
     "email": "tobiah.lindgard@rxd.example",
-    "phone": "(201) 555-0140"
+    "phone": "(201) 555-0119"
+  },
+  "samples": [
+    {
+      "lot": "O354510",
+      "no": "1",
+      "no_of_containers": "1",
+      "product_code": "9141R",
+      "product_type": "Jcdmg",
+      "sample_description": "Magnesium Glycinate 200 mg Capsules",
+      "sample_type": "IP",
+      "tat_class": "Regular",
+      "tat_code": "1"
+    }
+  ],
+  "schema": "submission/2",
+  "submitted_by": {
+    "address": "685 Larkspur Way",
+    "city": "Westhallow, CT 06999",
+    "company": "RXD",
+    "contact": "Idris Vantongeren",
+    "email": "idris.vantongeren@rxd.example",
+    "phone": "(201) 555-0118"
   }
 }

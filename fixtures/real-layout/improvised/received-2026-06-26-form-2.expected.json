@@ -1,44 +1,123 @@
 {
   "bill_to": {
-    "address": "121 Tamsin Lane",
-    "city": "Velmora Heights, NJ 07998",
+    "address": "929 Juniper Mill Drive",
+    "city": "Westhallow, CT 06999",
     "company": "RXD",
-    "contact": "Calla Quell",
-    "email": "calla.quell@rxd.example",
-    "phone": "(201) 555-0159"
+    "contact": "Tobiah Vantongeren",
+    "email": "tobiah.vantongeren@rxd.example",
+    "phone": "(201) 555-0138"
   },
-  "date_submitted": "2026-06-25",
+  "date_submitted": "2026-06-24",
   "receipt": {
     "date_received": "2026-06-26",
     "received_by": "EX",
     "time_received": "12:01"
   },
   "report_to": {
-    "address": "121 Tamsin Lane",
-    "city": "Velmora Heights, NJ 07998",
+    "address": "929 Juniper Mill Drive",
+    "city": "Westhallow, CT 06999",
     "company": "RXD",
-    "contact": "Delphine Thorne-Ames",
-    "email": "delphine.thorne-ames@rxd.example",
-    "phone": "(201) 555-0165"
+    "contact": "Idris Halloway",
+    "email": "idris.halloway@rxd.example",
+    "phone": "(201) 555-0168"
   },
-  "sample": {
-    "lot": "H159531",
-    "no": "1",
-    "no_of_containers": "3",
-    "product_code": "1988U",
-    "product_type": "Sjtgdw",
-    "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
-    "sample_type": "FP",
-    "tat_class": "Rush1to2Days",
-    "tat_code": "2"
-  },
-  "schema": "submission/1",
+  "samples": [
+    {
+      "lot": "H159531",
+      "no": "1",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Sjtgdw",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    },
+    {
+      "lot": "H159531",
+      "no": "2",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Sjtgdw",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    },
+    {
+      "lot": "H159531",
+      "no": "3",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Sjtgdw",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    },
+    {
+      "lot": "H159531",
+      "no": "4",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Sjtgdw",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    },
+    {
+      "lot": "H159531",
+      "no": "5",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Xsmmejc",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    },
+    {
+      "lot": "H159531",
+      "no": "6",
+      "no_of_containers": "1",
+      "product_code": "1988U",
+      "product_type": "Xsmmejc",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    },
+    {
+      "lot": "A383081",
+      "no": "7",
+      "no_of_containers": "1",
+      "product_code": "6442V",
+      "product_type": "Sjtgdw",
+      "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    },
+    {
+      "lot": "F782437",
+      "no": "8",
+      "no_of_containers": "1",
+      "product_code": "2251V",
+      "product_type": "Sjtgdw",
+      "sample_description": "Juxjjjxjpyxetil 84mg Nghjfqkc",
+      "sample_type": "FP",
+      "tat_class": "Rush1to2Days",
+      "tat_code": "2"
+    }
+  ],
+  "schema": "submission/2",
   "submitted_by": {
-    "address": "121 Tamsin Lane",
-    "city": "Velmora Heights, NJ 07998",
+    "address": "929 Juniper Mill Drive",
+    "city": "Westhallow, CT 06999",
     "company": "RXD",
-    "contact": "Calla Quell",
-    "email": "calla.quell@rxd.example",
-    "phone": "(201) 555-0159"
+    "contact": "Tobiah Vantongeren",
+    "email": "tobiah.vantongeren@rxd.example",
+    "phone": "(201) 555-0138"
   }
 }
