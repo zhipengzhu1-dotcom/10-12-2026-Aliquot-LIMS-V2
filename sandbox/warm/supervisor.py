@@ -20,6 +20,7 @@ stops, and `--rm` removes it.
 """
 
 import base64
+import ctypes
 import json
 import os
 import shutil
@@ -32,6 +33,7 @@ from typing import IO
 
 WRITABLE = (Path("/outputs"), Path("/tmp"), Path("/dev/shm"))
 TIME_LIMIT_EXIT_CODE = 124
+PR_SET_DUMPABLE = 4
 
 
 def answer(message: dict[str, object]) -> None:
@@ -147,7 +149,17 @@ def reset() -> None:
         empty(directory)
 
 
+def undumpable() -> None:
+    # A Script runs under this process's uid. Not dumpable, this process's
+    # /proc/1 entries belong to root, so a Script cannot write to its pipes,
+    # read its memory or ptrace it. An execve makes the Script dumpable again.
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_DUMPABLE, 0) failed")
+
+
 def main() -> None:
+    undumpable()
     answer({"ready": True})
     for line in sys.stdin:
         request = json.loads(line)

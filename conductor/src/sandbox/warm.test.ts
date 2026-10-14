@@ -212,6 +212,28 @@ describe.skipIf(!requireDocker())(suite, () => {
 		});
 	}, 120_000);
 
+	it("keeps a warm Run away from the supervisor: no forged answer through /proc/1/fd/1, no /proc/1/mem", async () => {
+		const message = storeInput(JSON.stringify(MESSAGE), "message-12.json");
+		restore();
+		const cold = await run("parse_message", [message.id]);
+		restore = useSandbox(warm);
+
+		const probe = await run("pid1_probe", []);
+		const next = await run("parse_message", [message.id]);
+
+		expect(probe.exit_code).toBe(0);
+		const reached = JSON.parse(record(probe).outputs["reached.json"] ?? "{}");
+		expect(reached.fd1, "writing to PID 1's stdout fails").toMatch(
+			/^PermissionError/,
+		);
+		expect(reached.mem, "opening PID 1's memory fails").toMatch(
+			/^PermissionError/,
+		);
+		expect(record(next), "the next Run's answer is its own").toEqual(
+			record(cold),
+		);
+	}, 120_000);
+
 	it("kills a warm Run at its time limit, and the next Run succeeds", async () => {
 		const started = performance.now();
 		const slept = await run("sleep_forever", [], 2_000);
