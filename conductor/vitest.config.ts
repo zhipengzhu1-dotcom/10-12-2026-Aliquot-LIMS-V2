@@ -10,6 +10,10 @@ const IN_PROCESS = [
 	"ui/**/*.test.ts",
 ];
 
+// The warm Sandbox suite times its Runs against a bound, so it runs after
+// every other suite, when their containers no longer take the CPU.
+const ALONE = ["src/sandbox/warm.test.ts"];
+
 export default defineConfig({
 	test: {
 		// Every command line a test spawns acts for this person, as README's
@@ -25,9 +29,19 @@ export default defineConfig({
 				test: {
 					name: "long timeouts",
 					include: ["src/**/*.test.ts"],
-					exclude: IN_PROCESS,
+					exclude: [...IN_PROCESS, ...ALONE],
 					testTimeout: 30_000,
 					hookTimeout: 30_000,
+				},
+			},
+			{
+				extends: true,
+				test: {
+					name: "alone",
+					include: ALONE,
+					testTimeout: 30_000,
+					hookTimeout: 30_000,
+					sequence: { groupOrder: 1 },
 				},
 			},
 		],
