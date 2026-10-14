@@ -1,0 +1,623 @@
+Serving /Users/maracchi/aliquot-live-73 at http://127.0.0.1:8787
+Scheduling Turns on the Agent SDK, on the subscription login of the claude CLI: a Tick every 15s, standing duty every 30m, at most 2 Turns at once, an Energy budget of 1000000 tokens
+scheduler 2026-10-14T00:17:08.633Z A-mabel start standing duty, no Turn yet
+scheduler 2026-10-14T00:17:08.669Z A-thorne start standing duty, no Turn yet
+scheduler 2026-10-14T00:17:13.041Z A-mabel finished TN-1 Completed: 0 Tool calls, 8286 tokens; Mood fresh
+scheduler 2026-10-14T00:17:14.415Z A-thorne finished TN-2 Completed: 1 Tool call, 9946 tokens; Mood fresh
+scheduler 2026-10-14T00:17:23.670Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:17:38.670Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:17:53.672Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:18:08.673Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:18:23.674Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:18:38.675Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:18:53.676Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:19:08.677Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:19:23.678Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:19:38.679Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:19:53.680Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:20:08.681Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:20:23.682Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:20:38.683Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:20:53.683Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:21:08.684Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:21:23.685Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:21:38.687Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:21:53.688Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:22:08.689Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:22:23.690Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:22:38.691Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:22:53.692Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:23:08.694Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:23:23.695Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:23:38.696Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:23:53.697Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:24:08.698Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:24:23.699Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:24:38.700Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:24:53.701Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:25:08.702Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:25:23.704Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:25:38.704Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:25:53.705Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:26:08.706Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:26:23.708Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:26:38.710Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:26:53.711Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:27:08.711Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:27:23.714Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:27:38.714Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:27:53.716Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:28:08.719Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:28:23.720Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:28:38.720Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:28:53.722Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:29:08.722Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:29:23.724Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:29:38.726Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:29:53.728Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:30:08.727Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:30:23.730Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:30:38.732Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:30:53.734Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:31:08.733Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:31:23.735Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:31:38.735Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:31:53.737Z A-anselm start 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:53.743Z A-bram start 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:53.745Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:53.745Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:53.745Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:53.745Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:53.745Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:53.745Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:31:59.588Z A-anselm finished TN-3 Completed: 2 Tool calls, 5434 tokens; Mood fresh
+scheduler 2026-10-14T00:31:59.831Z A-bram finished TN-4 Completed: 2 Tool calls, 5210 tokens; Mood fresh
+scheduler 2026-10-14T00:32:08.738Z A-ines start 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:08.741Z A-odile start 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:08.743Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:08.743Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:08.743Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:08.743Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:12.833Z A-ines finished TN-5 Completed: 0 Tool calls, 3776 tokens; Mood fresh
+scheduler 2026-10-14T00:32:16.560Z A-odile finished TN-6 Completed: 2 Tool calls, 7949 tokens; Mood fresh
+scheduler 2026-10-14T00:32:23.739Z A-pia start 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:23.741Z A-rin start 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:23.742Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:23.743Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:23.743Z A-bram skip 2 Turns open, the most at once; holds T-1
+scheduler 2026-10-14T00:32:30.141Z A-rin finished TN-8 Completed: 2 Tool calls, 5426 tokens; Mood fresh
+scheduler 2026-10-14T00:32:37.694Z A-pia finished TN-7 Completed: 7 Tool calls, 9013 tokens; Mood fresh
+scheduler 2026-10-14T00:32:38.741Z A-mabel start 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:38.744Z A-thorne start 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:38.746Z A-bram skip 2 Turns open, the most at once; holds T-1, T-2
+scheduler 2026-10-14T00:32:43.279Z A-thorne finished TN-10 Completed: 1 Tool call, 3042 tokens; Mood fresh
+scheduler 2026-10-14T00:32:47.601Z A-mabel finished TN-9 Completed: 3 Tool calls, 5826 tokens; Mood fresh
+scheduler 2026-10-14T00:32:53.741Z A-anselm start 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:53.745Z A-bram start holds T-1, T-2; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:53.751Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:53.751Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:53.751Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:53.751Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:53.751Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:32:59.802Z A-anselm finished TN-11 Completed: 1 Tool call, 3874 tokens; Mood fresh
+scheduler 2026-10-14T00:33:08.742Z A-bram skip A-bram already has an open Turn, TN-12; holds T-1, T-2; 1 new Message in its Rooms
+scheduler 2026-10-14T00:33:08.742Z A-ines start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:08.745Z A-odile skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:08.745Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:08.745Z A-rin skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:08.745Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:33:08.745Z A-thorne skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:11.692Z A-ines finished TN-13 Completed: 0 Tool calls, 1192 tokens; Mood fresh
+scheduler 2026-10-14T00:33:17.160Z A-bram finished TN-12 Completed: 15 Tool calls, 17771 tokens; Mood fresh
+scheduler 2026-10-14T00:33:23.743Z A-odile start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:33:23.746Z A-pia start 3 new Messages in its Rooms; escalated T-2 from A-bram
+scheduler 2026-10-14T00:33:23.748Z A-rin skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:33:23.748Z A-mabel skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:23.748Z A-thorne skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:33:23.748Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:33:23.748Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:33:23.748Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:33:34.728Z A-odile finished TN-14 Completed: 4 Tool calls, 8408 tokens; Mood fresh
+scheduler 2026-10-14T00:33:38.743Z A-pia skip A-pia already has an open Turn, TN-15; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.743Z A-rin start 7 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.745Z A-mabel skip 2 Turns open, the most at once; 6 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.745Z A-thorne skip 2 Turns open, the most at once; 7 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.745Z A-anselm skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.745Z A-bram skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.745Z A-ines skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.745Z A-odile skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:38.942Z A-pia finished TN-15 Completed: 7 Tool calls, 9826 tokens; Mood fresh
+scheduler 2026-10-14T00:33:41.379Z A-rin finished TN-16 Completed: 0 Tool calls, 4653 tokens; Mood fresh
+scheduler 2026-10-14T00:33:53.744Z A-mabel start 6 new Messages in its Rooms
+scheduler 2026-10-14T00:33:53.746Z A-thorne start 7 new Messages in its Rooms
+scheduler 2026-10-14T00:33:53.748Z A-anselm skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:33:53.748Z A-bram skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:33:53.748Z A-ines skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:33:53.748Z A-odile skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:33:53.748Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:05.342Z A-mabel finished TN-17 Completed: 4 Tool calls, 7685 tokens; Mood fresh
+scheduler 2026-10-14T00:34:07.761Z A-thorne finished TN-18 Completed: 5 Tool calls, 8112 tokens; Mood fresh
+scheduler 2026-10-14T00:34:08.745Z A-anselm start 9 new Messages in its Rooms
+scheduler 2026-10-14T00:34:08.746Z A-bram start 9 new Messages in its Rooms
+scheduler 2026-10-14T00:34:08.747Z A-ines skip 2 Turns open, the most at once; 9 new Messages in its Rooms
+scheduler 2026-10-14T00:34:08.747Z A-odile skip 2 Turns open, the most at once; 6 new Messages in its Rooms
+scheduler 2026-10-14T00:34:08.747Z A-pia skip 2 Turns open, the most at once; 6 new Messages in its Rooms
+scheduler 2026-10-14T00:34:08.747Z A-rin skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:34:08.747Z A-mabel skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:08.747Z A-thorne skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:11.421Z A-bram finished TN-20 Completed: 0 Tool calls, 6165 tokens; Mood fresh
+scheduler 2026-10-14T00:34:13.434Z A-anselm finished TN-19 Completed: 2 Tool calls, 7173 tokens; Mood fresh
+scheduler 2026-10-14T00:34:23.746Z A-ines start 9 new Messages in its Rooms
+scheduler 2026-10-14T00:34:23.750Z A-odile start 6 new Messages in its Rooms
+scheduler 2026-10-14T00:34:23.752Z A-pia skip 2 Turns open, the most at once; 6 new Messages in its Rooms
+scheduler 2026-10-14T00:34:23.752Z A-rin skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:34:23.752Z A-mabel skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:23.752Z A-thorne skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:26.564Z A-ines finished TN-21 Completed: 0 Tool calls, 5015 tokens; Mood fresh
+scheduler 2026-10-14T00:34:33.062Z A-odile finished TN-22 Completed: 2 Tool calls, 8521 tokens; Mood fresh
+scheduler 2026-10-14T00:34:38.747Z A-pia start 7 new Messages in its Rooms
+scheduler 2026-10-14T00:34:38.749Z A-rin start 5 new Messages in its Rooms
+scheduler 2026-10-14T00:34:38.750Z A-mabel skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:34:38.750Z A-thorne skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:34:38.750Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:34:38.750Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:34:38.750Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:34:41.307Z A-rin finished TN-24 Completed: 0 Tool calls, 1694 tokens; Mood fresh
+scheduler 2026-10-14T00:34:51.155Z A-pia finished TN-23 Completed: 4 Tool calls, 10383 tokens; Mood fresh
+scheduler 2026-10-14T00:34:53.747Z A-mabel start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:34:53.748Z A-thorne start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:34:53.749Z A-anselm skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:53.749Z A-bram skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:53.749Z A-ines skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:34:53.749Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:34:53.749Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:00.173Z A-mabel finished TN-25 Completed: 1 Tool call, 5610 tokens; Mood fresh
+scheduler 2026-10-14T00:35:01.355Z A-thorne finished TN-26 Completed: 3 Tool calls, 6486 tokens; Mood fresh
+scheduler 2026-10-14T00:35:08.748Z A-anselm start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:35:08.752Z A-bram start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:35:08.754Z A-ines skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:35:08.754Z A-odile skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:35:08.754Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:35:08.754Z A-rin skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:35:08.754Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:08.754Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:12.341Z A-bram finished TN-28 Completed: 0 Tool calls, 1959 tokens; Mood fresh
+scheduler 2026-10-14T00:35:20.234Z A-anselm finished TN-27 Completed: 4 Tool calls, 10547 tokens; Mood fresh
+scheduler 2026-10-14T00:35:23.749Z A-ines start 5 new Messages in its Rooms
+scheduler 2026-10-14T00:35:23.751Z A-odile start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:35:23.754Z A-pia skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:35:23.754Z A-rin skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:35:23.754Z A-mabel skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:35:23.754Z A-thorne skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:35:23.754Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:26.571Z A-ines finished TN-29 Completed: 0 Tool calls, 1840 tokens; Mood fresh
+scheduler 2026-10-14T00:35:27.639Z A-odile finished TN-30 Completed: 0 Tool calls, 6239 tokens; Mood fresh
+scheduler 2026-10-14T00:35:38.751Z A-pia start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:35:38.754Z A-rin start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:35:38.755Z A-mabel skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:35:38.755Z A-thorne skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:35:38.755Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:41.769Z A-rin finished TN-32 Completed: 0 Tool calls, 4112 tokens; Mood fresh
+scheduler 2026-10-14T00:35:49.156Z A-pia finished TN-31 Completed: 2 Tool calls, 6438 tokens; Mood fresh
+scheduler 2026-10-14T00:35:53.752Z A-mabel start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:35:53.756Z A-thorne start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:35:53.757Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:53.757Z A-bram skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:35:53.757Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:53.757Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:35:53.757Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:02.404Z A-mabel finished TN-33 Completed: 3 Tool calls, 6719 tokens; Mood fresh
+scheduler 2026-10-14T00:36:03.463Z A-thorne finished TN-34 Completed: 3 Tool calls, 6689 tokens; Mood fresh
+scheduler 2026-10-14T00:36:08.752Z A-anselm start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:08.753Z A-bram start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:36:08.754Z A-ines skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:08.754Z A-odile skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:08.754Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:36:08.754Z A-rin skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:08.754Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:08.754Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:11.543Z A-anselm finished TN-35 Completed: 0 Tool calls, 4773 tokens; Mood fresh
+scheduler 2026-10-14T00:36:12.448Z A-bram finished TN-36 Completed: 0 Tool calls, 2344 tokens; Mood fresh
+scheduler 2026-10-14T00:36:23.754Z A-ines start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:23.754Z A-odile start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:23.755Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:36:23.755Z A-rin skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:23.755Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:23.755Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:26.566Z A-ines finished TN-37 Completed: 0 Tool calls, 4100 tokens; Mood fresh
+scheduler 2026-10-14T00:36:27.674Z A-odile finished TN-38 Completed: 0 Tool calls, 6123 tokens; Mood fresh
+scheduler 2026-10-14T00:36:38.755Z A-pia start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:36:38.757Z A-rin start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:36:38.758Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:38.758Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:41.348Z A-rin finished TN-40 Completed: 0 Tool calls, 3832 tokens; Mood fresh
+scheduler 2026-10-14T00:36:47.131Z A-pia finished TN-39 Completed: 3 Tool calls, 6690 tokens; Mood fresh
+scheduler 2026-10-14T00:36:53.756Z A-mabel start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:36:53.757Z A-thorne start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:36:53.757Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:53.757Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:53.757Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:53.757Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:53.757Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:36:59.406Z A-mabel finished TN-41 Completed: 1 Tool call, 4870 tokens; Mood fresh
+scheduler 2026-10-14T00:37:04.892Z A-thorne finished TN-42 Completed: 3 Tool calls, 6380 tokens; Mood fresh
+scheduler 2026-10-14T00:37:08.757Z A-anselm start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:08.762Z A-bram start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:08.764Z A-ines skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:08.764Z A-odile skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:08.764Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:37:08.764Z A-rin skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:08.764Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:08.764Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:11.892Z A-bram finished TN-44 Completed: 0 Tool calls, 1762 tokens; Mood fresh
+scheduler 2026-10-14T00:37:13.137Z A-anselm finished TN-43 Completed: 0 Tool calls, 3814 tokens; Mood fresh
+scheduler 2026-10-14T00:37:23.758Z A-ines start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:23.760Z A-odile start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:23.761Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:37:23.761Z A-rin skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:23.761Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:23.761Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:26.915Z A-ines finished TN-45 Completed: 0 Tool calls, 1444 tokens; Mood fresh
+scheduler 2026-10-14T00:37:27.768Z A-odile finished TN-46 Completed: 0 Tool calls, 5585 tokens; Mood fresh
+scheduler 2026-10-14T00:37:38.759Z A-pia start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:37:38.762Z A-rin start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:37:38.764Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:38.764Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:41.404Z A-rin finished TN-48 Completed: 0 Tool calls, 1461 tokens; Mood fresh
+scheduler 2026-10-14T00:37:46.406Z A-pia finished TN-47 Completed: 2 Tool calls, 5179 tokens; Mood fresh
+scheduler 2026-10-14T00:37:53.760Z A-mabel start 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:53.764Z A-thorne start 1 new Message in its Rooms
+scheduler 2026-10-14T00:37:56.663Z A-mabel finished TN-49 Completed: 0 Tool calls, 3334 tokens; Mood fresh
+scheduler 2026-10-14T00:37:56.899Z A-thorne finished TN-50 Completed: 0 Tool calls, 1343 tokens; Mood fresh
+scheduler 2026-10-14T00:38:08.762Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:38:23.763Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:38:38.763Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:38:53.764Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:39:08.765Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:39:23.767Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:39:38.768Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:39:53.768Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:40:08.771Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:40:23.772Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:40:38.775Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:40:53.776Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:41:08.779Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:41:23.781Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:41:38.783Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:41:53.785Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:42:08.787Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:42:23.789Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:42:38.791Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:42:53.793Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:43:08.794Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:43:23.795Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:43:38.796Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:43:53.796Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:44:08.798Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:44:23.799Z A-anselm start 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:23.803Z A-bram start 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:23.805Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:23.805Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:23.805Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:23.805Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:23.805Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:23.805Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:29.124Z A-bram finished TN-52 Completed: 1 Tool call, 4154 tokens; Mood fresh
+scheduler 2026-10-14T00:44:38.811Z A-ines start 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:38.813Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:38.813Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:38.813Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:38.813Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:38.813Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:41.642Z A-anselm finished TN-51 Completed: 7 Tool calls, 11296 tokens; Mood fresh
+scheduler 2026-10-14T00:44:42.041Z A-ines finished TN-53 Completed: 0 Tool calls, 2649 tokens; Mood fresh
+scheduler 2026-10-14T00:44:53.800Z A-odile start 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:53.803Z A-pia start 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:53.804Z A-rin skip 2 Turns open, the most at once; holds T-3; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:53.804Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:44:53.804Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:00.723Z A-pia finished TN-55 Completed: 1 Tool call, 3947 tokens; Mood fresh
+scheduler 2026-10-14T00:45:02.951Z A-odile finished TN-54 Completed: 2 Tool calls, 7100 tokens; Mood fresh
+scheduler 2026-10-14T00:45:08.804Z A-rin start holds T-3, T-4; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:08.809Z A-mabel start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:08.811Z A-thorne skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:08.811Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:08.811Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:08.811Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:08.811Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:18.911Z A-mabel finished TN-57 Completed: 2 Tool calls, 6796 tokens; Mood fresh
+scheduler 2026-10-14T00:45:23.626Z A-rin finished TN-56 Completed: 6 Tool calls, 10528 tokens; Mood fresh
+scheduler 2026-10-14T00:45:23.805Z A-thorne start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:45:23.808Z A-anselm start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:23.809Z A-bram skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:23.809Z A-ines skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:23.809Z A-odile skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:23.809Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms; escalated T-3 from A-rin; escalated T-4 from A-rin
+scheduler 2026-10-14T00:45:23.809Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:30.678Z A-anselm finished TN-59 Completed: 1 Tool call, 5800 tokens; Mood fresh
+scheduler 2026-10-14T00:45:35.214Z A-thorne finished TN-58 Completed: 3 Tool calls, 8044 tokens; Mood fresh
+scheduler 2026-10-14T00:45:38.807Z A-bram start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:45:38.811Z A-ines start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:45:38.813Z A-odile skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:45:38.813Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms; escalated T-3 from A-rin; escalated T-4 from A-rin
+scheduler 2026-10-14T00:45:38.813Z A-rin skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:38.813Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:38.813Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:41.740Z A-ines finished TN-61 Completed: 0 Tool calls, 4134 tokens; Mood fresh
+scheduler 2026-10-14T00:45:45.814Z A-bram finished TN-60 Completed: 2 Tool calls, 13720 tokens; Mood fresh
+scheduler 2026-10-14T00:45:53.808Z A-odile start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:45:53.811Z A-pia start 2 new Messages in its Rooms; escalated T-3 from A-rin; escalated T-4 from A-rin
+scheduler 2026-10-14T00:45:53.813Z A-rin skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:45:53.813Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:45:53.813Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:46:08.557Z A-pia finished TN-63 Completed: 4 Tool calls, 10575 tokens; Mood fresh
+scheduler 2026-10-14T00:46:08.810Z A-odile skip A-odile already has an open Turn, TN-62; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:46:08.810Z A-rin start 6 new Messages in its Rooms
+scheduler 2026-10-14T00:46:08.812Z A-mabel skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:46:08.812Z A-thorne skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:08.812Z A-anselm skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:46:08.812Z A-bram skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:08.812Z A-ines skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:08.812Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:46:09.284Z A-odile finished TN-62 Completed: 6 Tool calls, 11935 tokens; Mood fresh
+scheduler 2026-10-14T00:46:14.580Z A-rin finished TN-64 Completed: 1 Tool call, 5729 tokens; Mood fresh
+scheduler 2026-10-14T00:46:23.811Z A-mabel start 5 new Messages in its Rooms
+scheduler 2026-10-14T00:46:23.814Z A-thorne start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:23.817Z A-anselm skip 2 Turns open, the most at once; 5 new Messages in its Rooms
+scheduler 2026-10-14T00:46:23.817Z A-bram skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:23.817Z A-ines skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:23.817Z A-odile skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:46:23.817Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:46:33.569Z A-thorne finished TN-66 Completed: 3 Tool calls, 8209 tokens; Mood fresh
+scheduler 2026-10-14T00:46:34.300Z A-mabel finished TN-65 Completed: 2 Tool calls, 9304 tokens; Mood fresh
+scheduler 2026-10-14T00:46:38.811Z A-anselm start 7 new Messages in its Rooms
+scheduler 2026-10-14T00:46:38.813Z A-bram start 6 new Messages in its Rooms
+scheduler 2026-10-14T00:46:38.814Z A-ines skip 2 Turns open, the most at once; 6 new Messages in its Rooms
+scheduler 2026-10-14T00:46:38.814Z A-odile skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:38.814Z A-pia skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:38.814Z A-rin skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:46:38.814Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:46:38.814Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:46:44.498Z A-bram finished TN-68 Completed: 1 Tool call, 6959 tokens; Mood fresh
+scheduler 2026-10-14T00:46:46.762Z A-anselm finished TN-67 Completed: 1 Tool call, 8368 tokens; Mood fresh
+scheduler 2026-10-14T00:46:53.814Z A-ines start 6 new Messages in its Rooms
+scheduler 2026-10-14T00:46:53.818Z A-odile start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:53.821Z A-pia skip 2 Turns open, the most at once; 4 new Messages in its Rooms
+scheduler 2026-10-14T00:46:53.821Z A-rin skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:46:53.821Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:46:53.821Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:46:56.648Z A-ines finished TN-69 Completed: 0 Tool calls, 5442 tokens; Mood fresh
+scheduler 2026-10-14T00:46:58.178Z A-odile finished TN-70 Completed: 0 Tool calls, 7289 tokens; Mood fresh
+scheduler 2026-10-14T00:47:08.814Z A-pia start 4 new Messages in its Rooms
+scheduler 2026-10-14T00:47:08.818Z A-rin start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:47:08.820Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:08.820Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:12.131Z A-rin finished TN-72 Completed: 0 Tool calls, 3813 tokens; Mood fresh
+scheduler 2026-10-14T00:47:12.906Z A-pia finished TN-71 Completed: 0 Tool calls, 5732 tokens; Mood fresh
+scheduler 2026-10-14T00:47:23.816Z A-mabel start 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:23.819Z A-thorne start 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:26.904Z A-mabel finished TN-73 Completed: 0 Tool calls, 3767 tokens; Mood fresh
+scheduler 2026-10-14T00:47:32.242Z A-thorne finished TN-74 Completed: 3 Tool calls, 6703 tokens; Mood fresh
+scheduler 2026-10-14T00:47:38.816Z A-anselm start 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:38.821Z A-bram start 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:38.823Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:38.823Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:38.823Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:38.823Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:38.823Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:41.467Z A-anselm finished TN-75 Completed: 0 Tool calls, 1098 tokens; Mood fresh
+scheduler 2026-10-14T00:47:43.269Z A-bram finished TN-76 Completed: 1 Tool call, 4254 tokens; Mood fresh
+scheduler 2026-10-14T00:47:53.817Z A-ines start 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:53.820Z A-odile start 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:53.822Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:53.822Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:53.822Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:47:56.511Z A-ines finished TN-77 Completed: 0 Tool calls, 1088 tokens; Mood fresh
+scheduler 2026-10-14T00:47:57.726Z A-odile finished TN-78 Completed: 0 Tool calls, 4815 tokens; Mood fresh
+scheduler 2026-10-14T00:48:08.818Z A-pia start 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:08.821Z A-rin start 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:08.823Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:11.461Z A-rin finished TN-80 Completed: 0 Tool calls, 2983 tokens; Mood fresh
+scheduler 2026-10-14T00:48:19.828Z A-pia finished TN-79 Completed: 4 Tool calls, 6527 tokens; Mood fresh
+scheduler 2026-10-14T00:48:23.819Z A-mabel start 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:30.738Z A-mabel finished TN-81 Completed: 1 Tool call, 4253 tokens; Mood fresh
+scheduler 2026-10-14T00:48:38.820Z A-thorne start 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:38.822Z A-anselm start 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:38.824Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:38.824Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:38.824Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:38.824Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:38.824Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:41.936Z A-anselm finished TN-83 Completed: 0 Tool calls, 2569 tokens; Mood fresh
+scheduler 2026-10-14T00:48:42.453Z A-thorne finished TN-82 Completed: 0 Tool calls, 3459 tokens; Mood fresh
+scheduler 2026-10-14T00:48:53.821Z A-bram start 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:53.826Z A-ines start 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:53.829Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:53.829Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:53.829Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:48:56.233Z A-ines finished TN-85 Completed: 0 Tool calls, 2543 tokens; Mood fresh
+scheduler 2026-10-14T00:48:58.214Z A-bram finished TN-84 Completed: 1 Tool call, 4403 tokens; Mood fresh
+scheduler 2026-10-14T00:49:08.822Z A-odile start 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:08.825Z A-pia start 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:08.829Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:12.579Z A-odile finished TN-86 Completed: 0 Tool calls, 4613 tokens; Mood fresh
+scheduler 2026-10-14T00:49:21.452Z A-pia finished TN-87 Completed: 4 Tool calls, 16946 tokens; Mood fresh
+scheduler 2026-10-14T00:49:23.823Z A-rin start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:23.826Z A-mabel start 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:23.829Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:23.829Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:23.829Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:23.829Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:23.829Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:26.550Z A-rin finished TN-88 Completed: 0 Tool calls, 3393 tokens; Mood fresh
+scheduler 2026-10-14T00:49:29.832Z A-mabel finished TN-89 Completed: 1 Tool call, 4631 tokens; Mood fresh
+scheduler 2026-10-14T00:49:38.824Z A-thorne start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:38.828Z A-anselm start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:38.830Z A-bram skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:38.830Z A-ines skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:38.830Z A-odile skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:38.830Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:38.830Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:42.536Z A-anselm finished TN-91 Completed: 0 Tool calls, 3437 tokens; Mood fresh
+scheduler 2026-10-14T00:49:51.662Z A-thorne finished TN-90 Completed: 4 Tool calls, 7843 tokens; Mood fresh
+scheduler 2026-10-14T00:49:53.825Z A-bram start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:49:53.830Z A-ines start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:49:53.832Z A-odile skip 2 Turns open, the most at once; 3 new Messages in its Rooms
+scheduler 2026-10-14T00:49:53.832Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:53.832Z A-rin skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:49:53.832Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:53.832Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:49:56.646Z A-ines finished TN-93 Completed: 0 Tool calls, 1580 tokens; Mood fresh
+scheduler 2026-10-14T00:49:58.714Z A-bram finished TN-92 Completed: 1 Tool call, 5377 tokens; Mood fresh
+scheduler 2026-10-14T00:50:08.826Z A-odile start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:50:08.828Z A-pia start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:08.830Z A-rin skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:08.830Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:08.830Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:12.855Z A-pia finished TN-95 Completed: 0 Tool calls, 4112 tokens; Mood fresh
+scheduler 2026-10-14T00:50:21.229Z A-odile finished TN-94 Completed: 5 Tool calls, 10084 tokens; Mood fresh
+scheduler 2026-10-14T00:50:23.827Z A-rin start 3 new Messages in its Rooms
+scheduler 2026-10-14T00:50:23.832Z A-mabel start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:23.834Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:23.834Z A-anselm skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:23.834Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:23.834Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:23.834Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:26.937Z A-rin finished TN-96 Completed: 0 Tool calls, 3996 tokens; Mood fresh
+scheduler 2026-10-14T00:50:28.693Z A-mabel finished TN-97 Completed: 0 Tool calls, 4167 tokens; Mood fresh
+scheduler 2026-10-14T00:50:38.827Z A-thorne start 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:38.830Z A-anselm start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:38.832Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:38.832Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:38.832Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:42.529Z A-anselm finished TN-99 Completed: 0 Tool calls, 3816 tokens; Mood fresh
+scheduler 2026-10-14T00:50:45.240Z A-thorne finished TN-98 Completed: 3 Tool calls, 6096 tokens; Mood fresh
+scheduler 2026-10-14T00:50:53.828Z A-bram start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:53.829Z A-ines start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:53.830Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:53.830Z A-pia skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:50:53.830Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:53.830Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:53.830Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:50:56.236Z A-ines finished TN-101 Completed: 0 Tool calls, 1256 tokens; Mood fresh
+scheduler 2026-10-14T00:50:57.941Z A-bram finished TN-100 Completed: 1 Tool call, 4595 tokens; Mood fresh
+scheduler 2026-10-14T00:51:08.828Z A-odile start 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:08.829Z A-pia start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:08.830Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:08.830Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:08.830Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:12.797Z A-odile finished TN-102 Completed: 0 Tool calls, 5122 tokens; Mood fresh
+scheduler 2026-10-14T00:51:19.607Z A-pia finished TN-103 Completed: 2 Tool calls, 6430 tokens; Mood fresh
+scheduler 2026-10-14T00:51:23.830Z A-rin start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:23.833Z A-mabel start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:23.837Z A-thorne skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:23.837Z A-anselm skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:23.837Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:23.837Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:23.837Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:26.635Z A-rin finished TN-104 Completed: 0 Tool calls, 1309 tokens; Mood fresh
+scheduler 2026-10-14T00:51:28.175Z A-mabel finished TN-105 Completed: 0 Tool calls, 3456 tokens; Mood fresh
+scheduler 2026-10-14T00:51:38.831Z A-thorne start 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:38.835Z A-anselm start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:38.836Z A-bram skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:38.836Z A-ines skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:38.836Z A-odile skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:41.737Z A-anselm finished TN-107 Completed: 0 Tool calls, 3304 tokens; Mood fresh
+scheduler 2026-10-14T00:51:45.758Z A-thorne finished TN-106 Completed: 3 Tool calls, 5884 tokens; Mood fresh
+scheduler 2026-10-14T00:51:53.832Z A-bram start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:53.835Z A-ines start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:53.836Z A-odile skip 2 Turns open, the most at once; 2 new Messages in its Rooms
+scheduler 2026-10-14T00:51:53.836Z A-pia skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:53.836Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:53.836Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:53.836Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:51:57.151Z A-ines finished TN-109 Completed: 0 Tool calls, 3269 tokens; Mood fresh
+scheduler 2026-10-14T00:51:58.066Z A-bram finished TN-108 Completed: 1 Tool call, 4727 tokens; Mood fresh
+scheduler 2026-10-14T00:52:08.833Z A-odile start 2 new Messages in its Rooms
+scheduler 2026-10-14T00:52:08.837Z A-pia start 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:08.838Z A-rin skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:08.838Z A-mabel skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:08.838Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:12.455Z A-odile finished TN-110 Completed: 0 Tool calls, 5091 tokens; Mood fresh
+scheduler 2026-10-14T00:52:12.941Z A-pia finished TN-111 Completed: 0 Tool calls, 3455 tokens; Mood fresh
+scheduler 2026-10-14T00:52:23.835Z A-rin start 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:23.840Z A-mabel start 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:23.843Z A-anselm skip 2 Turns open, the most at once; 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:26.338Z A-rin finished TN-112 Completed: 0 Tool calls, 996 tokens; Mood fresh
+scheduler 2026-10-14T00:52:27.008Z A-mabel finished TN-113 Completed: 0 Tool calls, 2869 tokens; Mood fresh
+scheduler 2026-10-14T00:52:38.835Z A-anselm start 1 new Message in its Rooms
+scheduler 2026-10-14T00:52:41.491Z A-anselm finished TN-114 Completed: 0 Tool calls, 1009 tokens; Mood fresh
+scheduler 2026-10-14T00:52:53.836Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:53:08.837Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:53:23.838Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:53:38.840Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:53:53.841Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:54:08.842Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:54:23.843Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:54:38.843Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:54:53.845Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:55:08.847Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:55:23.848Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:55:38.849Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:55:53.850Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:56:08.853Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:56:23.856Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:56:38.856Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:56:53.859Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:57:08.859Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:57:23.861Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:57:38.863Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:57:53.866Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:58:08.868Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:58:23.870Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:58:38.873Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:58:53.876Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:59:08.877Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:59:23.878Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:59:38.880Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T00:59:53.882Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:00:08.883Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:00:23.885Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:00:38.887Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:00:53.889Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:01:08.891Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:01:23.893Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:01:38.893Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:01:53.893Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:02:08.895Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:02:23.897Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:02:38.899Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:02:53.900Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:03:08.902Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:03:23.904Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:03:38.908Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:03:53.909Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:04:08.911Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:04:23.913Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:04:38.915Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:04:53.917Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:05:08.919Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:05:23.921Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:05:38.923Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:05:53.925Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:06:08.927Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:06:23.929Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:06:38.932Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:06:53.934Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:07:08.937Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:07:23.940Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:07:38.942Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:07:53.944Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:08:08.945Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:08:23.948Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:08:38.950Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:08:53.951Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:09:08.953Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:09:23.954Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:09:38.954Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:09:53.956Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:10:08.956Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:10:23.957Z nobody idle no Agent has anything to do
+scheduler 2026-10-14T01:10:38.959Z nobody idle no Agent has anything to do
+Stopped on SIGTERM; the Ledger is closed
+[ELIFECYCLE] Command failed with signal SIGTERM.

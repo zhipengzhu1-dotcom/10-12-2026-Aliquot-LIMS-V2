@@ -1,0 +1,4 @@
+seq,at,task_id,assignee,reviewer,quality,traceability,boundary_adherence,collaboration,timeliness,mean,note
+92,2026-10-14T00:33:31.468Z,T-1,A-bram,A-pia,3,3,3,3,3,3,"Checklist: outputs present (row, WO, LIMS DB); lineage traces to the message; both Evaluations passed; replied in RM-lab with LRs and due date; refused the duplicate T-2 and escalated it."
+130,2026-10-14T00:34:46.635Z,T-1,A-bram,A-pia,3,3,3,3,3,3,"Lineage verified from the WorkOrder LIMS DB back to the Operator's message 23 via the Submission Record and Receiving Log row. Lot logged once, as LR-2026-0001..0003 and WO-2026-0001."
+186,2026-10-14T00:36:43.154Z,T-1,A-bram,A-pia,3,3,3,3,3,3,"Re-filed Review (earlier filing unconfirmed in task view). Intake stages 2-3 produced a Receiving Log row, LIMS database and Work Order; stayed in stage boundaries."
