@@ -210,14 +210,23 @@ const runForms = async (
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** `<form stem>.expected.json`, the expected outcome that makes a form a Fixture. */
+const expectedOf = (rel: string): string =>
+	`${basename(rel, extname(rel))}.expected.json`;
+
 /**
- * The Submission Forms under a directory, its own before its subdirectories',
- * each in name order, and every other Office file there, which no stage
- * starts from.
+ * Under a directory, its own files before its subdirectories', each in name
+ * order: the Submission Forms with an expected outcome beside them, which
+ * are the Fixtures; the forms without one, such as the blank form the
+ * generator fills; and the workbooks, which no stage starts from.
  */
 const fixturesUnder = (
 	dir: string,
-): { forms: readonly string[]; others: readonly string[] } => {
+): {
+	forms: readonly string[];
+	blanks: readonly string[];
+	workbooks: readonly string[];
+} => {
 	const files = (readdirSync(dir, { recursive: true }) as string[])
 		.map((rel) => rel.split(sep).join("/"))
 		.sort(
@@ -225,18 +234,25 @@ const fixturesUnder = (
 		);
 	const ofType = (ext: string) =>
 		files.filter((rel) => rel.toLowerCase().endsWith(ext));
-	return { forms: ofType(".docx"), others: ofType(".xlsx") };
+	const expected = (rel: string) =>
+		existsSync(join(dir, dirname(rel), expectedOf(rel)));
+	const docx = ofType(".docx");
+	return {
+		forms: docx.filter(expected),
+		blanks: docx.filter((rel) => !expected(rel)),
+		workbooks: ofType(".xlsx"),
+	};
 };
 
 export const workflowCommands: CommandTable = {
 	stages: {
 		describe:
-			"List the toy workflow's stages: Script, input, carried and output Artifact types, and who works and reviews each",
+			"List the toy workflow's stages: Script, input, optional input, carried and output Artifact types, and who works and reviews each",
 		run: async (args, ctx) => {
 			parseArgs({ args });
 			for (const s of STAGES) {
 				ctx.stdout.write(
-					`${s.number} ${s.name}  script ${s.script}  inputs ${listed(s.inputs)}  carried ${listed(s.carried)}  outputs ${listed(s.outputs)}  worked by ${s.worked_by}  reviewed by ${s.reviewed_by}\n`,
+					`${s.number} ${s.name}  script ${s.script}  inputs ${listed(s.inputs)}${s.optional_inputs ? `  optional ${listed(s.optional_inputs)}` : ""}  carried ${listed(s.carried)}  outputs ${listed(s.outputs)}  worked by ${s.worked_by}  reviewed by ${s.reviewed_by}\n`,
 				);
 			}
 			return 0;
@@ -266,7 +282,7 @@ export const workflowCommands: CommandTable = {
 	"run-all": {
 		args: `<fixtures dir> ${OPTIONS_SYNOPSIS}`,
 		describe:
-			"Run the workflow on every *.docx under a directory; exit 1 if a Fixture fails, other than at its known gap",
+			"Run the workflow on every *.docx with a <stem>.expected.json beside it under a directory; exit 1 if a Fixture fails, other than at its known gap",
 		run: async (args, ctx) => {
 			const { values, positionals } = parseArgs({
 				args,
@@ -277,12 +293,17 @@ export const workflowCommands: CommandTable = {
 				throw new UsageError("workflow run-all takes exactly one directory");
 			}
 			const dir = fromInvocation(positionals[0] as string);
-			const { forms, others } = fixturesUnder(dir);
+			const { forms, blanks, workbooks } = fixturesUnder(dir);
 			if (forms.length === 0)
 				throw new Error(`${dir} holds no *.docx Fixtures`);
-			for (const rel of others) {
+			for (const rel of workbooks) {
 				ctx.stdout.write(
 					`${rel}\n  skipped   no stage starts from a workbook; run-all starts from a Submission Form\n`,
+				);
+			}
+			for (const rel of blanks) {
+				ctx.stdout.write(
+					`${rel}\n  skipped   no ${expectedOf(rel)} beside it, so it has no expected outcome and is not a Fixture\n`,
 				);
 			}
 			const { done, gaps, failed } = await runForms(
@@ -292,10 +313,12 @@ export const workflowCommands: CommandTable = {
 				(path) => relative(dir, path).split(sep).join("/"),
 			);
 			const known = gaps === 0 ? "" : `, ${plural(gaps, "known gap")}`;
+			const counted = [
+				workbooks.length > 0 ? plural(workbooks.length, "workbook") : "",
+				blanks.length > 0 ? plural(blanks.length, "form") : "",
+			].filter(Boolean);
 			const skipped =
-				others.length === 0
-					? ""
-					: `; ${plural(others.length, "workbook")} skipped`;
+				counted.length === 0 ? "" : `; ${counted.join(" and ")} skipped`;
 			ctx.stdout.write(
 				`${plural(forms.length, "Fixture")}: ${done} Done${known}, ${failed} Failed${skipped}\n`,
 			);

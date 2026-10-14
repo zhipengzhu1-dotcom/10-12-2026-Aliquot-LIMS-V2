@@ -13,6 +13,7 @@ import { orgCommands } from "./org/commands.js";
 import { roomCommands } from "./room/commands.js";
 import { sandboxCommands } from "./sandbox/commands.js";
 import { serveCommand } from "./serve/command.js";
+import { shadowCommands } from "./shadow/commands.js";
 import { taskCommands } from "./task/commands.js";
 import { toolCommands } from "./tools/commands.js";
 import { trainingCommands } from "./training/commands.js";
@@ -34,6 +35,7 @@ const domains: Readonly<Record<string, CommandTable>> = {
 	tools: toolCommands,
 	vitality: vitalityCommands,
 	workflow: workflowCommands,
+	shadow: shadowCommands,
 };
 
 /** `aliquot <command>`: commands that belong to no one domain. */

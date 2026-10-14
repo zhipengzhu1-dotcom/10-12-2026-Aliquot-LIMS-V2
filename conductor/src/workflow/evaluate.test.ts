@@ -331,6 +331,172 @@ describe("evaluateReceipt", () => {
 	});
 });
 
+type Cells = Record<string, string>;
+
+/** The seed 1 record's values in the lab's columns, as `log_receipt` writes them. */
+const yearRow = (n: number, ref: string, lot = LOT): Cells => ({
+	[`A${n}`]: String(n - 3),
+	[`B${n}`]: "2026-01-06",
+	[`C${n}`]: "15:17",
+	[`D${n}`]: PRODUCT_CODE,
+	[`E${n}`]: "Tallowby Milk Thistle 250 mg Capsules",
+	[`F${n}`]: "FP",
+	[`G${n}`]: lot,
+	[`H${n}`]: "Tallowby Botanicals LLC",
+	[`J${n}`]: "1",
+	[`K${n}`]: "Senna Halloway",
+	[`L${n}`]: "LG",
+	[`M${n}`]: ref,
+});
+const dayRow = (n: number, ref: string): Cells => ({
+	[`A${n}`]: String(n - 2),
+	[`B${n}`]: "2026-01-06",
+	[`C${n}`]: "Tallowby Milk Thistle 250 mg Capsules",
+	[`D${n}`]: "FP",
+	[`E${n}`]: LOT,
+	[`F${n}`]: "Tallowby Botanicals LLC",
+	[`H${n}`]: "1",
+	[`I${n}`]: "LG",
+	[`J${n}`]: ref,
+});
+const LABS_YEAR: Cells = { A3: "#", G3: "LOT#", A4: "1", G4: "P147463" };
+
+/** `shadow.json` for seed 1's two containers: the year's rows 5 and 6, a new `January 6`. */
+const held = (
+	overrides: {
+		year?: Cells;
+		day?: Cells | null;
+		labs?: { name: string; before: Cells | null; after: Cells | null }[];
+	} = {},
+) => ({
+	schema: "shadow/1",
+	year: { sheet: "2026", rows: [5, 6] },
+	day: { sheet: "January 6", rows: [3, 4], made: true },
+	sheets: [
+		{
+			name: "2026",
+			before: LABS_YEAR,
+			after: overrides.year ?? {
+				...LABS_YEAR,
+				...yearRow(5, "LR-2026-0001"),
+				...yearRow(6, "LR-2026-0002"),
+			},
+		},
+		...(overrides.labs ?? []),
+		{
+			name: "January 6",
+			before: null,
+			after: overrides.day ?? {
+				...dayRow(3, "LR-2026-0001"),
+				...dayRow(4, "LR-2026-0002"),
+			},
+		},
+	],
+});
+
+const shadowRun = (readBack: object | undefined) => {
+	const run = receiptRun();
+	return {
+		inputs: [
+			...run.inputs,
+			stageArtifact(
+				"ReceivingLog",
+				"receiving-log.xlsx",
+				Buffer.from("the lab's xlsx"),
+			),
+		],
+		outputs: [
+			...run.outputs,
+			...(readBack
+				? [
+						stageArtifact(
+							"ShadowReceivingLog",
+							"receiving_log_shadow.xlsx",
+							Buffer.from("the Shadow's xlsx"),
+						),
+						stageArtifact(
+							"Other",
+							"shadow.json",
+							Buffer.from(JSON.stringify(readBack)),
+						),
+					]
+				: []),
+		],
+	};
+};
+
+describe("evaluateReceipt with the lab's Receiving Log", () => {
+	it("passes a Shadow with one row per container in the lab's columns of the year's and the day's sheets, and every lab cell kept", () => {
+		expect(evaluateReceipt(shadowRun(held()))).toEqual({
+			score: 1,
+			passed: true,
+			findings: [],
+		});
+	});
+
+	it("fails a new row whose Lot is not the record's, naming the sheet, row and column", () => {
+		const evaluation = evaluateReceipt(
+			shadowRun(
+				held({
+					year: {
+						...LABS_YEAR,
+						...yearRow(5, "LR-2026-0001"),
+						...yearRow(6, "LR-2026-0002", "LT-999999"),
+					},
+				}),
+			),
+		);
+
+		expect(evaluation.passed).toBe(false);
+		expect(evaluation.findings).toEqual([
+			`the Shadow's sheet 2026 row 6: LOT# (G) is "LT-999999", not "${LOT}"`,
+		]);
+	});
+
+	it("fails a Shadow that changed a cell of the lab's or wrote outside its new rows", () => {
+		const evaluation = evaluateReceipt(
+			shadowRun(
+				held({
+					year: {
+						...LABS_YEAR,
+						G4: "P147464",
+						P4: "a note",
+						...yearRow(5, "LR-2026-0001"),
+						...yearRow(6, "LR-2026-0002"),
+					},
+				}),
+			),
+		);
+
+		expect(evaluation.findings).toEqual([
+			'the Shadow changed the lab\'s cells in sheet 2026: G4 "P147463" to "P147464"',
+			"the Shadow wrote sheet 2026 outside its new rows: P4",
+		]);
+	});
+
+	it("fails a Shadow that lost a sheet of the lab's", () => {
+		const evaluation = evaluateReceipt(
+			shadowRun(
+				held({ labs: [{ name: "July 23", before: { A1: "#" }, after: null }] }),
+			),
+		);
+
+		expect(evaluation.findings).toEqual([
+			"the Shadow lost the lab's sheet July 23",
+		]);
+	});
+
+	it("scores 0 when the Run read the lab's Receiving Log and wrote no Shadow", () => {
+		expect(evaluateReceipt(shadowRun(undefined))).toEqual({
+			score: 0,
+			passed: false,
+			findings: [
+				"the Run read the lab's Receiving Log and wrote no ShadowReceivingLog",
+			],
+		});
+	});
+});
+
 describe("dueDate", () => {
 	it.each([
 		["Tuesday", "2026-01-06", "Rush1to2Days", "2026-01-08"],

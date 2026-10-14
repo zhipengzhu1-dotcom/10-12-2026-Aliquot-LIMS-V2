@@ -11,6 +11,9 @@ export const ArtifactType = z.enum([
 	"ResultWorksheet",
 	"VerificationRecord",
 	"ReportOfAnalysis",
+	"ReceivingLog",
+	"ShadowReceivingLog",
+	"Comparison",
 	"Other",
 ]);
 export type ArtifactType = z.infer<typeof ArtifactType>;

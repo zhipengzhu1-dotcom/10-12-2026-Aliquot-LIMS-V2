@@ -3,6 +3,7 @@ import { gateGuards } from "./gate/guards.js";
 import { orgGuards } from "./org/guards.js";
 import { roomGuards } from "./room/guards.js";
 import { sandboxGuards } from "./sandbox/guards.js";
+import { shadowGuards } from "./shadow/guards.js";
 import { taskGuards } from "./task/guards.js";
 import { toolGuards } from "./tools/guards.js";
 import { trainingGuards } from "./training/guards.js";
@@ -31,6 +32,7 @@ export const appendGuards: readonly AppendGuard[] = [
 	...sandboxGuards,
 	...vitalityGuards,
 	...workflowGuards,
+	...shadowGuards,
 ];
 
 /** Every follow-on the Ledger appends after an Event, in order. */

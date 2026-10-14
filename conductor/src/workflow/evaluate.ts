@@ -265,13 +265,190 @@ const readDatabase = (artifact: StageArtifact): DatabaseVersion =>
 const ofType = (artifacts: readonly StageArtifact[], type: ArtifactType) =>
 	artifacts.find((a) => a.artifact_type === type);
 
+/** The record fields the Shadow's rows are checked against. */
+const ShadowedRecord = z.object({
+	submitted_by: z.object({ company: z.string(), contact: z.string() }),
+	sample: z.object({
+		sample_description: z.string(),
+		sample_type: z.string(),
+		lot: z.string(),
+		product_code: z.string(),
+	}),
+	receipt: z.object({
+		date_received: z.iso.date(),
+		time_received: z.string(),
+		received_by: z.string(),
+	}),
+});
+type ShadowedRecord = z.infer<typeof ShadowedRecord>;
+
+/** Each coordinate that holds a value, and its text. */
+const Cells = z.record(z.string(), z.string());
+
+/** `shadow.json` (schema `shadow/1`), as `log_receipt` documents it. */
+const ShadowReadBack = z.object({
+	schema: z.literal("shadow/1"),
+	year: z.object({ sheet: z.string(), rows: z.array(z.number().int()) }),
+	day: z.object({
+		sheet: z.string(),
+		rows: z.array(z.number().int()),
+		made: z.boolean(),
+	}),
+	sheets: z.array(
+		z.object({
+			name: z.string(),
+			before: Cells.nullable(),
+			after: Cells.nullable(),
+		}),
+	),
+});
+type ShadowReadBack = z.infer<typeof ShadowReadBack>;
+
+/**
+ * Where the lab's workbook keeps each value of a received container, by
+ * column letter: its headers that named the lab are not kept in the
+ * Fixtures, so the columns are found by position (ADR-0018).
+ * `sandbox/scripts/log_receipt/shadow.py` keeps its own copy; each side
+ * places the values on its own, so a wrong column in either fails.
+ */
+const SHADOW_COLUMNS = {
+	year: {
+		B: ["Rec. DATE", (r) => r.receipt.date_received],
+		C: ["Rec. Time", (r) => r.receipt.time_received],
+		D: ["Product Code", (r) => r.sample.product_code],
+		E: ["PRODUCT NAME", (r) => r.sample.sample_description],
+		F: ["TYPE", (r) => r.sample.sample_type],
+		G: ["LOT#", (r) => r.sample.lot],
+		H: ["CLIENT", (r) => r.submitted_by.company],
+		J: ["QTY RECD", () => "1"],
+		K: ["SENT BY", (r) => r.submitted_by.contact],
+		L: ["RECD BY", (r) => r.receipt.received_by],
+	},
+	day: {
+		B: ["DATE", (r) => r.receipt.date_received],
+		C: ["PRODUCT NAME", (r) => r.sample.sample_description],
+		D: ["TYPE", (r) => r.sample.sample_type],
+		E: ["LOT#", (r) => r.sample.lot],
+		F: ["CLIENT", (r) => r.submitted_by.company],
+		H: ["QTY RECD", () => "1"],
+		I: ["RECD BY", (r) => r.receipt.received_by],
+	},
+} satisfies Record<
+	string,
+	Record<string, readonly [string, (r: ShadowedRecord) => string]>
+>;
+
+/** The column of each sheet that holds the Lab Reference. */
+const SHADOW_LAB_REFERENCE = { year: "M", day: "J" } as const;
+
+const rowOf = (coordinate: string): number =>
+	Number(coordinate.replace(/^[A-Z]+/, ""));
+
+/** The day's sheet's name, as the lab names it: `July 23`. */
+const daySheetName = (date: string): string => {
+	const on = new Date(`${date}T00:00:00Z`);
+	const month = on.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+	return `${month} ${on.getUTCDate()}`;
+};
+
+/**
+ * The Shadow against the record and the receipt's Lab References: the year's
+ * sheet and the day's sheet are the ones the date received names, each has
+ * one new row per container holding the record's values in the lab's
+ * columns, no cell of the lab's workbook changed or went missing, and
+ * nothing was written outside the new rows but the day's sheet when it is
+ * new.
+ */
+const checkShadow = (
+	check: (ok: boolean, finding: string) => void,
+	record: ShadowedRecord,
+	refs: readonly string[],
+	held: ShadowReadBack,
+) => {
+	const received = record.receipt.date_received;
+	check(
+		held.year.sheet === received.slice(0, 4),
+		`the Shadow's rows are in sheet ${held.year.sheet}, not the year received's ${received.slice(0, 4)}`,
+	);
+	check(
+		held.day.sheet === daySheetName(received),
+		`the Shadow's day rows are in sheet ${held.day.sheet}, not ${daySheetName(received)}`,
+	);
+	const sheets = new Map(held.sheets.map((s) => [s.name, s]));
+	for (const part of ["year", "day"] as const) {
+		const { sheet, rows } = held[part];
+		const after = sheets.get(sheet)?.after ?? {};
+		check(
+			rows.length === refs.length,
+			`the Shadow's sheet ${sheet} has ${rows.length} new rows for ${refs.length} containers`,
+		);
+		rows.forEach((row, i) => {
+			const expected: [string, string, string][] = [
+				...Object.entries(SHADOW_COLUMNS[part]).map(
+					([col, [field, value]]): [string, string, string] => [
+						col,
+						field,
+						value(record),
+					],
+				),
+				[SHADOW_LAB_REFERENCE[part], "Lab Reference", refs[i] ?? ""],
+			];
+			for (const [col, field, value] of expected) {
+				const found = after[`${col}${row}`] ?? "";
+				check(
+					found === value,
+					`the Shadow's sheet ${sheet} row ${row}: ${field} (${col}) is ${JSON.stringify(found)}, not ${JSON.stringify(value)}`,
+				);
+			}
+		});
+	}
+	for (const { name, before, after } of held.sheets) {
+		if (before === null) {
+			check(
+				name === held.day.sheet && held.day.made,
+				`the Shadow has a sheet ${name} the lab's workbook lacks, and it is not the new day's sheet`,
+			);
+			continue;
+		}
+		if (after === null) {
+			check(false, `the Shadow lost the lab's sheet ${name}`);
+			continue;
+		}
+		const changed = Object.entries(before).filter(
+			([at, value]) => after[at] !== value,
+		);
+		check(
+			changed.length === 0,
+			`the Shadow changed the lab's cells in sheet ${name}: ${changed
+				.map(
+					([at, value]) =>
+						`${at} ${JSON.stringify(value)} to ${JSON.stringify(after[at] ?? "")}`,
+				)
+				.join(", ")}`,
+		);
+		const newRows = new Set<number>([
+			...(name === held.year.sheet ? held.year.rows : []),
+			...(name === held.day.sheet ? held.day.rows : []),
+		]);
+		const outside = Object.keys(after).filter(
+			(at) => !(at in before) && !newRows.has(rowOf(at)),
+		);
+		check(
+			outside.length === 0,
+			`the Shadow wrote sheet ${name} outside its new rows: ${outside.join(", ")}`,
+		);
+	}
+};
+
 /**
  * Stage 2's Evaluation of its Run. Against the SubmissionRecord it read:
  * one Receiving Log row per container, each with the record's Lot and
  * Product Code; one `samples` row per row's Lab Reference with that Lot and
  * one `lots` row for the Lot in the database it wrote; and no row's Lab
  * Reference in the database version it carried. The rows come from
- * `receipt.json`, because the Conductor has no xlsx reader.
+ * `receipt.json`, because the Conductor has no xlsx reader. When the Run read
+ * the lab's Receiving Log, the Shadow it wrote passes `checkShadow`, read
+ * from `shadow.json` for the same reason.
  */
 export const evaluateReceipt = ({ inputs, outputs }: RunArtifacts): Scored => {
 	try {
@@ -333,6 +510,27 @@ export const evaluateReceipt = ({ inputs, outputs }: RunArtifacts): Scored => {
 			lots === 1,
 			`the database has ${lots} lots rows for Lot ${sample.lot}, not 1`,
 		);
+		if (ofType(inputs, "ReceivingLog")) {
+			if (!ofType(outputs, "ShadowReceivingLog")) {
+				throw new Unreadable(
+					"the Run read the lab's Receiving Log and wrote no ShadowReceivingLog",
+				);
+			}
+			checkShadow(
+				check,
+				readJson(
+					ofType(inputs, "SubmissionRecord"),
+					"SubmissionRecord",
+					ShadowedRecord,
+				),
+				sheet.rows.map((row) => row[LAB_REFERENCE] ?? ""),
+				readJson(
+					outputs.find((a) => a.filename === "shadow.json"),
+					"shadow.json read-back",
+					ShadowReadBack,
+				),
+			);
+		}
 
 		return {
 			score: (checks - findings.length) / checks,

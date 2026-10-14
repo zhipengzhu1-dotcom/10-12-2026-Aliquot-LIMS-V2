@@ -79,12 +79,16 @@ describe("the routes the Flow and Performance views read", () => {
 				script: stage.script,
 				script_id: `S-${stage.script}`,
 				inputs: stage.inputs,
+				...(stage.optional_inputs && {
+					optional_inputs: stage.optional_inputs,
+				}),
 				carried: stage.carried,
 				outputs: stage.outputs,
 				worked_by: stage.worked_by,
 				reviewed_by: stage.reviewed_by,
 			})),
 		);
+		expect(served[1]?.optional_inputs).toEqual(["ReceivingLog"]);
 		expect(served[0]?.script_id).toBe("S-parse_submission");
 	});
 

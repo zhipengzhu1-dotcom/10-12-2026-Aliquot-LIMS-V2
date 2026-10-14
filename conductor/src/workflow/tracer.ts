@@ -21,6 +21,7 @@ import {
 } from "../sandbox/artifacts.js";
 import { guessMediaType, runScript } from "../sandbox/runner.js";
 import { registerScript, scriptDir } from "../sandbox/scripts.js";
+import { readReceivingLog } from "../shadow/lifecycle.js";
 import {
 	assign,
 	complete,
@@ -62,7 +63,15 @@ const treeDigest = (dir: string): string => {
 export const ensureScript = (options: {
 	ledger: Ledger;
 	home: string;
-	stage: Stage;
+	stage: Pick<
+		Stage,
+		| "script"
+		| "worked_by"
+		| "inputs"
+		| "optional_inputs"
+		| "carried"
+		| "outputs"
+	>;
 	source: string;
 	image: Sha256;
 	operator: Person;
@@ -85,7 +94,11 @@ export const ensureScript = (options: {
 		name: stage.script,
 		scriptDir: source,
 		owner_agent: stage.worked_by,
-		input_types: [...stage.inputs, ...stage.carried],
+		input_types: [
+			...stage.inputs,
+			...(stage.optional_inputs ?? []),
+			...stage.carried,
+		],
 		output_types: [...stage.outputs],
 		image_digest: image,
 	});
@@ -120,6 +133,12 @@ type Typed = { readonly id: ArtifactId; readonly artifact_type: ArtifactType };
  * outputs are read-backs for its Evaluation, never a later stage's input.
  */
 const WEIGHINGS: ArtifactType = "Other";
+
+/**
+ * The input type a stage takes the lab's Receiving Log as, read fresh from
+ * the path the home names just before the first stage that takes it.
+ */
+const LABS_RECEIVING_LOG: ArtifactType = "ReceivingLog";
 
 /**
  * Store the synthetic weighings the Operator keeps beside a Fixture,
@@ -158,8 +177,9 @@ type Given = { readonly from: string; readonly artifacts: readonly Typed[] };
 
 /**
  * The Artifacts of the stage's input types, each type from the latest of
- * the Fixture and the earlier stages' outputs that holds one, and the
- * weighings; or a refusal naming the stage and the types none of them gave.
+ * the Fixture, the lab's Receiving Log and the earlier stages' outputs that
+ * holds one, and the weighings; or a refusal naming the stage and the types
+ * none of them gave. An optional input type none of them gave is left out.
  */
 const inputsFor = (
 	stage: Stage,
@@ -178,7 +198,9 @@ const inputsFor = (
 			`stage ${stage.number} ${stage.name} refused: it takes ${missing.join(", ")} as input, and ${earlier.map((g) => g.from).join(", ")} gave none`,
 		);
 	}
-	return stage.inputs.flatMap((type) => given(type).map((a) => a.id));
+	return [...stage.inputs, ...(stage.optional_inputs ?? [])].flatMap((type) =>
+		given(type).map((a) => a.id),
+	);
 };
 
 /**
@@ -186,7 +208,7 @@ const inputsFor = (
  * if there is one. A version a failed Task's Run wrote, which no Evaluation
  * accepted, never becomes the one a later stage carries.
  */
-const latestAccepted = (
+export const latestAccepted = (
 	projections: Projections,
 	type: ArtifactType,
 ): ArtifactId | undefined => {
@@ -391,7 +413,9 @@ const runStage = async (options: {
  * each planned stage in order on the Artifacts of its input types, each
  * from the latest earlier stage that wrote one (the Fixture for the first),
  * until the plan ends or a Task does not end Done. Before the first stage that takes the weighings, store them
- * from beside the Fixture. Each stage's TaskProposed names as its cause the
+ * from beside the Fixture. Before the first stage that may take the lab's
+ * Receiving Log, read it fresh when the home names one, so the stage writes
+ * the Shadow. Each stage's TaskProposed names as its cause the
  * Fixture's ArtifactStored, then the previous stage's last TaskCompleted.
  */
 export const runWorkflow = async (options: {
@@ -424,7 +448,21 @@ export const runWorkflow = async (options: {
 	const earlier: Given[] = [{ from: "the Fixture", artifacts: [fixture] }];
 	let causation_id = stored;
 	let weighings: Typed | undefined;
+	let readLabsWorkbook = false;
 	for (const plan of options.plan) {
+		if (
+			plan.stage.optional_inputs?.includes(LABS_RECEIVING_LOG) &&
+			!readLabsWorkbook
+		) {
+			readLabsWorkbook = true;
+			const read = readReceivingLog(ledger, home, operator);
+			if (read) {
+				earlier.push({
+					from: "the lab's Receiving Log",
+					artifacts: [read.artifact],
+				});
+			}
+		}
 		if (plan.stage.inputs.includes(WEIGHINGS) && !weighings) {
 			weighings = storeWeighings(
 				ledger,

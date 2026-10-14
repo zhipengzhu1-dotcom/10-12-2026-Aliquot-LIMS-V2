@@ -11,7 +11,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "sandbox" / "scripts" / "parse_submission" / "main.py"
-FIXTURES = sorted((ROOT / "fixtures").glob("*.docx"))
+FIXTURES = sorted(
+    form
+    for form in (ROOT / "fixtures").rglob("*.docx")
+    if form.with_suffix(".expected.json").exists()
+)
+REAL_LAYOUT = ROOT / "fixtures" / "real-layout"
 
 FORM_ID = "c" * 64
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -85,3 +90,50 @@ def test_parse_submission_refuses_inputs_without_a_docx(tmp_path):
     assert result.returncode == 1
     assert "exactly one Submission Form" in result.stderr
     assert list(outputs.iterdir()) == []
+
+
+def parsed(form: Path, tmp_path: Path) -> dict:
+    inputs, outputs = tmp_path / "inputs", tmp_path / "outputs"
+    outputs.mkdir()
+    stage(inputs, form)
+    result = run_script(inputs, outputs)
+    assert result.returncode == 0, result.stderr
+    return json.loads((outputs / "submission.json").read_text())
+
+
+def test_the_blank_real_form_is_read_as_the_real_layout_with_every_field_blank(
+    tmp_path,
+):
+    record = parsed(REAL_LAYOUT / "submission-form.docx", tmp_path)
+
+    values = [
+        value
+        for section in record.values()
+        if isinstance(section, dict)
+        for value in section.values()
+    ]
+    assert values and all(value == "" for value in values), record
+    assert record["date_submitted"] == ""
+
+
+def test_a_blank_bill_to_block_on_the_real_form_is_the_submitters_party(tmp_path):
+    from docx import Document
+
+    doc = Document(str(REAL_LAYOUT / "submission-form-seed4.docx"))
+    [bill_to] = [
+        cell
+        for cell in doc.tables[0].rows[2].cells
+        if cell.text.startswith("Tallowby") and "Attn:" in cell.text
+    ]
+    for paragraph in bill_to.paragraphs:
+        for run in list(paragraph.runs):
+            run._r.getparent().remove(run._r)
+    form = tmp_path / "blank-bill-to.docx"
+    doc.save(str(form))
+
+    record = parsed(form, tmp_path)
+
+    expected = json.loads(
+        (REAL_LAYOUT / "submission-form-seed4.expected.json").read_text()
+    )
+    assert record["bill_to"] == expected["submitted_by"]

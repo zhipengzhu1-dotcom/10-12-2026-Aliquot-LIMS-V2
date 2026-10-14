@@ -193,7 +193,7 @@ One execution of one Script version on specific input Artifacts.
 _Avoid_: execution, job, invocation
 
 **Fixture**:
-An Artifact with a known expected outcome that every new Script version must handle before it replaces the previous version. A Fixture the workflow cannot finish yet carries a known gap: the stage that stops it and the issue that will close it.
+An Artifact with a known expected outcome that every new Script version must handle before it replaces the previous version. A Submission Form is a Fixture when its expected record lies beside it; the blank form the generator fills is not. A Fixture the workflow cannot finish yet carries a known gap: the stage that stops it and the issue that will close it.
 _Avoid_: test data, sample (Sample is a lab term)
 
 **Evaluation**:
@@ -211,6 +211,18 @@ _Avoid_: phase, step
 **System of record**:
 A data source that the lab relies on as its official record. Writes to a System of record need a Gate. The toy LIMS database is not a System of record.
 _Avoid_: production database, real DB, LIMS
+
+**Parallel run**:
+The way slice 3 meets the lab's System of record (ADR-0018): the Conductor writes a Shadow beside the lab's own records and never writes the System of record, and the Operator judges the Comparisons before any real write.
+_Avoid_: dry run, shadow mode, pilot
+
+**Shadow**:
+A copy of a System of record in its real layout, with the rows the Conductor would have written added, as an Artifact. Stage 2 writes the Shadow Receiving Log (`ShadowReceivingLog`) from a fresh read of the lab's Receiving Log workbook, whose path the home names. The real workbook is only ever read.
+_Avoid_: shadow copy, staging copy, draft workbook
+
+**Comparison**:
+The field-by-field report of a Shadow's rows beside the rows the lab entered by hand for the same Samples: each row matched, differing (each field with both values), missing in the lab's, or missing in the Shadow. It is an Artifact of type `Comparison`, produced by the Run that made it.
+_Avoid_: reconciliation, diff report
 
 **Toy LIMS database**:
 The synthetic SQLite database that stands in for the lab's LIMS tables in the toy workflow. It is an Artifact of type `LimsDatabase`, never a mutable file: a stage carries the latest version that a Run of a `Done` Task wrote and outputs the next one, whose Lineage names the version before it. A version from a Task whose Evaluation failed is never carried. It is not a System of record.

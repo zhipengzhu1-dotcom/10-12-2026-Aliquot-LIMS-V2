@@ -1,5 +1,0 @@
-{
-  "stage": 1,
-  "issue": 76,
-  "reason": "the scrubbed copy is the lab's blank Submission Form: it has the real layout and no field values, and parse_submission reads the synthetic layout only"
-}
