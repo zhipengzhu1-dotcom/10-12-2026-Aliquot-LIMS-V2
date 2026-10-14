@@ -105,7 +105,7 @@ describe("aliquot training skill", () => {
 				...["--version", "1"],
 			),
 		).toBe(
-			`parse-submission-form version 1: Parse a Submission Form\nby Operator at seq ${v1?.seq}\n\n# Parse a Submission Form\n\nRead every field.\n`,
+			`parse-submission-form version 1: Parse a Submission Form\nby operator@lab.test at seq ${v1?.seq}\n\n# Parse a Submission Form\n\nRead every field.\n`,
 		);
 		const missing = aliquot(
 			...["training", "skill", "show", "parse-submission-form"],

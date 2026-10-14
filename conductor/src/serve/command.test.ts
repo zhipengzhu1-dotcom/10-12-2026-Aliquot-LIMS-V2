@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import { LAB_ROOM, seedRooms } from "../room/seed.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const env = { ...process.env, ALIQUOT_HOME: "" };
@@ -70,7 +71,7 @@ const startServe = async (
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-serve-cli-"));
 	const ledger = openLedger({ home, writer: true });
-	seedOrg(ledger);
+	seedOrg(ledger, TEST_OPERATOR);
 	ledger.close();
 });
 
@@ -193,7 +194,7 @@ describe("aliquot serve", () => {
 		);
 		const serveFlags = /^node .* serve (.*)$/m.exec(serveSh)?.[1] ?? "";
 		const ledger = openLedger({ home, writer: true });
-		seedRooms(ledger);
+		seedRooms(ledger, TEST_OPERATOR);
 		ledger.close();
 		const model = join(home, "scripted.json");
 		writeFileSync(

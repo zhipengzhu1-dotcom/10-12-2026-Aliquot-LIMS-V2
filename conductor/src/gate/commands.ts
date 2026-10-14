@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
-	actorText,
-	parseActor,
+	actingAs,
+	actorName,
 	parseOrUsage,
+	personOf,
 	readAll,
 	withLedger,
 } from "../cli-support.js";
@@ -86,7 +87,7 @@ const gateListing = (gates: Gates, now: Date, all: boolean): string => {
 		gate.id,
 		...(all ? [gateState(gate, now)] : []),
 		gate.kind,
-		actorText(gate.requester),
+		actorName(gate.requester),
 		ageOf(now.getTime() - Date.parse(gate.requested_at)),
 		gate.payload_hash,
 		summaryOf(gate.payload),
@@ -122,7 +123,7 @@ const requestCommand = async (args: string[], ctx: CommandContext) => {
 			`--lifetime ${values.lifetime} is not a positive whole number of seconds`,
 		);
 	}
-	const actor = parseActor(values.as);
+	const actor = actingAs(ctx, values.as);
 	const task_id =
 		values.task === undefined
 			? undefined
@@ -182,6 +183,7 @@ const decideCommand = async (args: string[], ctx: CommandContext) => {
 	}
 
 	const decision = {
+		actor: personOf(ctx),
 		gate_id: parseOrUsage(GateId, id, "the gate id must look like G-1"),
 		payload_hash: parseOrUsage(
 			Sha256,
@@ -203,7 +205,7 @@ const showGate = (gate: Gate, now: Date) => {
 		`Gate ${gate.id}`,
 		`kind: ${gate.kind}`,
 		`state: ${gateState(gate, now)}`,
-		`requester: ${actorText(gate.requester)}`,
+		`requester: ${actorName(gate.requester)}`,
 		`requested_at: ${gate.requested_at}`,
 		...(gate.task_id === undefined ? [] : [`task: ${gate.task_id}`]),
 		`expires_at: ${expiresAt(gate).toISOString()}`,
@@ -212,7 +214,7 @@ const showGate = (gate: Gate, now: Date) => {
 	const d = gate.decision;
 	if (d !== undefined) {
 		lines.push(
-			`decision: ${d.meaning} by Operator at ${d.decided_at}: ${d.reason}`,
+			`decision: ${d.meaning} by ${actorName(d.decided_by)} at ${d.decided_at}: ${d.reason}`,
 		);
 	}
 	return `${lines.join("\n")}\n\n${JSON.stringify(gate.payload, null, 2)}\n`;

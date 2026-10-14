@@ -1,7 +1,12 @@
 import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
-import { fromInvocation, parseTimeout, withLedger } from "../cli-support.js";
+import {
+	fromInvocation,
+	parseTimeout,
+	personOf,
+	withLedger,
+} from "../cli-support.js";
 import {
 	type CommandContext,
 	type CommandTable,
@@ -81,6 +86,7 @@ const runForms = async (
 ): Promise<{ done: number; failed: number }> => {
 	const stages = stagesTo(values.to);
 	const timeoutMs = parseTimeout(values.timeout);
+	const operator = personOf(ctx);
 
 	const tag = defaultImageTag();
 	const image =
@@ -89,7 +95,7 @@ const runForms = async (
 			.id;
 
 	return withLedger(ctx.home, true, async (ledger) => {
-		ensureRoster(ledger, stages);
+		ensureRoster(ledger, stages, operator);
 		const plan = stages.map((stage) => {
 			const script = ensureScript({
 				ledger,
@@ -97,6 +103,7 @@ const runForms = async (
 				stage,
 				source: join(scriptsRoot, stage.script),
 				image,
+				operator,
 			});
 			return { stage, script: { id: script.id, version: script.version } };
 		});
@@ -108,6 +115,7 @@ const runForms = async (
 				formPath: form,
 				plan,
 				timeoutMs,
+				operator,
 			});
 			ctx.stdout.write(summary(basename(form), result));
 			if (

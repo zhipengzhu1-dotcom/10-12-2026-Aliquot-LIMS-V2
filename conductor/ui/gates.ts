@@ -1,17 +1,12 @@
 import type { AgentState } from "./agent.js";
-import { escapeHtml } from "./markup.js";
+import { type ActorJson, actorName, escapeHtml } from "./markup.js";
 import type { Sources, View } from "./views.js";
-
-export type Actor =
-	| { readonly tag: "Operator" }
-	| { readonly tag: "Conductor" }
-	| { readonly tag: "Agent"; readonly id: string };
 
 /** A Gate as `/api/gates` sends it. */
 export type GateJson = {
 	readonly id: string;
 	readonly kind: string;
-	readonly requester: Actor;
+	readonly requester: ActorJson;
 	readonly requested_at: string;
 	readonly requested_seq: number;
 	readonly task_id?: string;
@@ -19,6 +14,7 @@ export type GateJson = {
 	readonly payload_hash: string;
 	readonly lifetime_s: number;
 	readonly decision?: {
+		readonly decided_by: ActorJson;
 		readonly meaning: "approve" | "reject";
 		readonly reason: string;
 		readonly decided_at: string;
@@ -27,9 +23,6 @@ export type GateJson = {
 };
 
 type GateState = "Open" | "Approved" | "Rejected" | "Expired";
-
-export const actorText = (actor: Actor): string =>
-	actor.tag === "Agent" ? actor.id : actor.tag;
 
 /** `45s`, `12m`, `2h 5m`, `3d 0h`, as `gate list` prints an age. */
 const durationText = (ms: number): string => {
@@ -169,7 +162,7 @@ const openGate = (
 		`<article class="gate" data-gate="${escapeHtml(gate.id)}">`,
 		`<h3>${escapeHtml(gate.id)} <span class="kind">${escapeHtml(gate.kind)}</span> <span class="badge state-open">Open</span></h3>`,
 		facts([
-			["Requester", escapeHtml(actorText(gate.requester))],
+			["Requester", escapeHtml(actorName(gate.requester))],
 			["Age", durationText(age)],
 			[
 				"Lifetime",
@@ -194,8 +187,8 @@ const closedGate = (gate: GateJson, now: Date) => {
 	const outcome =
 		decision === undefined
 			? `expired ${new Date(expiresAt(gate)).toISOString()}`
-			: `decided by the Operator ${escapeHtml(decision.decided_at)} at seq ${decision.seq}: ${escapeHtml(decision.reason)}`;
-	return `<li class="gate" data-gate="${escapeHtml(gate.id)}"><b>${escapeHtml(gate.id)}</b> <span class="kind">${escapeHtml(gate.kind)}</span> <span class="badge state-${state.toLowerCase()}">${state}</span> requested by ${escapeHtml(actorText(gate.requester))}, ${outcome}</li>`;
+			: `decided by ${escapeHtml(actorName(decision.decided_by))} ${escapeHtml(decision.decided_at)} at seq ${decision.seq}: ${escapeHtml(decision.reason)}`;
+	return `<li class="gate" data-gate="${escapeHtml(gate.id)}"><b>${escapeHtml(gate.id)}</b> <span class="kind">${escapeHtml(gate.kind)}</span> <span class="badge state-${state.toLowerCase()}">${state}</span> requested by ${escapeHtml(actorName(gate.requester))}, ${outcome}</li>`;
 };
 
 /**

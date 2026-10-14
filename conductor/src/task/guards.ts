@@ -1,11 +1,10 @@
 import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { Event } from "../events.js";
-import { canonicalJson } from "../hash.js";
 import type { AgentId, TaskId } from "../ids.js";
 import { activeAgent } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
-import { type Actor, actorText } from "../types/actor.js";
+import { type Actor, actorText, sameRole } from "../types/actor.js";
 import type { TrustTier } from "../types/merit.js";
 import type { Task } from "../types/task.js";
 import { reviewerRefusal } from "../vitality/reviewers.js";
@@ -89,7 +88,7 @@ const reviewRefusal = (
 		if (reviewsBy(projections.work, task.id, state.reviewer).length === 0) {
 			return `${task.id} has no Review by ${actorText(state.reviewer)}, its reviewer`;
 		}
-		if (canonicalJson(event.actor) !== canonicalJson(state.reviewer)) {
+		if (!sameRole(event.actor, state.reviewer)) {
 			return `only ${actorText(state.reviewer)}, the reviewer of ${task.id}, completes it after Review; the actor is ${actorText(event.actor)}`;
 		}
 	}

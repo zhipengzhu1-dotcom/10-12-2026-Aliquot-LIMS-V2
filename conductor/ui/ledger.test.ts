@@ -5,6 +5,10 @@ import { type Ledger, openMemoryLedger } from "../src/ledger.js";
 import { pause, resume } from "../src/org/lifecycle.js";
 import { seedOrg } from "../src/org/seed.js";
 import { type Serving, serve } from "../src/serve/http.js";
+import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../src/test-support/operator.js";
 import { orderRest, sample } from "../src/vitality/lifecycle.js";
 import { type LedgerData, ledgerView, PAGE_SIZE } from "./ledger.js";
 
@@ -16,8 +20,13 @@ let serving: Serving;
 
 beforeEach(async () => {
 	ledger = openMemoryLedger();
-	seedOrg(ledger);
-	serving = await serve(ledger, { port: 0, bind: "127.0.0.1", ui: "." });
+	seedOrg(ledger, TEST_OPERATOR);
+	serving = await serve(ledger, {
+		port: 0,
+		bind: "127.0.0.1",
+		ui: ".",
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
+	});
 });
 
 afterEach(async () => {

@@ -4,7 +4,7 @@ import { canonicalJson, sha256Hex } from "../hash.js";
 import { GateId, nextId, type Seq, type Sha256, type TaskId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { type Recorded, readBack } from "../lifecycle-support.js";
-import type { Actor } from "../types/actor.js";
+import type { Actor, Person } from "../types/actor.js";
 import type { GateKind } from "../types/gate.js";
 import { type Gate, requestedGate } from "./projection.js";
 
@@ -77,20 +77,22 @@ export const requestGateForTask = (
 	requested(ledger, request, { task_id, causation_id });
 
 /**
- * The Operator's decision on `gate_id`, signed for the payload hash the
- * Operator checked, naming the Gate's request as its cause. The Ledger
- * refuses a hash that is not the stored one, writing nothing, and stamps
- * `decided_at` with the time it records the decision (ADR-0006), so the
- * decision Event comes back as the Ledger wrote it.
+ * The decision of `actor`, the person acting as the Operator, on `gate_id`,
+ * signed for the payload hash that person checked, naming the Gate's request
+ * as its cause. The Ledger refuses a hash that is not the stored one, writing
+ * nothing, and stamps `decided_at` with the time it records the decision
+ * (ADR-0006), so the decision Event comes back as the Ledger wrote it.
  */
 export const decideGate = (
 	ledger: Ledger,
 	{
+		actor,
 		gate_id,
 		payload_hash,
 		meaning,
 		reason,
 	}: {
+		readonly actor: Person;
 		readonly gate_id: GateId;
 		readonly payload_hash: Sha256;
 		readonly meaning: "approve" | "reject";
@@ -102,13 +104,13 @@ export const decideGate = (
 		requestedGate(ledger.projections.gates, gate_id),
 	);
 	return record(ledger, {
-		actor: { tag: "Operator" },
+		actor,
 		...(gate.task_id === undefined ? {} : { task_id: gate.task_id }),
 		causation_id: gate.requested_seq,
 		kind: "GateDecided",
 		payload: {
 			gate_id,
-			decided_by: { tag: "Operator" },
+			decided_by: actor,
 			payload_hash,
 			meaning,
 			reason,

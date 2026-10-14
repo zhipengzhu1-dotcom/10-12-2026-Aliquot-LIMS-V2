@@ -31,15 +31,13 @@ import {
 	taskOf,
 } from "../task/lifecycle.js";
 import { LIVE_TAGS } from "../task/projection.js";
-import type { Actor } from "../types/actor.js";
+import type { Actor, Person } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { ArtifactType } from "../types/artifact.js";
 import type { Run, Script, ScriptRef } from "../types/script.js";
 import type { TaskState } from "../types/task.js";
 import { recordEvaluation, type Scored } from "./lifecycle.js";
 import type { RunArtifacts, Stage, StageArtifact } from "./stages.js";
-
-const OPERATOR: Actor = { tag: "Operator" };
 
 /** sha256 over every file's relative path and bytes, `__pycache__` skipped. */
 const treeDigest = (dir: string): string => {
@@ -67,8 +65,9 @@ export const ensureScript = (options: {
 	stage: Stage;
 	source: string;
 	image: Sha256;
+	operator: Person;
 }): Script => {
-	const { ledger, home, stage, source, image } = options;
+	const { ledger, home, stage, source, image, operator } = options;
 	const latest = ledger.projections.scripts.scripts
 		.get(ScriptId.parse(`S-${stage.script}`))
 		?.at(-1);
@@ -82,7 +81,7 @@ export const ensureScript = (options: {
 	return registerScript({
 		ledger,
 		home,
-		actor: OPERATOR,
+		actor: operator,
 		name: stage.script,
 		scriptDir: source,
 		owner_agent: stage.worked_by,
@@ -132,6 +131,7 @@ const storeWeighings = (
 	home: string,
 	stage: Stage,
 	formPath: string,
+	operator: Person,
 ): Typed => {
 	const stem = basename(formPath, extname(formPath));
 	const path = join(dirname(formPath), `${stem}.weighings.json`);
@@ -145,11 +145,11 @@ const storeWeighings = (
 		{
 			artifact_type: WEIGHINGS,
 			media_type: "application/json",
-			produced_by: OPERATOR,
+			produced_by: operator,
 			lineage: [],
 			filename: basename(path),
 		},
-		{ actor: OPERATOR },
+		{ actor: operator },
 	).artifact;
 };
 
@@ -278,8 +278,9 @@ const runStage = async (options: {
 	causation_id: Seq;
 	filename: string;
 	timeoutMs: number;
+	operator: Person;
 }): Promise<{ result: StageRun; seq: Seq }> => {
-	const { ledger, home, plan, filename } = options;
+	const { ledger, home, plan, filename, operator } = options;
 	const { stage } = plan;
 	const agent: Actor = { tag: "Agent", id: stage.worked_by };
 	const carried = stage.carried.flatMap(
@@ -288,7 +289,7 @@ const runStage = async (options: {
 	const inputs = [...options.inputs, ...carried];
 
 	const task_id = propose(ledger, {
-		actor: OPERATOR,
+		actor: operator,
 		causation_id: options.causation_id,
 		title: `Stage ${stage.number} ${stage.name}: ${filename}`,
 		goal: `Run ${stage.script} and pass the stage ${stage.number} Evaluation`,
@@ -297,7 +298,7 @@ const runStage = async (options: {
 		tat_class: "Regular",
 	}).task.id;
 	const state = (): TaskState => taskOf(ledger.projections, task_id).state;
-	assign(ledger, { actor: OPERATOR, task_id, assignee: stage.worked_by });
+	assign(ledger, { actor: operator, task_id, assignee: stage.worked_by });
 	const started = start(ledger, { actor: agent, task_id });
 
 	const revisions: AgentDefinition[] = [];
@@ -316,7 +317,7 @@ const runStage = async (options: {
 		const { outputs } = artifacts;
 		const evaluation = evaluateRun(stage, run, artifacts);
 		const evaluated = recordEvaluation(ledger, {
-			actor: OPERATOR,
+			actor: operator,
 			stage: stage.number,
 			task_id,
 			run_id: run.id,
@@ -399,8 +400,10 @@ export const runWorkflow = async (options: {
 	formPath: string;
 	plan: readonly StagePlan[];
 	timeoutMs: number;
+	/** The person acting as the Operator, who stores the Fixture and proposes each Task. */
+	operator: Person;
 }): Promise<WorkflowRun> => {
-	const { ledger, home } = options;
+	const { ledger, home, operator } = options;
 	const filename = basename(options.formPath);
 	const { artifact: fixture, seq: stored } = openArtifacts({
 		ledger,
@@ -410,11 +413,11 @@ export const runWorkflow = async (options: {
 		{
 			artifact_type: "SubmissionForm",
 			media_type: guessMediaType(filename),
-			produced_by: OPERATOR,
+			produced_by: operator,
 			lineage: [],
 			filename,
 		},
-		{ actor: OPERATOR },
+		{ actor: operator },
 	);
 
 	const stages: StageRun[] = [];
@@ -423,7 +426,13 @@ export const runWorkflow = async (options: {
 	let weighings: Typed | undefined;
 	for (const plan of options.plan) {
 		if (plan.stage.inputs.includes(WEIGHINGS) && !weighings) {
-			weighings = storeWeighings(ledger, home, plan.stage, options.formPath);
+			weighings = storeWeighings(
+				ledger,
+				home,
+				plan.stage,
+				options.formPath,
+				operator,
+			);
 		}
 		const { result, seq } = await runStage({
 			ledger,
@@ -433,6 +442,7 @@ export const runWorkflow = async (options: {
 			causation_id,
 			filename,
 			timeoutMs: options.timeoutMs,
+			operator,
 		});
 		stages.push(result);
 		if (result.state.tag !== "Done") break;
@@ -452,8 +462,9 @@ export const runWorkflow = async (options: {
 export const ensureRoster = (
 	ledger: Ledger,
 	stages: readonly Stage[],
+	operator: Person,
 ): void => {
-	if (ledger.projections.org.agents.size === 0) seedOrg(ledger);
+	if (ledger.projections.org.agents.size === 0) seedOrg(ledger, operator);
 	for (const stage of stages) {
 		for (const agent of [stage.worked_by, stage.reviewed_by]) {
 			if (!ledger.projections.org.agents.has(agent)) {

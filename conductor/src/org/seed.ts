@@ -2,6 +2,7 @@ import { AgentId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import type { Recorded } from "../lifecycle-support.js";
 import type { Action } from "../types/action.js";
+import type { Person } from "../types/actor.js";
 import type { AgentDefinition, Role } from "../types/agent-definition.js";
 import { recruit } from "./lifecycle.js";
 import type { AgentState } from "./projection.js";
@@ -227,17 +228,16 @@ export const rosterDefinitions = (): AgentDefinition[] =>
 
 /**
  * Recruit every roster Agent the Ledger does not already hold, authored by
- * the Operator, through the Org lifecycle. Returns what it recruited; a
- * second run recruits none.
+ * the person acting as the Operator, through the Org lifecycle. Returns what
+ * it recruited; a second run recruits none.
  */
 export const seedOrg = (
 	ledger: Ledger,
+	by: Person,
 	roster: readonly AgentDefinition[] = rosterDefinitions(),
 ): Recorded<"agent", AgentState>[] => {
 	const { agents } = ledger.projections.org;
 	return roster
 		.filter((d) => !agents.has(d.id))
-		.map((definition) =>
-			recruit(ledger, { actor: { tag: "Operator" }, definition }),
-		);
+		.map((definition) => recruit(ledger, { actor: by, definition }));
 };

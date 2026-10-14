@@ -1,26 +1,26 @@
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { parseArgs } from "node:util";
-import { fromInvocation, withLedger } from "../cli-support.js";
+import { fromInvocation, personOf, withLedger } from "../cli-support.js";
 import { type Command, UsageError } from "../command.js";
 import { sha256Hex } from "../hash.js";
 import { ArtifactId } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
 import { guessMediaType } from "../sandbox/runner.js";
+import type { Person } from "../types/actor.js";
 import type { StoredArtifact } from "../types/artifact.js";
 
-const operator = { tag: "Operator" } as const;
-
 /**
- * Store a Submission Form the Operator drops on the society as an Artifact
- * the Operator produced, with no Lineage. Bytes already stored append
- * nothing. `appended` is false then.
+ * Store a Submission Form that `by`, the person acting as the Operator, drops
+ * on the society as an Artifact that person produced, with no Lineage. Bytes
+ * already stored append nothing. `appended` is false then.
  */
 export const intake = (
 	ledger: Ledger,
 	home: string,
 	file: string,
+	by: Person,
 ): { readonly artifact: StoredArtifact; readonly appended: boolean } => {
 	const bytes = readFileSync(file);
 	const known = ledger.projections.artifacts.artifacts.has(
@@ -32,11 +32,11 @@ export const intake = (
 		{
 			artifact_type: "SubmissionForm",
 			media_type: guessMediaType(filename),
-			produced_by: operator,
+			produced_by: by,
 			lineage: [],
 			filename,
 		},
-		{ actor: operator },
+		{ actor: by },
 	);
 	return { artifact, appended: !known };
 };
@@ -57,8 +57,9 @@ export const intakeCommand: Command = {
 				`intake takes a Submission Form as a .docx file, not ${JSON.stringify(given)}`,
 			);
 		}
+		const by = personOf(ctx);
 		const { artifact, appended } = withLedger(ctx.home, true, (ledger) =>
-			intake(ledger, ctx.home, fromInvocation(given)),
+			intake(ledger, ctx.home, fromInvocation(given), by),
 		);
 		ctx.stdout.write(
 			appended

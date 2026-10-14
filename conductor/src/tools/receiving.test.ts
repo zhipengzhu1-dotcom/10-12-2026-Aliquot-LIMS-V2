@@ -35,6 +35,7 @@ import {
 	T0,
 	WORK_ORDER,
 } from "../test-support/lab-room.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { RunModel } from "../turn/model.js";
 import { STAGES } from "../workflow/stages.js";
@@ -57,7 +58,7 @@ let s: Scenario;
 let home: string;
 beforeEach(() => {
 	s = scenario(T0);
-	seedRooms(s.ledger);
+	seedRooms(s.ledger, TEST_OPERATOR);
 	home = mkdtempSync(join(tmpdir(), "aliquot-receiving-"));
 });
 afterEach(() => {
@@ -272,11 +273,13 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const fixture = await runWorkflow({
 			ledger: s.ledger,
 			home,
+			operator: TEST_OPERATOR,
 			formPath: SEED_1,
 			plan: STAGES.slice(0, 3).map((stage) => {
 				const script = ensureScript({
 					ledger: s.ledger,
 					home,
+					operator: TEST_OPERATOR,
 					stage,
 					source: join(scriptsRoot, stage.script),
 					image,

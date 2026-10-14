@@ -1,8 +1,10 @@
 /**
  * The Access landing: a lock frame shown once per tab before the shell.
- * There is no password: Cloudflare Access vouched for the Operator before
- * the page loaded, so ENTER only opens the shell.
+ * There is no password: Cloudflare Access vouched for the person before the
+ * page loaded, so the landing names that person and ENTER only opens the shell.
  */
+
+import { UNNAMED_OPERATOR } from "./markup.js";
 
 /** The key in the tab's storage that says the landing was passed. */
 export const ENTERED_KEY = "aliquot.access.entered";
@@ -69,6 +71,12 @@ export const laboratoryOf = (json: unknown): string | undefined => {
 	return lab === undefined ? undefined : `${lab[1].name} Room · ${lab[0]}`;
 };
 
+/** The person acting as the Operator, from `/api/operator`. */
+export const operatorOf = (json: unknown): string => {
+	const email = (json as { readonly email?: unknown }).email;
+	return typeof email === "string" ? email : UNNAMED_OPERATOR;
+};
+
 /**
  * A static double helix for the landing's viewBox of 1200 by 400: two strands
  * half a turn apart, tapering at both ends, with a rung every 16 units and
@@ -100,7 +108,7 @@ const byId = (id: string): HTMLElement => {
 
 /**
  * Show the landing unless this tab passed it, and open the shell on
- * ENTER. `get` reads an `/api` route for the laboratory's name.
+ * ENTER. `get` reads an `/api` route for the laboratory's name and the person.
  */
 export const showAccess = (get: (route: string) => Promise<unknown>): void => {
 	const body = document.body;
@@ -128,6 +136,11 @@ export const showAccess = (get: (route: string) => Promise<unknown>): void => {
 		.then((json) => {
 			const lab = laboratoryOf(json);
 			if (lab !== undefined) byId("access-laboratory").textContent = lab;
+		})
+		.catch(() => {});
+	get("operator")
+		.then((json) => {
+			byId("access-operator").textContent = operatorOf(json);
 		})
 		.catch(() => {});
 	const button = byId("access-enter");

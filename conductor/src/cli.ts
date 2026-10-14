@@ -17,6 +17,7 @@ import { taskCommands } from "./task/commands.js";
 import { toolCommands } from "./tools/commands.js";
 import { trainingCommands } from "./training/commands.js";
 import { turnCommands } from "./turn/commands.js";
+import { emailOf } from "./types/actor.js";
 import { vitalityCommands } from "./vitality/commands.js";
 import { workflowCommands } from "./workflow/commands.js";
 
@@ -70,8 +71,9 @@ const usage = () => {
 The Conductor's command line.
 
 Options:
-  --home <dir>  Data directory (default: $ALIQUOT_HOME, else ./.aliquot)
-  -h, --help    Show this help
+  --home <dir>          Data directory (default: $ALIQUOT_HOME, else ./.aliquot)
+  --operator <email>    The person a command acts for as the Operator (default: $ALIQUOT_OPERATOR)
+  -h, --help            Show this help
 
 Commands:
 ${lines.join("\n")}
@@ -102,12 +104,42 @@ const splitGlobal = (argv: string[]) => {
 	return { values, rest: argv.slice(cut) };
 };
 
+/**
+ * `--operator <email>` wherever it stands, else `ALIQUOT_OPERATOR`, so every
+ * command takes the person the same way; and the arguments without the flag.
+ */
+const takeOperator = (argv: string[]) => {
+	const others: string[] = [];
+	let flag: string | undefined;
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i] ?? "";
+		if (arg === "--operator") {
+			flag = argv[i + 1] ?? "";
+			i++;
+		} else if (arg.startsWith("--operator=")) {
+			flag = arg.slice("--operator=".length);
+		} else {
+			others.push(arg);
+		}
+	}
+	const text = flag ?? (process.env.ALIQUOT_OPERATOR || undefined);
+	if (text === undefined) return { operator: undefined, others };
+	const operator = emailOf(text);
+	if (operator === undefined) {
+		throw new UsageError(
+			`${flag === undefined ? "ALIQUOT_OPERATOR" : "--operator"} must be the person's email, not ${JSON.stringify(text)}`,
+		);
+	}
+	return { operator, others };
+};
+
 export const main = async (
 	argv: string[],
-	io: Omit<CommandContext, "home">,
+	io: Omit<CommandContext, "home" | "operator">,
 ): Promise<number> => {
 	try {
-		const { values, rest } = splitGlobal(argv);
+		const { operator, others } = takeOperator(argv);
+		const { values, rest } = splitGlobal(others);
 		const [domain, name, ...args] = rest;
 		if (values.help || domain === undefined) {
 			io.stdout.write(usage());
@@ -130,6 +162,7 @@ export const main = async (
 		return await command.run(own === undefined ? args : rest.slice(1), {
 			...io,
 			home,
+			...(operator === undefined ? {} : { operator }),
 		});
 	} catch (error) {
 		const message =

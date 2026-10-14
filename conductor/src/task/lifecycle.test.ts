@@ -4,6 +4,7 @@ import { AgentId, ArtifactId, type Seq, type TaskId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { pause, resume } from "../org/lifecycle.js";
 import { seedOrg } from "../org/seed.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
 import {
@@ -38,7 +39,7 @@ const threes = {
 let ledger: Ledger;
 beforeEach(() => {
 	ledger = openMemoryLedger();
-	seedOrg(ledger);
+	seedOrg(ledger, TEST_OPERATOR);
 });
 afterEach(() => ledger.close());
 

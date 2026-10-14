@@ -1,6 +1,6 @@
 # 10-12-2026-Aliquot-LIMS-V2
 
-Aliquot LIMS is the automation engine behind the LIMS of a regulated pharmaceutical contract testing lab (ADR-0017). The human LIMS, aliquot-lims-dev, keeps people, roles, review, OOS investigations and the Client portal. This engine's AI Agents read submissions, log receipts, compute results and draft reports. The Agents run on the Operator's Mac, record every action in a hash-chained Ledger, and act outside their Sandbox only through Gates the Operator signs. Slices 0, 1 and 2 are built, on synthetic data only. The eight Agents take Turns through the Agent SDK, and the Scheduler inside `aliquot serve` decides who works. The six-stage toy workflow runs from a Submission Form to a Report of Analysis. In the Chat view, the Operator reports received Samples and then results, and the chain ends at an `ExternalMessage` Gate that the Operator decides. No live run has yet taken the chat flow to its Gate: the one live run, on 2026-10-13, stopped at stage 1. Next come the tickets that finish slice 2 (#70 to #73), named people in the Ledger (#74), and slice 3, the same flow on the lab's real documents, run in parallel with the lab's own records first (ADR-0018).
+Aliquot LIMS is the automation engine behind the LIMS of a regulated pharmaceutical contract testing lab (ADR-0017). The human LIMS, aliquot-lims-dev, keeps people, roles, review, OOS investigations and the Client portal. This engine's AI Agents read submissions, log receipts, compute results and draft reports. The Agents run on the Operator's Mac, record every action in a hash-chained Ledger, and act outside their Sandbox only through Gates the Operator signs. Slices 0, 1 and 2 are built, on synthetic data only. The eight Agents take Turns through the Agent SDK, and the Scheduler inside `aliquot serve` decides who works. The six-stage toy workflow runs from a Submission Form to a Report of Analysis. In the Chat view, the Operator reports received Samples and then results, and the chain ends at an `ExternalMessage` Gate that the Operator decides. No live run has yet taken the chat flow to its Gate: the one live run, on 2026-10-13, stopped at stage 1. Every Event a person authors names the person by email (#74). Next come the tickets that finish slice 2 (#70 to #73), and slice 3, the same flow on the lab's real documents, run in parallel with the lab's own records first (ADR-0018).
 
 - [Design overview](docs/design/overview.md) describes the data shapes, runtime, roster, toy workflow, interface, and roadmap. Read it first.
 - [Vitality and Merit](docs/design/vitality-and-merit.md) defines how Moods, Rest, Reviews, and Trust tiers work.
@@ -97,6 +97,19 @@ Verify the hash chain. The command exits 0 when every Event is intact, and other
 pnpm -C conductor cli --home /tmp/aliquot ledger verify   # on a fresh home: exits 1, no Ledger yet
 ```
 
+### The person
+
+Every Event a person authors names the person ([ADR-0019](docs/adr/0019-every-human-act-names-the-person.md)). The Operator is a role that named people play, and an Event by the Operator carries the person's email, lowercased, as `{"tag": "Operator", "email": "ada@lab.test"}`. A command that acts as the Operator takes the person from `--operator <email>`, anywhere on the command line, or else from `ALIQUOT_OPERATOR`. Without either it is refused before it opens the Ledger, with `error: this command acts as the Operator, who must be named: pass --operator <email> or set ALIQUOT_OPERATOR`, and exits 1. A command that acts `--as` an Agent, and a command that only reads, needs no person. A payload that only refers to the Operator, such as `--reviewer Operator` or `--to Operator`, names no person; whoever acts as the Operator plays that role.
+
+The examples below set the person once, here, so each one runs as written:
+
+```sh
+export ALIQUOT_OPERATOR=ada@lab.test
+env -u ALIQUOT_OPERATOR pnpm -C conductor cli --home /tmp/aliquot org seed   # refused, exits 1: no person named
+```
+
+An Event written before #74 has no email. It still opens and verifies, and every view and listing shows its actor as `Operator (unnamed)`. No old Event is rewritten.
+
 ## Org
 
 The Org Projection folds the Agent Events (`AgentRecruited`, `AgentDefinitionRevised`, `AgentPaused`, `AgentResumed`, `AgentRetired`) into each Agent's current definition and its reporting tree. Every change is an Event; nothing is edited in place (ADR-0005).
@@ -136,7 +149,7 @@ pnpm -C conductor cli --home /tmp/aliquot org resume A-rin
 pnpm -C conductor cli --home /tmp/aliquot org revise A-thorne thorne-v2.json
 ```
 
-These commands write as the Operator. Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)). Granting a Skill is a Revision that adds its id to `skills`. The Ledger refuses a definition whose `skills` names an id that no `training skill publish` has published, and the refusal names the id (see [Training](#training)). A Charter's `forbidden` list holds Actions, such as `RunScript` (see [Tools](#tools)). The Ledger refuses a definition that forbids anything else, from `org seed` or `org revise`, and the refusal names it: `AgentDefinitionRevised refused: A-rin's Charter forbids "FlyDrones", which is not an Action; the Actions are RunScript, ...`. A Ledger seeded before the Action vocabulary keeps the roster's phrases, such as `Run Scripts`; its Revisions may carry them over, and the hook reads each one as its Action.
+These commands write as the Operator, named by `ALIQUOT_OPERATOR` (see [The person](#the-person)). Add `--as A-<id>` to write as an Agent. Only the Operator can revise the Auditor, so `org revise A-thorne thorne-v2.json --as A-odile` is refused. The definition's `revised_by` must be the actor that writes it, and its `revision_reason` must not be empty. Its `trust_tier` must be the Agent's projected Trust tier, so `org revise` cannot set a tier by hand; a Revision that keeps the tier goes through (see [Vitality and Merit](#vitality-and-merit)). Granting a Skill is a Revision that adds its id to `skills`. The Ledger refuses a definition whose `skills` names an id that no `training skill publish` has published, and the refusal names the id (see [Training](#training)). A Charter's `forbidden` list holds Actions, such as `RunScript` (see [Tools](#tools)). The Ledger refuses a definition that forbids anything else, from `org seed` or `org revise`, and the refusal names it: `AgentDefinitionRevised refused: A-rin's Charter forbids "FlyDrones", which is not an Action; the Actions are RunScript, ...`. A Ledger seeded before the Action vocabulary keeps the roster's phrases, such as `Run Scripts`; its Revisions may carry them over, and the hook reads each one as its Action.
 
 Retirement goes through a `RetireAgent` Gate (ADR-0006). `org retire <id> --reason` requests the Gate, as the Operator or as the Agent that `--as` names, and prints its id and payload hash. After the Operator approves the Gate (see [Gates](#gates)), `org retire <id> --gate G-n` appends `AgentRetired` as the Operator. The reason defaults to the one in the Gate payload.
 
@@ -245,7 +258,7 @@ pnpm -C conductor cli --home /tmp/aliquot room history RM-pia-rin
 
 ## Gates
 
-A Gate is a request for an Operator decision on an action outside the Sandbox (ADR-0006). There are five kinds: `Deploy`, `WriteSystemOfRecord`, `ExternalMessage`, `RetireAgent`, and `PromoteToMentor`. The decision Event is the electronic signature record: it names the Operator, the time, the sha256 of the exact payload, and the meaning (approve or reject). A Report of Analysis ends at an `ExternalMessage` Gate that the Specialist who rendered it requests with the `request_gate` Tool (see Chat).
+A Gate is a request for an Operator decision on an action outside the Sandbox (ADR-0006). There are five kinds: `Deploy`, `WriteSystemOfRecord`, `ExternalMessage`, `RetireAgent`, and `PromoteToMentor`. The decision Event is the electronic signature record: it names the person who decided, as its actor and as `decided_by`, the time, the sha256 of the exact payload, and the meaning (approve or reject). `gate show` prints `decision: approve by <email> at <time>: <reason>`, or `by Operator (unnamed)` for a decision recorded before #74. A Report of Analysis ends at an `ExternalMessage` Gate that the Specialist who rendered it requests with the `request_gate` Tool (see Chat).
 
 Request a Gate. The payload is a JSON file, or `-` for stdin. `--task` links the Gate to an `InProgress` Task, which shows as `Blocked` until the Operator decides the Gate; `--lifetime` is in seconds (default 86400), and `--as` names the requesting Agent (default: the Operator). The command prints the new Gate id and the payload hash.
 
@@ -682,7 +695,7 @@ tools/aliquot --home $H serve    # then open http://127.0.0.1:8787/#/chat
 
 ## Serve
 
-`aliquot serve` is the long-running Conductor. It opens the Ledger for writing and holds the writer lock until it stops. While it runs, a command that writes exits 1 with `LedgerLocked: <home>/ledger.sqlite.lock held by pid <pid>`, and a command that only reads still works. Unless `--no-schedule` is given, it also runs the Scheduler (see below), which starts Turns on the model `turn run` uses: the Agent SDK on the subscription login, or the scripted model that `ALIQUOT_SCRIPTED_MODEL` names. With `ALIQUOT_API_KEY` set, `serve` exits 2 unless `--no-schedule` is given. On SIGINT or SIGTERM it stops the Scheduler, waits for the Turns still open, closes the Ledger, which releases the lock, and exits 0.
+`aliquot serve` is the long-running Conductor. Each action it runs names the person it came from: behind Cloudflare Access, the person Access vouched for; without Access, the person `--operator` or `ALIQUOT_OPERATOR` names at start, and without one it refuses to start, in the line every Operator command uses. It opens the Ledger for writing and holds the writer lock until it stops. While it runs, a command that writes exits 1 with `LedgerLocked: <home>/ledger.sqlite.lock held by pid <pid>`, and a command that only reads still works. Unless `--no-schedule` is given, it also runs the Scheduler (see below), which starts Turns on the model `turn run` uses: the Agent SDK on the subscription login, or the scripted model that `ALIQUOT_SCRIPTED_MODEL` names. With `ALIQUOT_API_KEY` set, `serve` exits 2 unless `--no-schedule` is given. On SIGINT or SIGTERM it stops the Scheduler, waits for the Turns still open, closes the Ledger, which releases the lock, and exits 0.
 
 ```sh
 pnpm -C conductor build                   # compiles the interface
@@ -693,7 +706,7 @@ tools/aliquot --home /tmp/aliquot serve   # Serving /tmp/aliquot at http://127.0
 |---|---|---|
 | `--port <n>` | `8787` | The port. `0` lets the system choose one. |
 | `--bind <address>` | `127.0.0.1` | The address. Any other address needs Cloudflare Access; without it, the command exits 2. |
-| `--access-team <team>` `--access-aud <aud>` `--operator-email <email>` | none | Cloudflare Access. Give all three or none. |
+| `--access-team <team>` `--access-aud <aud>` `--operator-email <email>` | none | Cloudflare Access. Give all three or none. Repeat `--operator-email` once for each person who may act as the Operator. |
 | `--tick <duration>` | `15s` | How often the Scheduler runs, and how long a Proposed Task waits for its proposer to assign it. A duration is a whole number with `ms`, `s`, `m` or `h`. |
 | `--duty <duration>` | `30m` | How often the Steward and the Auditor get a Turn with nothing else to do. |
 | `--concurrency <n>` | `2` | The most Turns open at once. |
@@ -743,7 +756,8 @@ scheduler 2026-10-12T09:00:20.000Z A-rin finished TN-6 Completed: 0 Tool calls, 
 |---|---|
 | `GET /` | The interface, from `conductor/dist/ui/`. |
 | `GET /api/org`, `/api/tasks`, `/api/gates`, `/api/rooms`, `/api/scripts`, `/api/runs`, `/api/artifacts`, `/api/turns` | The Projection as JSON. Each map is an object keyed by id. `/api/turns` holds every Turn by id and each Agent's open Turn, the data `turn list` prints. |
-| `GET /api/chat` | The Lab Room for the Chat view: `{room, messages}`, every Message of `RM-lab` in seq order as `{seq, ts, said_by, name, body, reply_to?}`, where `name` is the Agent's name from the Org, or `Operator`. |
+| `GET /api/chat` | The Lab Room for the Chat view: `{room, messages}`, every Message of `RM-lab` in seq order as `{seq, ts, said_by, name, body, reply_to?}`, where `name` is the Agent's name from the Org, or the email of the person who said it as the Operator (`Operator (unnamed)` before #74). |
+| `GET /api/operator` | `{email}`: the person this request comes from, as Access admitted it or as `serve` was started for. The Access landing shows it. |
 | `GET /api/org-tree` | The reporting tree `org tree` prints: the Operator at the root, each live Agent as `{tag: "Agent", agent, children}`, and the Specialists in one `{tag: "Pool", supervisors, children}` node. |
 | `GET /api/vitality` | Each live Agent's Vitality (its latest `VitalitySampled`, else computed now), Mood, Policy, Merit and Trust tier, as `vitality show` prints them. |
 | `GET /api/tiers` | Each live Agent's Trust tier and standing, as `vitality tiers` prints them. |
@@ -768,7 +782,7 @@ curl -N localhost:8787/api/events
 
 ### Actions
 
-Each action runs the lifecycle verb its command runs, always as the Operator. No body takes `--as`, and the Operator opens a Room that `room-open` opens. Send the body as JSON with `content-type: application/json`.
+Each action runs the lifecycle verb its command runs, always as the Operator, named by the person the request came from. No body takes `--as`, and that person opens a Room that `room-open` opens. Send the body as JSON with `content-type: application/json`.
 
 | Verb | Command | Body |
 |---|---|---|
@@ -806,7 +820,7 @@ With `--access-team`, `--access-aud` and `--operator-email`, every request must 
 
 - An RS256 signature by one of the team's keys at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. The Conductor fetches the keys on the first request and keeps them for the `max-age` of that response, or for an hour without one.
 - An `aud` that includes `--access-aud`.
-- An `email` equal to `--operator-email`, ignoring case.
+- An `email` equal to one of the `--operator-email` values, ignoring case. That email, lowercased, is the person every action of the request names.
 - An `exp` in the future.
 
 Node's `crypto` verifies the token, so Access needs no dependency.
@@ -821,13 +835,13 @@ The first admitted request for an email prints one line to stdout, `Admitted <em
 tools/serve.sh
 ```
 
-[docs/ops/tunnel.md](docs/ops/tunnel.md) has the one-time setup on the Cloudflare account, the free-tier limits, the checks, how to undo each part, and how to rotate the Operator's email. The owner has not applied that setup yet (gate G2), so the Tunnel, its DNS route and the Access application do not exist.
+[docs/ops/tunnel.md](docs/ops/tunnel.md) has the one-time setup on the Cloudflare account, the free-tier limits, the checks, how to undo each part, and how to add, remove or change a person's email in `operator_emails`. The owner has not applied that setup yet (gate G2), so the Tunnel, its DNS route and the Access application do not exist.
 
 ### Interface
 
 The interface is plain TypeScript in `conductor/ui/`, with no framework and no bundler. `pnpm -C conductor build` compiles it with `ui/tsconfig.build.json` to ES modules in `conductor/dist/ui/`, and copies `ui/index.html` beside them. `pnpm -C conductor lint` and `typecheck` cover `ui/`. Without a build, `aliquot serve` says so on stderr and serves the API only.
 
-A new browser tab opens on the Access landing, a full-screen frame before the shell: the wordmark, a live clock and date, and a Session panel with the Operator, the laboratory (the Lab Room every Agent belongs to, from `/api/rooms`), the terminal (the host) and the time. There is no password. Cloudflare Access vouched for the Operator before the page loaded, and no endpoint exposes that identity, so the panel says `Operator`. ENTER opens the shell, and `sessionStorage` remembers it for the tab; the landing still opens the shell where storage is refused. `ui/access.ts` draws it. The shell is a black slab with the navigation and the Action bar over bone content. Every colour is a token on `:root` in `ui/index.html`, with a dark theme under `prefers-color-scheme: dark` and again under `:root[data-theme="dark"]`. Text is Montserrat and ids, seqs and labels are JetBrains Mono, both from Google Fonts. A refused action shows its status line in orange.
+A new browser tab opens on the Access landing, a full-screen frame before the shell: the wordmark, a live clock and date, and a Session panel with the Operator, the laboratory (the Lab Room every Agent belongs to, from `/api/rooms`), the terminal (the host) and the time. There is no password. Cloudflare Access vouched for the person before the page loaded, and the panel shows that person's email from `GET /api/operator`; under a local `serve`, the person it was started for. ENTER opens the shell, and `sessionStorage` remembers it for the tab; the landing still opens the shell where storage is refused. `ui/access.ts` draws it. The shell is a black slab with the navigation and the Action bar over bone content. Every colour is a token on `:root` in `ui/index.html`, with a dark theme under `prefers-color-scheme: dark` and again under `:root[data-theme="dark"]`. Text is Montserrat and ids, seqs and labels are JetBrains Mono, both from Google Fonts. A refused action shows its status line in orange.
 
 The navigation has one hash route for each view: `#/org`, `#/flow`, `#/agent`, `#/chat`, `#/rooms`, `#/scripts`, `#/gates`, `#/performance` and `#/ledger`. Each page fetches the Projections its view reads and draws them. It fetches them again on every Event from `/api/events`, and each time that stream opens, so a page that has read no Event, and has no seq to replay from, still shows the Events appended while the stream was down. A view its ticket has not drawn yet shows the JSON as it came. In `ui/views.ts`, each view is a pure function from Projection JSON and the hash's query to markup, in a module of its own such as `ui/org.ts`, tested without a browser. `ui/sse.ts` is the Event client and `ui/actions.ts` is the action client. The form above each page runs any action by its verb and a JSON body, and its status line shows the answer to every action, a view's included.
 
@@ -843,6 +857,6 @@ A view's filters live in the hash's query, as in `#/flow?lot=LOT-7`, so a filter
 | Rooms (`#/rooms`) | Not drawn yet: the JSON of `/api/rooms` as it came. | None of its own; the form above the page runs `room-say` and `room-open`. |
 | Scripts (`#/scripts`) | Not drawn yet: the JSON of `/api/scripts`, `/api/runs` and `/api/artifacts` as it came. | None. |
 | Gates (`#/gates`) | Open Gates oldest first, each with its kind, requester, age, lifetime, the Task it blocks, and its payload. A `RetireAgent` or `PromoteToMentor` Gate also shows the fields of the Agent it names that approving it would change, now and proposed. Then the decided and expired Gates, most recently closed first. | Approve or reject an open Gate, each with a reason. The form signs the payload hash the page read, so a payload hash that no longer matches shows the Ledger's refusal. |
-| Ledger (`#/ledger`) | The Events, newest first, 50 a page, each with seq, time, actor, kind, Task and cause, and its payload, which opens on click. A status line gives the verdict of `/api/ledger/verify` and when it was read. The newest page takes each new Event at its top; `#/ledger?before=<seq>` is the page of the 50 Events before that seq, and it stays put. | **Verify** reads the verdict again. A cause links to the page it heads. |
+| Ledger (`#/ledger`) | The Events, newest first, 50 a page, each with seq, time, actor, kind, Task and cause, and its payload, which opens on click. The actor is the Agent's id, `Conductor`, or the email of the person who acted as the Operator, `Operator (unnamed)` for an Event before #74; the Gates and Flow views name actors the same way. A status line gives the verdict of `/api/ledger/verify` and when it was read. The newest page takes each new Event at its top; `#/ledger?before=<seq>` is the page of the 50 Events before that seq, and it stays put. | **Verify** reads the verdict again. A cause links to the page it heads. |
 | Flow (`#/flow`) | One swimlane per stage of `/api/stages`, and one for Tasks in no stage. A Task's lane is the stage whose Script its latest Run ran, so a Task joins its lane when its first Run starts. Each card shows the Task's id, title, state, assignee and TAT class. | Filter by Task id (`?task=T-1`) or by Lot (`?lot=<lot>`). A Task's Lots are those of the `SubmissionRecord`s in the Lineage of its Artifacts, or made from one of them. Open a Task (`?open=T-1`) to read its Events in seq order, with the cause of the first one, and an arrow from each Event to the Event its `causation_id` names. The panel reads the Ledger's first 1,000 Events. |
 | Performance (`#/performance`) | Merit per Agent, one line per Agent and one point per Review counted toward Merit, in Ledger order; the mean of each rubric dimension per Agent; the society's tokens in the trailing 5 hours against the Energy budget, with the 80 percent line; and the count of Tasks in each state. | Export CSV: `reviews.csv`, one row per Review under the header `review_seq,task_id,reviewer,assignee,at,quality,traceability,boundary_adherence,collaboration,timeliness`. |

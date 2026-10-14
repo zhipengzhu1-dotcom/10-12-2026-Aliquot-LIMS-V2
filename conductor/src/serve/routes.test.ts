@@ -5,6 +5,7 @@ import { open, say } from "../room/lifecycle.js";
 import { seedRooms } from "../room/seed.js";
 import { store } from "../sandbox/lifecycle.js";
 import { fail } from "../task/lifecycle.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { scenario, scores } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import type { ArtifactType } from "../types/artifact.js";
@@ -16,7 +17,7 @@ const rin = AgentId.parse("A-rin");
 describe("the route the Chat view reads", () => {
 	it("chat serves RM-lab's Messages in seq order with each sayer's name, and no other Room's", () => {
 		const s = scenario("2026-10-12T09:00:00.000Z");
-		seedRooms(s.ledger);
+		seedRooms(s.ledger, TEST_OPERATOR);
 		open(s.ledger, {
 			id: RoomId.parse("RM-side"),
 			name: "Side",
@@ -26,7 +27,7 @@ describe("the route the Chat view reads", () => {
 		});
 		const lab = RoomId.parse("RM-lab");
 		const first = say(s.ledger, {
-			actor: { tag: "Operator" },
+			actor: TEST_OPERATOR,
 			room_id: lab,
 			body: "Received 3 bottles",
 		});
@@ -49,7 +50,7 @@ describe("the route the Chat view reads", () => {
 					seq: first.seq,
 					ts: "2026-10-12T09:00:00.000Z",
 					said_by: "Operator",
-					name: "Operator",
+					name: "operator@lab.test",
 					body: "Received 3 bottles",
 				},
 				{

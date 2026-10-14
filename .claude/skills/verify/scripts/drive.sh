@@ -92,7 +92,7 @@ kinds_since() { sql "select group_concat(kind, ' ') from (select kind from event
 drive_access() {
 	local host=${URL#http://}
 	browser landing goto '#/org' landing \
-		text '#access-operator' 'Operator' text '#access-terminal' "$host" \
+		text '#access-operator' "$VERIFY_OPERATOR" text '#access-terminal' "$host" \
 		text '#access-laboratory' 'Lab Room · RM-lab' text '#access-date' "$(date +%Y)" \
 		scheme dark landing scheme light \
 		viewport 390 landing no-hscroll viewport 1280 \
@@ -139,10 +139,10 @@ drive_org() {
 		same "$(jq -r '.["A-ines"].mood' "$out/vitality.json" 2>/dev/null)" fresh
 	expect "/api/vitality has every live Agent fresh" \
 		same "$(jq -r '[.[] | .mood] | unique | join(" ")' "$out/vitality.json" 2>/dev/null)" fresh
-	expect "the RestOrdered row carries Ines, begin and the typed reason, by the Operator" \
-		same "$(sql "select count(*) from events where seq > $base and kind = 'RestOrdered' and actor = '{\"tag\":\"Operator\"}' and json_extract(payload, '$.agent_id') = 'A-ines' and json_extract(payload, '$.action') = 'begin' and json_extract(payload, '$.reason') = '$rest'")" 1
-	expect "the AgentPaused row carries Rin and the typed reason, by the Operator" \
-		same "$(sql "select count(*) from events where seq > $base and kind = 'AgentPaused' and actor = '{\"tag\":\"Operator\"}' and json_extract(payload, '$.agent_id') = 'A-rin' and json_extract(payload, '$.reason') = '$reason'")" 1
+	expect "the RestOrdered row carries Ines, begin and the typed reason, by $VERIFY_OPERATOR" \
+		same "$(sql "select count(*) from events where seq > $base and kind = 'RestOrdered' and actor = '$VERIFY_ACTOR' and json_extract(payload, '$.agent_id') = 'A-ines' and json_extract(payload, '$.action') = 'begin' and json_extract(payload, '$.reason') = '$rest'")" 1
+	expect "the AgentPaused row carries Rin and the typed reason, by $VERIFY_OPERATOR" \
+		same "$(sql "select count(*) from events where seq > $base and kind = 'AgentPaused' and actor = '$VERIFY_ACTOR' and json_extract(payload, '$.agent_id') = 'A-rin' and json_extract(payload, '$.reason') = '$reason'")" 1
 	expect "the drive appended AgentPaused, AgentResumed and RestOrdered, in that order ($(kinds_since))" \
 		same "$(sql "select group_concat(kind, ' ') from (select kind from events where seq > $base and kind in ('AgentPaused', 'AgentResumed', 'RestOrdered') order by seq)")" 'AgentPaused AgentResumed RestOrdered'
 	rows_since
@@ -211,11 +211,14 @@ drive_gates() {
 		fill "#reject-$reject-reason" 'verify: rejected from the Gates view' click "#reject-$reject button" \
 		text '#answer' 'Appended GateDecided' gone "[data-gate=\"$reject\"] .state-open" \
 		fill "#approve-$approve-reason" 'verify: approved from the Gates view' click "#approve-$approve button" \
-		text '#answer' 'Appended GateDecided' gone "[data-gate=\"$approve\"] .state-open" same-page
+		text '#answer' 'Appended GateDecided' gone "[data-gate=\"$approve\"] .state-open" \
+		text "[data-gate=\"$reject\"]" "decided by $VERIFY_OPERATOR" same-page
 	step decide-again.txt api act gate-decide "{\"gate_id\":\"$reject\",\"decision\":\"approve\",\"hash\":\"$hash\",\"reason\":\"verify: a second decision\"}" --expect 409
 	expect "a second decision on $reject is refused with 409" has decide-again.txt 'GateDecided refused'
-	expect "the drive appended two GateDecided rows: $reject rejected, $approve approved, each by the Operator over its payload hash" \
-		same "$(sql "select group_concat(json_extract(payload, '$.gate_id') || ':' || json_extract(payload, '$.meaning'), ' ') from (select payload from events where seq > $base and kind = 'GateDecided' and actor = '{\"tag\":\"Operator\"}' order by seq)")" "$reject:reject $approve:approve"
+	expect "the drive appended two GateDecided rows: $reject rejected, $approve approved, each by $VERIFY_OPERATOR over its payload hash" \
+		same "$(sql "select group_concat(json_extract(payload, '$.gate_id') || ':' || json_extract(payload, '$.meaning'), ' ') from (select payload from events where seq > $base and kind = 'GateDecided' and actor = '$VERIFY_ACTOR' order by seq)")" "$reject:reject $approve:approve"
+	expect "each decision names $VERIFY_OPERATOR as decided_by, the signer of the record" \
+		same "$(sql "select group_concat(json_extract(payload, '$.decided_by.email'), ' ') from (select payload from events where seq > $base and kind = 'GateDecided' order by seq)")" "$VERIFY_OPERATOR $VERIFY_OPERATOR"
 	expect "the rejected decision signs the hash the page read ($hash)" \
 		same "$(sql "select json_extract(payload, '$.payload_hash') from events where seq > $base and kind = 'GateDecided' and json_extract(payload, '$.gate_id') = '$reject'")" "$hash"
 	step org.json api get org
@@ -239,9 +242,12 @@ drive_ledger() {
 		click "#payload-$head > summary" wait "#payload-$head[open]" \
 		outside "$verb" "$body" \
 		wait "#event-$((head + 1))" wait "#payload-$head[open]" \
+		text "#event-$((head + 1)) td:nth-child(3)" "$VERIFY_OPERATOR" \
 		click '[data-reload]' text '.verdict' "Ledger verified: $((head + 1)) Events, chain intact" \
 		click "#event-$((head + 1)) td.cause a" wait "#event-$cause" \
 		same-page
+	expect "the live Event's actor names the person who acted: $VERIFY_ACTOR" \
+		same "$(sql "select actor from events where seq = $((head + 1))")" "$VERIFY_ACTOR"
 	expect "the live Event ($verb Thorne, seq $((head + 1))) names his previous Org Event (seq $cause, his Recruitment on the baseline) as its cause, and its cause link opened that page" \
 		same "$(sql "select causation_id from events where seq = $((head + 1))")" "$cause"
 	rows_since
@@ -257,18 +263,18 @@ drive_chat() {
 		fill '#chat-body' "$report" click '#chat-say button' \
 		text '#answer' "Appended MessageSent at seq $said" \
 		text "li.message[data-seq=\"$said\"] .body" "$report" \
-		text "li.message[data-seq=\"$said\"] .said b" 'Operator' \
+		text "li.message[data-seq=\"$said\"] .said b" "$VERIFY_OPERATOR" \
 		outside room-say '{"room_id":"RM-lab","body":"verify: a second client says this"}' \
 		wait "li.message[data-seq=\"$outside\"]" wait "ol.chat > li:last-child[data-seq=\"$outside\"]" same-page
 	step chat.json api get chat
-	expect "/api/chat ends with the box's Message and then the second client's, both by the Operator, after Odile's from the baseline" \
+	expect "/api/chat ends with the box's Message and then the second client's, both by $VERIFY_OPERATOR, after Odile's from the baseline" \
 		same "$(jq -r '.messages | map("\(.name): \(.body)") | join(" | ")' "$out/chat.json")" \
-		"Odile: $(sql "select json_extract(payload, '$.body') from events where kind = 'MessageSent' and seq <= $base order by seq desc limit 1") | Operator: $report | Operator: verify: a second client says this"
+		"Odile: $(sql "select json_extract(payload, '$.body') from events where kind = 'MessageSent' and seq <= $base order by seq desc limit 1") | $VERIFY_OPERATOR: $report | $VERIFY_OPERATOR: verify: a second client says this"
 	expect "the Messages are in seq order, newest last" \
 		same "$(jq -c '[.messages[].seq] == ([.messages[].seq] | sort)' "$out/chat.json")" true
-	expect "the drive appended exactly two MessageSent rows, seq $said and $outside, by the Operator in RM-lab" \
+	expect "the drive appended exactly two MessageSent rows, seq $said and $outside, by $VERIFY_OPERATOR in RM-lab" \
 		same "$(sql "select group_concat(seq || ':' || actor || ':' || json_extract(payload, '$.room_id'), ' ') from (select * from events where seq > $base order by seq)")" \
-		"$said:{\"tag\":\"Operator\"}:RM-lab $outside:{\"tag\":\"Operator\"}:RM-lab"
+		"$said:$VERIFY_ACTOR:RM-lab $outside:$VERIFY_ACTOR:RM-lab"
 	rows_since
 	chain
 }

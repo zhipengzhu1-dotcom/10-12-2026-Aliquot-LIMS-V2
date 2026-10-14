@@ -1,4 +1,4 @@
-import { escapeHtml } from "./markup.js";
+import { type ActorJson, actorName, escapeHtml } from "./markup.js";
 import type { Sources, View } from "./views.js";
 
 /** `/api/ledger/verify`: the verdict `ledger verify` prints. */
@@ -9,7 +9,7 @@ type Verdict =
 type LedgerEvent = {
 	readonly seq: number;
 	readonly ts: string;
-	readonly actor: { readonly tag: string; readonly id?: string };
+	readonly actor: ActorJson;
 	readonly kind: string;
 	readonly task_id?: string;
 	readonly causation_id?: number;
@@ -94,7 +94,7 @@ const row = (event: LedgerEvent, head: number) => {
 		`<tr id="event-${event.seq}">`,
 		`<td>${event.seq}</td>`,
 		`<td><time datetime="${escapeHtml(event.ts)}">${escapeHtml(event.ts)}</time></td>`,
-		`<td>${escapeHtml(event.actor.tag === "Agent" ? (event.actor.id ?? "") : event.actor.tag)}</td>`,
+		`<td>${escapeHtml(actorName(event.actor))}</td>`,
 		`<td>${escapeHtml(event.kind)}</td>`,
 		`<td>${escapeHtml(event.task_id ?? "")}</td>`,
 		`<td class="cause">${cause}</td>`,

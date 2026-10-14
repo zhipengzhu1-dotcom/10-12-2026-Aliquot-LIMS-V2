@@ -1,10 +1,9 @@
 import { type AppendGuard, reasonOf } from "../append-guard.js";
 import type { PayloadOf } from "../events.js";
-import { canonicalJson } from "../hash.js";
 import { notInOrg } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
-import { actorText, type EventActor } from "../types/actor.js";
+import { actorText, type EventActor, sameRole } from "../types/actor.js";
 import type { Review } from "../types/merit.js";
 import { reviewerRefusal } from "./reviewers.js";
 import { restInEffect } from "./vitality.js";
@@ -27,7 +26,7 @@ export const reviewRefusal = (
 			`${task_id} is ${state.tag}; only an UnderReview or Done Task gets a Review`,
 		);
 	}
-	if (canonicalJson(reviewer) !== canonicalJson(actor)) {
+	if (!sameRole(reviewer, actor)) {
 		return new Refusal(
 			`the reviewer ${actorText(reviewer)} is not the actor ${actorText(actor)}`,
 		);

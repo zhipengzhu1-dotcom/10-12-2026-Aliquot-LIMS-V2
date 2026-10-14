@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
+	actingAs,
 	actorText,
 	parseActor,
 	parseOrUsage,
@@ -145,7 +146,7 @@ export const taskCommands: CommandTable = {
 					: parseOrUsage(RubricId, values.rubric, "--rubric must not be empty");
 			const parent_task =
 				values.parent === undefined ? undefined : taskId(values.parent);
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			const { task } = recordUnderWriterLock(ctx, (ledger) =>
 				propose(ledger, {
 					actor,
@@ -178,7 +179,7 @@ export const taskCommands: CommandTable = {
 			);
 			const task_id = taskId(id as string);
 			const assignee = agentId(agent as string, "the assignee");
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			return report(
 				ctx,
 				recordUnderWriterLock(ctx, (ledger) =>
@@ -198,7 +199,7 @@ export const taskCommands: CommandTable = {
 			});
 			const [id] = expectPositionals(positionals, ["<task id>"], "start");
 			const task_id = taskId(id as string);
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			return report(
 				ctx,
 				recordUnderWriterLock(ctx, (ledger) =>
@@ -224,7 +225,7 @@ export const taskCommands: CommandTable = {
 			const task_id = taskId(id as string);
 			const to = agentId(toText as string, "the new assignee");
 			const reason = required(values.reason, "--reason");
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			return report(
 				ctx,
 				recordUnderWriterLock(ctx, (ledger) =>
@@ -260,7 +261,7 @@ export const taskCommands: CommandTable = {
 					"--output must be an Artifact id (64 hex)",
 				),
 			);
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			const { task, review } = recordUnderWriterLock(ctx, (ledger) =>
 				complete(ledger, { actor, task_id, outputs, reviewer }),
 			);
@@ -285,7 +286,7 @@ export const taskCommands: CommandTable = {
 			const [id] = expectPositionals(positionals, ["<task id>"], "fail");
 			const task_id = taskId(id as string);
 			const reason = required(values.reason, "--reason");
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			return report(
 				ctx,
 				recordUnderWriterLock(ctx, (ledger) =>
@@ -311,7 +312,7 @@ export const taskCommands: CommandTable = {
 			const task_id = taskId(id as string);
 			const to = parseActor(required(values.to, "--to"), "--to");
 			const reason = required(values.reason, "--reason");
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			return report(
 				ctx,
 				recordUnderWriterLock(ctx, (ledger) =>
@@ -333,7 +334,7 @@ export const taskCommands: CommandTable = {
 			const [id] = expectPositionals(positionals, ["<task id>"], "help");
 			const task_id = taskId(id as string);
 			const to = parseActor(required(values.to, "--to"), "--to");
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			const question = (await readAll(ctx.stdin)).replace(/\n$/, "");
 			if (question === "") {
 				throw new UsageError("task help reads the question from stdin");

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CommandContext } from "../command.js";
 import { AgentId } from "../ids.js";
 import { openLedger } from "../ledger.js";
+import { TEST_OPERATOR_EMAIL } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
 import { gateCommands } from "./commands.js";
@@ -81,6 +82,7 @@ const inProcess = async (name: string, args: string[], input = "") => {
 		stdin: Readable.from([input]),
 		stdout,
 		stderr: new PassThrough().resume(),
+		operator: TEST_OPERATOR_EMAIL,
 	};
 	const code = await gateCommands[name]?.run(args, ctx);
 	return { code, stdout: Buffer.concat(out).toString("utf8") };

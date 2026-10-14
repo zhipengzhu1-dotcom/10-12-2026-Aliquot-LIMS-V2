@@ -5,7 +5,7 @@ A fresh browser session opens on the Access landing, a full-screen frame outside
 ## Sub-features
 
 - `access-frame` is `section#access`, shown while `body[data-access="locked"]`; the shell is `.shell`, hidden until ENTER.
-- `access-session` fills `#access-operator` (always `Operator`: no endpoint exposes the Access identity), `#access-laboratory` (`Lab Room · RM-lab` from `/api/rooms`, or `No Lab Room open`), `#access-terminal` (`location.host`) and `#access-time`.
+- `access-session` fills `#access-operator` with the person's email from `GET /api/operator` (`verify@lab.test` in a verify run, which serves for the person `ALIQUOT_OPERATOR` names; `Operator (unnamed)` only if the answer has no email), `#access-laboratory` (`Lab Room · RM-lab` from `/api/rooms`, or `No Lab Room open`), `#access-terminal` (`location.host`) and `#access-time`.
 - `access-clock` ticks `#access-clock`, `#access-seconds` and `#access-date` once a second in the browser's local time.
 - `access-enter` is `#access-enter`; a click, or Enter anywhere on the page, sets `sessionStorage["aliquot.access.entered"]` and shows the shell. Storage that throws still shows the landing, and ENTER still opens the shell.
 

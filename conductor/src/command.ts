@@ -1,9 +1,12 @@
 import type { Readable, Writable } from "node:stream";
+import type { Email } from "./types/actor.js";
 
 /** What a command gets from the `aliquot` dispatcher. */
 export type CommandContext = {
 	/** The data directory: `--home`, else `ALIQUOT_HOME`, else `./.aliquot`. */
 	readonly home: string;
+	/** The person acting as the Operator: `--operator`, else `ALIQUOT_OPERATOR`. */
+	readonly operator?: Email;
 	readonly stdin: Readable;
 	readonly stdout: Writable;
 	readonly stderr: Writable;

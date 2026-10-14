@@ -29,8 +29,13 @@ lock_pid() {
 	cat "$AQ_HOME/ledger.sqlite.lock" 2>/dev/null || true
 }
 
+# The person every Operator act of a verify run names (ADR-0019), and the actor
+# column of the Events that person appends, as the Ledger stores it.
+VERIFY_OPERATOR=verify@lab.test
+VERIFY_ACTOR="{\"email\":\"$VERIFY_OPERATOR\",\"tag\":\"Operator\"}"
+
 # aliquot with no key and no live-Turn switch in its environment: a Turn in a
 # proof runs only on the scripted model (ALIQUOT_SCRIPTED_MODEL).
 aliquot() {
-	env -u ALIQUOT_API_KEY -u ANTHROPIC_API_KEY -u ALIQUOT_LIVE_TURN "$ALIQUOT" "$@"
+	env -u ALIQUOT_API_KEY -u ANTHROPIC_API_KEY -u ALIQUOT_LIVE_TURN ALIQUOT_OPERATOR="$VERIFY_OPERATOR" "$ALIQUOT" "$@"
 }

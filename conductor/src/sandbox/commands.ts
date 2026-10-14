@@ -5,6 +5,7 @@ import {
 	fromInvocation,
 	parseOrUsage,
 	parseTimeout,
+	personOf,
 	withLedger,
 } from "../cli-support.js";
 import { type CommandTable, UsageError } from "../command.js";
@@ -14,8 +15,6 @@ import { openArtifacts, walkLineage } from "./artifacts.js";
 import { buildImage, defaultImageTag, imageId, scriptsRoot } from "./image.js";
 import { guessMediaType, runScript } from "./runner.js";
 import { registerScript } from "./scripts.js";
-
-const operator = { tag: "Operator" } as const;
 
 const artifactTypes = (values: readonly string[] | undefined) =>
 	(values ?? [])
@@ -66,6 +65,7 @@ export const sandboxCommands: CommandTable = {
 			if (!values.name || !values.owner) {
 				throw new UsageError("sandbox register needs --name and --owner");
 			}
+			const operator = personOf(ctx);
 			const image = values.image ?? defaultImageTag();
 			const digest = imageId(image);
 			if (!digest) {
@@ -118,6 +118,7 @@ export const sandboxCommands: CommandTable = {
 			const [artifact_type = "Other"] = artifactTypes(
 				values.type ? [values.type] : [],
 			);
+			const operator = personOf(ctx);
 			const bytes = readFileSync(path);
 			const { artifact } = withLedger(ctx.home, true, (ledger) =>
 				openArtifacts({ ledger, home: ctx.home }).store(
@@ -160,6 +161,7 @@ export const sandboxCommands: CommandTable = {
 				"the Script id must be S- then lowercase letters, digits, _ or -",
 			);
 			const timeoutMs = parseTimeout(values.timeout);
+			const operator = personOf(ctx);
 			const inputs = (values.input ?? []).map((v) =>
 				parseOrUsage(ArtifactId, v, "--input must be an Artifact id (64 hex)"),
 			);

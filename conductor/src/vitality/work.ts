@@ -1,10 +1,9 @@
 import type { Event, PayloadOf } from "../events.js";
-import { canonicalJson } from "../hash.js";
 import type { AgentId, EvaluationId, Seq, TaskId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import type { Projection } from "../reduce.js";
 import { assigneeOf, type TaskView } from "../task/projection.js";
-import type { Actor } from "../types/actor.js";
+import { type Actor, sameRole } from "../types/actor.js";
 import type { Review } from "../types/merit.js";
 import type { Vitality } from "../types/vitality.js";
 
@@ -106,12 +105,10 @@ export const reviewsBy = (
 	work: WorkState,
 	task_id: TaskId,
 	reviewer: Actor,
-): readonly DatedReview[] => {
-	const by = canonicalJson(reviewer);
-	return (work.reviews.get(task_id) ?? []).filter(
-		(r) => canonicalJson(r.review.reviewer) === by,
+): readonly DatedReview[] =>
+	(work.reviews.get(task_id) ?? []).filter((r) =>
+		sameRole(r.review.reviewer, reviewer),
 	);
-};
 
 export const WorkProjection: Projection<WorkState> = {
 	init: {

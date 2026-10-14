@@ -45,13 +45,28 @@ const record = (
 	};
 };
 
+/**
+ * A definition written as the Operator's, as a roster entry or a Revision
+ * file is, names the person who records it (ADR-0019). A definition that
+ * already names a person, or another author, stays as given.
+ */
+const authoredBy = (
+	definition: AgentDefinition,
+	{ actor }: Origin,
+): AgentDefinition =>
+	actor.tag === "Operator" &&
+	definition.revised_by.tag === "Operator" &&
+	definition.revised_by.email === undefined
+		? { ...definition, revised_by: actor }
+		: definition;
+
 export const recruit = (
 	ledger: Ledger,
 	{ definition, ...origin }: Origin & { readonly definition: AgentDefinition },
 ): Recorded<"agent", AgentState> =>
 	record(ledger, origin, definition.id, {
 		kind: "AgentRecruited",
-		payload: definition,
+		payload: authoredBy(definition, origin),
 	});
 
 /** Record `definition`, the full next version of an Agent's definition. */
@@ -61,7 +76,7 @@ export const revise = (
 ): Recorded<"agent", AgentState> =>
 	record(ledger, origin, definition.id, {
 		kind: "AgentDefinitionRevised",
-		payload: { definition },
+		payload: { definition: authoredBy(definition, origin) },
 	});
 
 export const pause = (

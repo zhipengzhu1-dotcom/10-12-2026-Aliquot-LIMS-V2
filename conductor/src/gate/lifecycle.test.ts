@@ -3,6 +3,7 @@ import { canonicalJson, sha256Hex } from "../hash.js";
 import { AgentId, GateId, Sha256 } from "../ids.js";
 import type { Ledger } from "../ledger.js";
 import { block } from "../task/lifecycle.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
 import { decideGate, requestGate } from "./lifecycle.js";
@@ -72,6 +73,7 @@ describe("deciding a Gate", () => {
 		s.at("2026-10-12T09:10:00.000Z");
 
 		const decided = decideGate(ledger, {
+			actor: TEST_OPERATOR,
 			gate_id: requested.gate.id,
 			payload_hash: payloadHash,
 			meaning: "approve",
@@ -80,7 +82,7 @@ describe("deciding a Gate", () => {
 
 		expect(decided.gate.decision).toEqual({
 			gate_id: "G-1",
-			decided_by: { tag: "Operator" },
+			decided_by: TEST_OPERATOR,
 			decided_at: "2026-10-12T09:10:00.000Z",
 			payload_hash: payloadHash,
 			meaning: "approve",
@@ -89,7 +91,7 @@ describe("deciding a Gate", () => {
 		});
 		expect(eventAt(decided.seq)).toMatchObject({
 			kind: "GateDecided",
-			actor: { tag: "Operator" },
+			actor: TEST_OPERATOR,
 			causation_id: requested.seq,
 		});
 	});
@@ -104,6 +106,7 @@ describe("deciding a Gate", () => {
 		});
 
 		const decided = decideGate(ledger, {
+			actor: TEST_OPERATOR,
 			gate_id: blocked.gate.id,
 			payload_hash: payloadHash,
 			meaning: "reject",
@@ -127,6 +130,7 @@ describe("deciding a Gate", () => {
 		expectRefused(
 			() =>
 				decideGate(ledger, {
+					actor: TEST_OPERATOR,
 					gate_id: GateId.parse("G-1"),
 					payload_hash: Sha256.parse(other),
 					meaning: "approve",
@@ -140,6 +144,7 @@ describe("deciding a Gate", () => {
 		expectRefused(
 			() =>
 				decideGate(ledger, {
+					actor: TEST_OPERATOR,
 					gate_id: GateId.parse("G-9"),
 					payload_hash: payloadHash,
 					meaning: "approve",

@@ -28,7 +28,8 @@ if lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
 	exit 2
 fi
 
-unset ALIQUOT_API_KEY ALIQUOT_HOME
+# The README names the person once, with `export ALIQUOT_OPERATOR`; an inherited one would hide a missing export.
+unset ALIQUOT_API_KEY ALIQUOT_HOME ALIQUOT_OPERATOR
 export ALIQUOT_SCRIPTED_MODEL="$work/scripted-model.json"
 printf '%s\n' '{"calls": [], "usage_per_round": {"input_tokens": 100, "output_tokens": 20, "cache_creation_tokens": 0, "cache_read_tokens": 0, "cost_usd": 0}, "stop": {"tag": "Completed"}}' >"$ALIQUOT_SCRIPTED_MODEL"
 printf '%s\n' '{"release": "README example", "artifact": "none"}' >"$work/deploy.json"

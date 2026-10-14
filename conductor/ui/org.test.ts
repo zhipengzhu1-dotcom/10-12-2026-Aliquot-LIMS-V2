@@ -5,6 +5,10 @@ import { type Ledger, openMemoryLedger } from "../src/ledger.js";
 import { pause, revise } from "../src/org/lifecycle.js";
 import { seedOrg } from "../src/org/seed.js";
 import { type Serving, serve } from "../src/serve/http.js";
+import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../src/test-support/operator.js";
 import { act, answerText, bodyOf } from "./actions.js";
 import { orgView } from "./org.js";
 
@@ -16,8 +20,13 @@ let serving: Serving;
 
 beforeEach(async () => {
 	ledger = openMemoryLedger();
-	seedOrg(ledger);
-	serving = await serve(ledger, { port: 0, bind: "127.0.0.1", ui: "." });
+	seedOrg(ledger, TEST_OPERATOR);
+	serving = await serve(ledger, {
+		port: 0,
+		bind: "127.0.0.1",
+		ui: ".",
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
+	});
 	const direct = globalThis.fetch;
 	vi.stubGlobal("fetch", (route: string, init?: RequestInit) =>
 		direct(`${serving.url}${route}`, init),

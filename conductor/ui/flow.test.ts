@@ -238,7 +238,7 @@ const chainEvents = STAGE_1_CHAIN.map(([seq, kind, causation_id]) => ({
 	actor:
 		seq === 21 || seq === 22
 			? { tag: "Agent", id: "A-pia" }
-			: { tag: "Operator" },
+			: { tag: "Operator", email: "operator@lab.test" },
 	...(seq >= 11 && { task_id: "T-1" }),
 	...(causation_id !== undefined && { causation_id }),
 	payload: PAYLOADS[seq] ?? {},
@@ -295,7 +295,7 @@ describe("the Task's Event panel", () => {
 
 	it("says on each row who appended the Event and what it did", () => {
 		expect(page).toContain(
-			'<li data-seq="19"><span class="seq">19</span> <span class="kind">EvaluationRecorded</span> <span class="actor">Operator</span> <span class="detail">E-1 score 1.000, passed</span> <span class="cause">cause 18</span></li>',
+			'<li data-seq="19"><span class="seq">19</span> <span class="kind">EvaluationRecorded</span> <span class="actor">operator@lab.test</span> <span class="detail">E-1 score 1.000, passed</span> <span class="cause">cause 18</span></li>',
 		);
 		expect(page).toContain(
 			'<span class="kind">ReviewRecorded</span> <span class="actor">A-pia</span> <span class="detail">3 3 3 3 3</span>',

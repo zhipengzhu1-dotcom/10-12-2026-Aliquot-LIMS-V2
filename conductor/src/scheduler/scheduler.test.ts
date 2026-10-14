@@ -21,6 +21,7 @@ import { buildImage, scriptsRoot } from "../sandbox/image.js";
 import { store } from "../sandbox/lifecycle.js";
 import { assign, escalate, propose, start } from "../task/lifecycle.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import {
@@ -153,7 +154,7 @@ describe("the Scheduler on the scripted model", () => {
 		fresh();
 		strainBram(s);
 		s.at(T0);
-		const form = intake(s.ledger, home, FIXTURE).artifact.id;
+		const form = intake(s.ledger, home, FIXTURE, TEST_OPERATOR).artifact.id;
 		const held = task(s);
 		assign(s.ledger, { actor: operator, task_id: held, assignee: rin });
 		orderRest(s.ledger, {
@@ -693,11 +694,13 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const { stages } = await runWorkflow({
 			ledger: s.ledger,
 			home,
+			operator: TEST_OPERATOR,
 			formPath: FIXTURE,
 			plan: STAGES.map((stage) => {
 				const script = ensureScript({
 					ledger: s.ledger,
 					home,
+					operator: TEST_OPERATOR,
 					stage,
 					source: join(scriptsRoot, stage.script),
 					image,

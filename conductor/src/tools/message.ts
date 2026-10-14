@@ -65,7 +65,7 @@ export const storeMessage = (ctx: ToolContext, actor: Actor, seq: Seq) => {
 		{
 			artifact_type: "Other",
 			media_type: "application/json",
-			produced_by: { tag: "Operator" },
+			produced_by: message.actor,
 			lineage: [],
 			filename: `message-${seq}.json`,
 		},

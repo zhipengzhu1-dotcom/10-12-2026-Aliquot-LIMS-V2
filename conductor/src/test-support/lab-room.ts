@@ -21,6 +21,7 @@ import { NO_USAGE, scriptedModel } from "../turn/model.js";
 import type { Task } from "../types/task.js";
 import { STAGES, type Stage } from "../workflow/stages.js";
 import { ensureScript } from "../workflow/tracer.js";
+import { TEST_OPERATOR } from "./operator.js";
 import type { Scenario } from "./scenario.js";
 
 /**
@@ -272,6 +273,7 @@ export const registerLabRoomScripts = (
 			stage,
 			source: join(scriptsRoot, stage.script),
 			image,
+			operator: TEST_OPERATOR,
 		});
 	}
 };
