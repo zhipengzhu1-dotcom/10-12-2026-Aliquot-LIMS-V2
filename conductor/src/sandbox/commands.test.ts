@@ -178,7 +178,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		spawnSync("docker", ["rmi", IMAGE], { stdio: "ignore" });
 	});
 
-	it("build builds the Sandbox image and prints its id and tag", () => {
+	it("build builds the Sandbox image and prints its id and tag, and a second build of the tag prints the same id", () => {
 		try {
 			const built = aliquot("sandbox", "build", "--tag", BUILT);
 
@@ -186,6 +186,11 @@ describe.skipIf(!requireDocker())(suite, () => {
 			expect(built.stdout).toMatch(
 				new RegExp(`^sha256:[0-9a-f]{64} ${BUILT}\n$`),
 			);
+
+			const again = aliquot("sandbox", "build", "--tag", BUILT);
+
+			expect(again.status).toBe(0);
+			expect(again.stdout).toBe(built.stdout);
 		} finally {
 			spawnSync("docker", ["rmi", BUILT], { stdio: "ignore" });
 		}

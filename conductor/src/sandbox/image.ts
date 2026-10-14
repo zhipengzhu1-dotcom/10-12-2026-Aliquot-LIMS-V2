@@ -37,7 +37,13 @@ export const imageId = (ref: string): Sha256 | undefined => {
 	return Sha256.parse(inspect.stdout.trim().replace(/^sha256:/, ""));
 };
 
-/** `docker build` the Sandbox image from `sandbox/Dockerfile`. */
+/**
+ * The Sandbox image under `tag`: the one Docker already has, else a `docker
+ * build` of `sandbox/Dockerfile`. A build gives the tag a new id and Docker
+ * drops the image the tag held, which would take the image a home's Scripts
+ * are registered on out from under its Runs, so an existing tag is kept. To
+ * rebuild a tag, `docker rmi` it first.
+ */
 export const buildImage = async ({
 	tag = defaultImageTag(),
 	onOutput,
@@ -45,6 +51,8 @@ export const buildImage = async ({
 	tag?: string;
 	onOutput?: (chunk: Buffer) => void;
 } = {}): Promise<{ tag: string; id: Sha256 }> => {
+	const existing = imageId(tag);
+	if (existing) return { tag, id: existing };
 	const output: Buffer[] = [];
 	const code = await new Promise<number | null>((resolve, reject) => {
 		const child = spawn(
