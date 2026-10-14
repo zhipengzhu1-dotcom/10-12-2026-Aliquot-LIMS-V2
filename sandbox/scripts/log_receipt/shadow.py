@@ -48,8 +48,8 @@ class ShadowError(Exception):
 
 @dataclass(frozen=True)
 class Container:
-    """One received container: its Lab Reference, its number in the receipt
-    counted from 1, and the record's Sample it holds."""
+    """One received container: its Lab Reference, its number within its
+    Sample counted from 1, and the record's Sample it holds."""
 
     lab_reference: str
     number: int

@@ -25,9 +25,17 @@ TEST = "Average capsule weight"
 MEAN_TEST = "Average capsule weight, Work Order mean"
 
 
-def results(tmp_path: Path, weighings: Path = WEIGHINGS, with_weighings=True):
-    """Stages 2, 3 and 4 on seed 1's expected record: stage 4's run and outputs."""
-    made, stage3 = work_order(tmp_path / "stage3", receipt(tmp_path, "Rush3to4Days"))
+def results(
+    tmp_path: Path,
+    weighings: Path = WEIGHINGS,
+    with_weighings=True,
+    more: tuple[dict, ...] = (),
+):
+    """Stages 2, 3 and 4 on seed 1's expected record, with `more` Samples after
+    its own: stage 4's run and outputs."""
+    made, stage3 = work_order(
+        tmp_path / "stage3", receipt(tmp_path, "Rush3to4Days", more=more)
+    )
     assert made.returncode == 0, made.stderr
     inputs, outputs = tmp_path / "inputs", tmp_path / "outputs"
     put(inputs, WORK_ORDER_ID, stage3 / "work_order.xlsx", "work_order.xlsx")
@@ -57,6 +65,20 @@ def results(tmp_path: Path, weighings: Path = WEIGHINGS, with_weighings=True):
             }
         )
     return run("compute_results", inputs, outputs, manifest), outputs
+
+
+def test_it_refuses_a_work_order_of_two_samples_naming_86(tmp_path):
+    other = {"lot": "LT-269999", "product_code": "TLB-2000", "no_of_containers": "1"}
+    three = tmp_path / "three-weighings.json"
+    seed1 = json.loads(WEIGHINGS.read_text())
+    three.write_text(json.dumps([*seed1, {**seed1[0], "container": 3}]))
+
+    result, outputs = results(tmp_path, weighings=three, more=(other,))
+
+    assert result.returncode == 1
+    assert "Work Order WO-2026-0001 holds 2 Samples" in result.stderr
+    assert "#86" in result.stderr
+    assert list(outputs.iterdir()) == []
 
 
 def test_it_writes_the_worksheet_with_formulas_and_the_weighings_as_values(tmp_path):

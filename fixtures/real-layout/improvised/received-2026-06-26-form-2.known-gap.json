@@ -1,0 +1,5 @@
+{
+  "stage": 4,
+  "issue": 86,
+  "reason": "its Work Order holds 8 Samples, and stage 4 computes one Sample's results until a result per Sample lands"
+}

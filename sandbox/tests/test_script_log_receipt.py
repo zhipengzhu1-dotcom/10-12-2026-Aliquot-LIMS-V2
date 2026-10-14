@@ -313,8 +313,8 @@ def test_every_container_of_every_sample_gets_a_row_numbered_on_in_form_order(
     ) == [
         ("LR-2026-0001", "LT-268123", 1),
         ("LR-2026-0002", "LT-268123", 2),
-        ("LR-2026-0003", "LT-269999", 3),
-    ]
+        ("LR-2026-0003", "LT-269999", 1),
+    ], "a container's number counts within its Sample"
     assert query(
         outputs / "lims.sqlite", "SELECT lot, product_code FROM lots ORDER BY lot"
     ) == [("LT-268123", "TLB-1475"), ("LT-269999", "TLB-2000")]

@@ -38,7 +38,7 @@ Outputs, typed in `/outputs/manifest.json`:
 The Script refuses inputs it cannot read or compute one worksheet from
 (exit 1, the reason on stderr) and judges nothing else: the stage 4
 Evaluation decides whether the formulas, the weights and the `results` rows
-agree.
+agree. It refuses a Work Order of more than one Sample until #86.
 """
 
 import argparse
@@ -193,6 +193,22 @@ def read_weighings(path: Path) -> tuple[dict[int, Weighing], str | None]:
     return weighings, notebook_reference(entries)
 
 
+def refuse_several_samples(db: sqlite3.Connection, number: str, refs: list[str]):
+    containers = [
+        row[0]
+        for ref in refs
+        for row in db.execute(
+            "SELECT container FROM samples WHERE lab_reference = ?", (ref,)
+        )
+    ]
+    if len(containers) != len(set(containers)):
+        raise ResultsError(
+            f"Work Order {number} holds {containers.count(1)} Samples, and"
+            " compute_results computes one Sample's results; a result per"
+            " Sample waits on #86"
+        )
+
+
 def samples_of(
     db: sqlite3.Connection, refs: list[str], weighings: dict[int, Weighing]
 ) -> list[Sample]:
@@ -273,6 +289,7 @@ def compute_results(inputs: Path, outputs: Path) -> str:
                     f" this Script reads version {SCHEMA_VERSION}"
                 )
             db.execute("PRAGMA foreign_keys = ON")
+            refuse_several_samples(db, number, refs)
             samples = samples_of(db, refs, weighings)
             mean = sum(s.weighing.average_g for s in samples) / len(samples)
             db.executemany(

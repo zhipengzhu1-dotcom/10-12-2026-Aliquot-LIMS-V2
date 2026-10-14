@@ -15,8 +15,9 @@ The record's containers are each Sample's `no_of_containers`, Sample by
 Sample in form order. Each container gets a Lab Reference, `LR-<year
 received>-<n>` with n written as four digits or more: n is one more than the
 highest n for that year in `samples`, and the containers take consecutive
-numbers in order, across all the Samples. Each container's number, which the
-weighings name, counts on from 1 in the same order.
+numbers in order, across all the Samples. Each container's number counts
+from 1 within its Sample, so a Work Order whose Lab References repeat a
+container number holds more than one Sample (stage 4 refuses one, #86).
 
 Outputs, typed in `/outputs/manifest.json`:
 
@@ -125,8 +126,9 @@ def inputs_of(inputs: Path) -> tuple[Path, str, Path | None, Path | None]:
     )
 
 
-def received(record: dict) -> tuple[date, time, list[dict]]:
-    """The date and time received, and each container's Sample in order."""
+def received(record: dict) -> tuple[date, time, list[tuple[int, dict]]]:
+    """The date and time received, and each container's number within its
+    Sample and its Sample, in order."""
     receipt, samples = record["receipt"], record["samples"]
     try:
         on = date.fromisoformat(receipt["date_received"])
@@ -143,7 +145,7 @@ def received(record: dict) -> tuple[date, time, list[dict]]:
                 f"Sample {sample['no']}: No. of Containers {count!r} is not"
                 " a whole number of at least 1"
             )
-        containers.extend([sample] * int(count))
+        containers.extend((n, sample) for n in range(1, int(count) + 1))
     return on, at, containers
 
 
@@ -256,7 +258,7 @@ def read_back(path: Path) -> dict:
 def log_receipt(inputs: Path, outputs: Path) -> list[str]:
     record_path, source, carried, lab_log = inputs_of(inputs)
     record = json.loads(record_path.read_text())
-    on, at, sample_of_each = received(record)
+    on, at, numbered = received(record)
 
     with tempfile.TemporaryDirectory() as work:
         database = Path(work) / "lims.sqlite"
@@ -272,12 +274,10 @@ def log_receipt(inputs: Path, outputs: Path) -> list[str]:
                     f" this Script writes version {SCHEMA_VERSION}"
                 )
             db.execute("PRAGMA foreign_keys = ON")
-            refs = next_lab_references(db, on.year, len(sample_of_each))
+            refs = next_lab_references(db, on.year, len(numbered))
             containers = [
                 Container(ref, number, sample)
-                for number, (ref, sample) in enumerate(
-                    zip(refs, sample_of_each, strict=True), start=1
-                )
+                for ref, (number, sample) in zip(refs, numbered, strict=True)
             ]
             write_database(db, record, source, containers)
             db.commit()
