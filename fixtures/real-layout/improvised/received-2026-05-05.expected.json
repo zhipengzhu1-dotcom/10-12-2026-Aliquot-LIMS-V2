@@ -23,6 +23,7 @@
   },
   "samples": [
     {
+      "limits": "",
       "lot": "X857170",
       "no": "1",
       "no_of_containers": "1",
@@ -31,9 +32,11 @@
       "sample_description": "YCR 34mg Uhwablmw",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "X857170",
       "no": "2",
       "no_of_containers": "1",
@@ -42,9 +45,11 @@
       "sample_description": "YCR 34mg Uhwablmw",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "X857170",
       "no": "3",
       "no_of_containers": "1",
@@ -53,9 +58,11 @@
       "sample_description": "YCR 34mg Uhwablmw",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "X857170",
       "no": "4",
       "no_of_containers": "1",
@@ -64,9 +71,11 @@
       "sample_description": "YCR 34mg Uhwablmw",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "X857170",
       "no": "5",
       "no_of_containers": "1",
@@ -75,9 +84,11 @@
       "sample_description": "YCR 34mg Uhwablmw",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "X857170",
       "no": "6",
       "no_of_containers": "1",
@@ -86,9 +97,11 @@
       "sample_description": "YCR 34mg Uhwablmw",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "NMPA: 19.5 ng/day; NDMA: 0.06 ppm",
       "lot": "69797337",
       "no": "7",
       "no_of_containers": "1",
@@ -97,9 +110,11 @@
       "sample_description": "Bnwwjqrowmpcivy TYx IE",
       "sample_type": "RM",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Nitrosamines: NMPA, NDMA"
     },
     {
+      "limits": "",
       "lot": "U951665",
       "no": "8",
       "no_of_containers": "1",
@@ -108,9 +123,11 @@
       "sample_description": "OND 56mg Naztbvaf",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "U951665",
       "no": "9",
       "no_of_containers": "1",
@@ -119,7 +136,8 @@
       "sample_description": "OND 56mg Naztbvaf",
       "sample_type": "FP",
       "tat_class": "Rush3to4Days",
-      "tat_code": "3"
+      "tat_code": "3",
+      "tests_requested": "Average capsule weight"
     }
   ],
   "schema": "submission/2",

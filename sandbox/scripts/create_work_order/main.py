@@ -4,17 +4,34 @@ Sandbox Script convention: run as
     python /script/main.py --inputs /inputs --outputs /outputs
 with /inputs/manifest.json listing the inputs and each input at
 /inputs/<artifact_id>/<filename>. The inputs must hold exactly one
-`ReceivingLogRow` (the sheet `log_receipt` writes) and exactly one
-`LimsDatabase`, the toy LIMS database version the stage carries, whose
-`samples` rows hold each Lab Reference's Lot, Sample type and TAT class.
+`ReceivingLogRow` (the sheet `log_receipt` writes), exactly one
+`SubmissionRecord` (the `submission/2` record that row was logged from) and
+exactly one `LimsDatabase`, the toy LIMS database version the stage carries,
+whose `samples` rows hold each Lab Reference's Lot, Sample type and TAT class.
 
 One Work Order plans every Sample on the row, which may hold several Lots
 and TAT classes: all the Samples one receipt logged. The Work Order number
 is `WO-<year received>-<n>` with n written as four digits or more: n is one
-more than the highest n for that year in `work_orders`. Each Sample gets the
-Tests its Sample type names in `TESTS`, and a Sample type with none is
-refused; today only a finished product (`FP`) has one, "Average capsule
-weight". A Sample's due date is its TAT class's number of business days
+more than the highest n for that year in `work_orders`.
+
+Each Sample gets the Tests its record line requests. The row's Lab
+References belong to the record's lines in order, `no_of_containers` each,
+as `log_receipt` numbered them. A line's `tests_requested` holds requests
+separated by `;` or line breaks, and each maps to a Test definition by its
+words: "Average capsule weight" to that Test, and a request naming
+nitrosamines (the word, an abbreviation in `NITROSAMINE`, or a name starting
+"N-nitroso") to "Nitrosamine impurities", whose analytes are the
+nitrosamines it names. A request naming none is refused, asking which, and
+any other request is refused with its words. A line requesting nothing
+keeps the slice 1 Test: "Average capsule weight" for an FP Sample, a refusal
+for any other. The line's `limits`, split the same way, give each analyte
+the part that names it, or the only part when the line names one analyte:
+a number with `ng/day` (an acceptable intake), `ppm` or `ng/g` is written
+`<number> <unit>`, and any other text is kept as `unread: <text>`. A part
+that names no requested analyte is refused. The Sample type is read only
+for that default, so a stability condition in it stays on the Sample.
+
+A Sample's due date is its TAT class's number of business days
 (`TAT_BUSINESS_DAYS`) after the date received, counting Monday to Friday
 with no holiday calendar, and the Work Order is due when its last Sample is.
 
@@ -23,8 +40,9 @@ Outputs, typed in `/outputs/manifest.json`:
 - `work_order.xlsx` (`WorkOrder`): one sheet named for the Work Order
   number. Rows 1 to 4 are the header block, a label in column A and its
   value in column B (`HEADER`); row 5 is blank; row 6 holds `COLUMNS`; then
-  one row per Sample and Test, with the Sample's Lot, Product Code, TAT class
-  and due date.
+  one row per Sample, Test and analyte, with the Sample's Lot, Product Code,
+  TAT class and due date, and the analyte and its limit (blank for a Test
+  without analytes).
 - `lims.sqlite` (`LimsDatabase`): the carried database with one
   `work_orders` row per Sample and Test, each with the Sample's due date and,
   as `source_artifact`, the Receiving Log row's Artifact id.
@@ -33,8 +51,8 @@ Outputs, typed in `/outputs/manifest.json`:
   Script read them, and the Work Order as it reads it back from the saved
   xlsx: `{"schema": "work_order/2", "receiving_log_row": [[lab reference,
   YYYY-MM-DD], ...], "header": {label: text, ...}, "columns": [...],
-  "rows": [[lab reference, test, lot, product code, TAT class, due date],
-  ...]}`.
+  "rows": [[lab reference, test, lot, product code, TAT class, due date,
+  analyte, limit], ...]}`.
 
 The Script refuses inputs it cannot read or plan one Work Order from (exit
 1, the reason on stderr) and judges nothing else: the stage 3 Evaluation
@@ -57,9 +75,26 @@ from openpyxl import Workbook, load_workbook
 
 SCHEMA_VERSION = 1
 TAT_BUSINESS_DAYS = {"Regular": 10, "Rush1to2Days": 2, "Rush3to4Days": 4}
-TESTS = {"FP": ("Average capsule weight",)}
+AVERAGE_CAPSULE_WEIGHT = "Average capsule weight"
+NITROSAMINE_IMPURITIES = "Nitrosamine impurities"
+NITROSAMINE = re.compile(
+    r"\b(?:NDMA|NDEA|NMBA|NDIPA|NEIPA|NDBA|NMPA)\b|\bN-nitroso[\w-]*", re.IGNORECASE
+)
+NAMES_NITROSAMINES = re.compile(r"nitrosamine", re.IGNORECASE)
+LIMIT = re.compile(r"(\d+(?:\.\d+)?)\s*(ng/day|ppm|ng/g)\b", re.IGNORECASE)
+SEPARATOR = re.compile(r"[;\n]")
 HEADER = ("Work Order", "Client", "Received", "Due Date")
-COLUMNS = ("Lab Reference", "Test", "Lot", "Product Code", "TAT Class", "Due Date")
+COLUMNS = (
+    "Lab Reference",
+    "Test",
+    "Lot",
+    "Product Code",
+    "TAT Class",
+    "Due Date",
+    "Analyte",
+    "Limit",
+)
+DUE = COLUMNS.index("Due Date")
 WORK_ORDER = re.compile(r"^WO-(\d{4})-(\d+)$")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -79,8 +114,18 @@ class Sample:
     tat_class: str
 
 
-def inputs_of(inputs: Path) -> tuple[Path, str, Path]:
-    """The Receiving Log row's path and Artifact id, and the carried database's path."""
+@dataclass(frozen=True)
+class Planned:
+    """One Test of a Sample, for one analyte, or for none ("")."""
+
+    test: str
+    analyte: str = ""
+    limit: str = ""
+
+
+def inputs_of(inputs: Path) -> tuple[Path, str, Path, Path]:
+    """The Receiving Log row's path and Artifact id, the record's path, and
+    the carried database's path."""
     manifest = json.loads((inputs / "manifest.json").read_text())
 
     def only(artifact_type: str) -> dict:
@@ -95,7 +140,8 @@ def inputs_of(inputs: Path) -> tuple[Path, str, Path]:
         return inputs / entry["artifact_id"] / entry["filename"]
 
     row, database = only("ReceivingLogRow"), only("LimsDatabase")
-    return path(row), row["artifact_id"], path(database)
+    record = only("SubmissionRecord")
+    return path(row), row["artifact_id"], path(record), path(database)
 
 
 def read_receiving_log_row(path: Path) -> list[tuple[str, date]]:
@@ -118,6 +164,24 @@ def read_receiving_log_row(path: Path) -> list[tuple[str, date]]:
     return read
 
 
+def lines_of(record: dict, refs: list[str]) -> list[dict]:
+    """The record line each Lab Reference was logged from, in row order."""
+    lines = []
+    for line in record["samples"]:
+        count = line["no_of_containers"]
+        if not count.isdigit():
+            raise WorkOrderError(
+                f"record line {line['no']}: no_of_containers {count!r} is not a count"
+            )
+        lines += [line] * int(count)
+    if len(lines) != len(refs):
+        raise WorkOrderError(
+            f"the record's lines hold {len(lines)} containers, and the Receiving"
+            f" Log row {len(refs)}"
+        )
+    return lines
+
+
 def samples_of(db: sqlite3.Connection, rows: list[tuple[str, date]]) -> list[Sample]:
     samples = []
     for ref, received in rows:
@@ -133,6 +197,58 @@ def samples_of(db: sqlite3.Connection, rows: list[tuple[str, date]]) -> list[Sam
     return samples
 
 
+def parts(text: str) -> list[str]:
+    return [part.strip() for part in SEPARATOR.split(text) if part.strip()]
+
+
+def limit_of(text: str) -> str:
+    found = LIMIT.search(text)
+    return f"{found[1]} {found[2].lower()}" if found else f"unread: {text}"
+
+
+def plan(line: dict, sample_type: str) -> list[Planned]:
+    """The Tests a record line requests, or why it cannot be planned."""
+    requests = parts(line.get("tests_requested", ""))
+    if not requests:
+        if sample_type == "FP":
+            return [Planned(AVERAGE_CAPSULE_WEIGHT)]
+        raise WorkOrderError(
+            f"the line requests no Tests, and only an FP Sample has a default;"
+            f" Sample type {sample_type!r}"
+        )
+    planned: list[Planned] = []
+    analytes: list[str] = []
+    for request in requests:
+        named = [
+            name if name.lower().startswith("n-nitroso") else name.upper()
+            for name in NITROSAMINE.findall(request)
+        ]
+        if request.casefold() == AVERAGE_CAPSULE_WEIGHT.casefold():
+            planned.append(Planned(AVERAGE_CAPSULE_WEIGHT))
+        elif named:
+            analytes += [a for a in dict.fromkeys(named) if a not in analytes]
+        elif NAMES_NITROSAMINES.search(request):
+            raise WorkOrderError(
+                f"the request {request!r} names no nitrosamine; which should be tested?"
+            )
+        else:
+            raise WorkOrderError(f"no Test definition for the request {request!r}")
+    limits: dict[str, str] = {}
+    for part in parts(line.get("limits", "")) if analytes else []:
+        owners = [a for a in analytes if a.casefold() in part.casefold()]
+        if not owners and len(analytes) == 1:
+            owners = analytes
+        if not owners:
+            raise WorkOrderError(
+                f"the limit {part!r} names none of the nitrosamines requested,"
+                f" {', '.join(analytes)}"
+            )
+        limits.update(dict.fromkeys(owners, limit_of(part)))
+    return planned + [
+        Planned(NITROSAMINE_IMPURITIES, a, limits.get(a, "")) for a in analytes
+    ]
+
+
 def due_date(received: date, tat_class: str) -> date:
     day, left = received, TAT_BUSINESS_DAYS[tat_class]
     while left:
@@ -142,26 +258,26 @@ def due_date(received: date, tat_class: str) -> date:
     return day
 
 
-def tests_of(samples: list[Sample]) -> list[tuple[object, ...]]:
-    """One row per Sample and Test its Sample type names, in `COLUMNS` order."""
-    for sample in samples:
-        if sample.sample_type not in TESTS:
+def tests_of(samples: list[Sample], lines: list[dict]) -> list[tuple[object, ...]]:
+    """One row per Sample, Test and analyte, in `COLUMNS` order."""
+    rows = []
+    for s, line in zip(samples, lines, strict=True):
+        if line["lot"] != s.lot:
             raise WorkOrderError(
-                f"{sample.lab_reference}: no Tests for Sample type"
-                f" {sample.sample_type!r}"
+                f"{s.lab_reference}: the record's line {line['no']} is Lot"
+                f" {line['lot']!r}, not the logged Lot {s.lot!r}"
             )
-    return [
-        (
-            s.lab_reference,
-            test,
-            s.lot,
-            s.product_code,
-            s.tat_class,
-            due_date(s.received, s.tat_class),
-        )
-        for s in samples
-        for test in TESTS[s.sample_type]
-    ]
+        try:
+            planned = plan(line, s.sample_type)
+        except WorkOrderError as error:
+            raise WorkOrderError(f"{s.lab_reference}: {error}") from None
+        due = due_date(s.received, s.tat_class)
+        rows += [
+            (s.lab_reference, p.test, s.lot, s.product_code, s.tat_class, due)
+            + (p.analyte, p.limit)
+            for p in planned
+        ]
+    return rows
 
 
 def next_work_order(db: sqlite3.Connection, year: int) -> str:
@@ -186,8 +302,7 @@ def header_of(
                 f"the Receiving Log row's Samples differ in {field}: {values};"
                 " one Work Order needs one"
             )
-    due = COLUMNS.index("Due Date")
-    values = (number, first.client, first.received, max(row[due] for row in rows))
+    values = (number, first.client, first.received, max(row[DUE] for row in rows))
     return dict(zip(HEADER, values, strict=True))
 
 
@@ -205,7 +320,7 @@ def write_sheet(
     ws.append(COLUMNS)
     for row in rows:
         ws.append(row)
-        ws.cell(ws.max_row, len(COLUMNS)).number_format = "mm/dd/yyyy"
+        ws.cell(ws.max_row, DUE + 1).number_format = "mm/dd/yyyy"
     wb.save(path)
 
 
@@ -231,8 +346,11 @@ def read_back(path: Path) -> dict:
 
 
 def create_work_order(inputs: Path, outputs: Path) -> str:
-    row_path, source, carried = inputs_of(inputs)
+    row_path, source, record_path, carried = inputs_of(inputs)
     receiving_log_row = read_receiving_log_row(row_path)
+    lines = lines_of(
+        json.loads(record_path.read_text()), [ref for ref, _ in receiving_log_row]
+    )
 
     with tempfile.TemporaryDirectory() as work:
         database = Path(work) / "lims.sqlite"
@@ -247,14 +365,15 @@ def create_work_order(inputs: Path, outputs: Path) -> str:
             db.execute("PRAGMA foreign_keys = ON")
             samples = samples_of(db, receiving_log_row)
             number = next_work_order(db, samples[0].received.year)
-            rows = tests_of(samples)
+            rows = tests_of(samples, lines)
             header = header_of(number, samples, rows)
+            planned = dict.fromkeys((row[0], row[1], row[DUE]) for row in rows)
             db.executemany(
                 "INSERT INTO work_orders (work_order, lab_reference, test, due_date,"
                 " source_artifact) VALUES (?, ?, ?, ?, ?)",
                 [
                     (number, ref, test, due.isoformat(), source)
-                    for ref, test, _, _, _, due in rows
+                    for ref, test, due in planned
                 ],
             )
             db.commit()

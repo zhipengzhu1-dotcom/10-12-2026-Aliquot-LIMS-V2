@@ -23,6 +23,17 @@ ROW_ID = "c" * 64
 DATABASE_ID = "e" * 64
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 TEST = "Average capsule weight"
+NITROSAMINES = "Nitrosamine impurities"
+COLUMNS = (
+    "Lab Reference",
+    "Test",
+    "Lot",
+    "Product Code",
+    "TAT Class",
+    "Due Date",
+    "Analyte",
+    "Limit",
+)
 
 
 def run(script: str, inputs: Path, outputs: Path, manifest: list[dict]):
@@ -92,8 +103,11 @@ def receipt(
 
 
 def work_order(tmp_path: Path, receipt_outputs: Path):
+    """Stage 3 on the outputs of `receipt` and the record it logged."""
     inputs, outputs = tmp_path / "inputs", tmp_path / "outputs"
+    record = receipt_outputs.parent / "submission.json"
     put(inputs, ROW_ID, receipt_outputs / "receiving_log_row.xlsx", "row.xlsx")
+    put(inputs, RECORD_ID, record, "submission.json")
     put(inputs, DATABASE_ID, receipt_outputs / "lims.sqlite", "lims.sqlite")
     result = run(
         "create_work_order",
@@ -105,6 +119,12 @@ def work_order(tmp_path: Path, receipt_outputs: Path):
                 "filename": "row.xlsx",
                 "artifact_type": "ReceivingLogRow",
                 "media_type": XLSX,
+            },
+            {
+                "artifact_id": RECORD_ID,
+                "filename": "submission.json",
+                "artifact_type": "SubmissionRecord",
+                "media_type": "application/json",
             },
             {
                 "artifact_id": DATABASE_ID,
@@ -169,17 +189,20 @@ def test_it_writes_the_header_block_one_test_per_sample_and_the_work_orders_rows
     ws = load_workbook(outputs / "work_order.xlsx").active
     assert ws.title == "WO-2026-0001"
     due = datetime(2026, 1, 12)
+    blank = (None,) * 6
     assert list(ws.iter_rows(values_only=True)) == [
-        ("Work Order", "WO-2026-0001", None, None, None, None),
-        ("Client", "Tallowby Botanicals LLC", None, None, None, None),
-        ("Received", datetime(2026, 1, 6), None, None, None, None),
-        ("Due Date", due, None, None, None, None),
-        (None,) * 6,
-        ("Lab Reference", "Test", "Lot", "Product Code", "TAT Class", "Due Date"),
-        ("LR-2026-0001", TEST, "LT-268123", "TLB-1475", "Rush3to4Days", due),
-        ("LR-2026-0002", TEST, "LT-268123", "TLB-1475", "Rush3to4Days", due),
+        ("Work Order", "WO-2026-0001", *blank),
+        ("Client", "Tallowby Botanicals LLC", *blank),
+        ("Received", datetime(2026, 1, 6), *blank),
+        ("Due Date", due, *blank),
+        (None,) * 8,
+        COLUMNS,
+        ("LR-2026-0001", TEST, "LT-268123", "TLB-1475", "Rush3to4Days", due)
+        + (None, None),
+        ("LR-2026-0002", TEST, "LT-268123", "TLB-1475", "Rush3to4Days", due)
+        + (None, None),
     ]
-    row = [TEST, "LT-268123", "TLB-1475", "Rush3to4Days", "2026-01-12"]
+    row = [TEST, "LT-268123", "TLB-1475", "Rush3to4Days", "2026-01-12", "", ""]
     assert json.loads((outputs / "work_order.json").read_text()) == {
         "schema": "work_order/2",
         "receiving_log_row": [
@@ -192,14 +215,7 @@ def test_it_writes_the_header_block_one_test_per_sample_and_the_work_orders_rows
             "Received": "2026-01-06",
             "Due Date": "2026-01-12",
         },
-        "columns": [
-            "Lab Reference",
-            "Test",
-            "Lot",
-            "Product Code",
-            "TAT Class",
-            "Due Date",
-        ],
+        "columns": list(COLUMNS),
         "rows": [["LR-2026-0001", *row], ["LR-2026-0002", *row]],
     }
     assert query(
@@ -223,7 +239,7 @@ def test_one_work_order_plans_each_sample_with_its_own_lot_and_due_date(tmp_path
 
     assert result.returncode == 0, result.stderr
     summary = json.loads((outputs / "work_order.json").read_text())
-    assert summary["rows"] == [
+    assert [row[:6] for row in summary["rows"]] == [
         ["LR-2026-0001", TEST, "LT-268123", "TLB-1475", "Regular", "2026-01-20"],
         ["LR-2026-0002", TEST, "LT-268123", "TLB-1475", "Regular", "2026-01-20"],
         ["LR-2026-0003", TEST, "LT-269999", "TLB-2000", "Rush1to2Days", "2026-01-08"],
@@ -240,13 +256,101 @@ def test_one_work_order_plans_each_sample_with_its_own_lot_and_due_date(tmp_path
     ]
 
 
-def test_it_refuses_a_row_with_a_sample_type_it_has_no_tests_for(tmp_path):
-    raw = {"lot": "RM-1", "sample_type": "RM", "no_of_containers": "1"}
+def requested(tmp_path: Path, *lines: dict):
+    """Stage 3 on seed 1's record with `lines` after its own, one container each."""
+    more = tuple(
+        {"lot": f"LT-27000{n}", "no_of_containers": "1", **line}
+        for n, line in enumerate(lines)
+    )
+    return work_order(tmp_path, receipt(tmp_path, "Regular", more=more))
 
-    result, outputs = work_order(tmp_path, receipt(tmp_path, "Regular", more=(raw,)))
+
+def planned_for(outputs: Path, ref: str) -> list[tuple[str, str, str]]:
+    summary = json.loads((outputs / "work_order.json").read_text())
+    return [(test, a, limit) for r, test, *_, a, limit in summary["rows"] if r == ref]
+
+
+def test_an_rm_sample_requesting_ndma_and_ndea_gets_both_analytes_and_limits(
+    tmp_path,
+):
+    raw = {
+        "sample_type": "RM",
+        "tests_requested": "Nitrosamines: NDMA, NDEA",
+        "limits": "NDMA: 96 ng/day; NDEA NMT 0.03 ppm",
+    }
+
+    result, outputs = requested(tmp_path, raw)
+
+    assert result.returncode == 0, result.stderr
+    assert planned_for(outputs, "LR-2026-0003") == [
+        (NITROSAMINES, "NDMA", "96 ng/day"),
+        (NITROSAMINES, "NDEA", "0.03 ppm"),
+    ]
+    assert query(
+        outputs / "lims.sqlite",
+        "SELECT test FROM work_orders WHERE lab_reference = 'LR-2026-0003'",
+    ) == [(NITROSAMINES,)], "one work_orders row per Sample and Test"
+
+
+def test_an_fp_sample_requesting_nitrosamines_and_capsule_weight_gets_both(
+    tmp_path,
+):
+    fp = {"tests_requested": "Average capsule weight\nN-nitroso-varenicline"}
+
+    result, outputs = requested(tmp_path, fp)
+
+    assert result.returncode == 0, result.stderr
+    assert planned_for(outputs, "LR-2026-0003") == [
+        (TEST, "", ""),
+        (NITROSAMINES, "N-nitroso-varenicline", ""),
+    ]
+
+
+def test_a_stability_condition_stays_on_the_sample_and_an_odd_limit_is_flagged(
+    tmp_path,
+):
+    stability = {
+        "sample_type": "Initial-1",
+        "tests_requested": "NDMA",
+        "limits": "below LOQ",
+    }
+
+    result, outputs = requested(tmp_path, stability)
+
+    assert result.returncode == 0, result.stderr
+    assert planned_for(outputs, "LR-2026-0003") == [
+        (NITROSAMINES, "NDMA", "unread: below LOQ")
+    ]
+    assert query(
+        outputs / "lims.sqlite",
+        "SELECT sample_type FROM samples WHERE lab_reference = 'LR-2026-0003'",
+    ) == [("Initial-1",)]
+
+
+@pytest.mark.parametrize(
+    ("line", "refusal"),
+    [
+        (
+            {"tests_requested": "Water content"},
+            "LR-2026-0003: no Test definition for the request 'Water content'",
+        ),
+        (
+            {"tests_requested": "Nitrosamine impurities"},
+            "LR-2026-0003: the request 'Nitrosamine impurities' names no"
+            " nitrosamine; which should be tested?",
+        ),
+        (
+            {"sample_type": "RM"},
+            "LR-2026-0003: the line requests no Tests, and only an FP Sample has"
+            " a default; Sample type 'RM'",
+        ),
+    ],
+)
+def test_it_refuses_a_request_it_cannot_map_with_its_words(tmp_path, line, refusal):
+    result, outputs = requested(tmp_path, line)
 
     assert result.returncode == 1
-    assert "LR-2026-0003: no Tests for Sample type 'RM'" in result.stderr
+    assert refusal in result.stderr
     assert list(outputs.iterdir()) == []
 
 

@@ -80,7 +80,7 @@ describe("aliquot workflow", () => {
 			[
 				"1 Submission  script parse_submission  inputs SubmissionForm  carried none  outputs SubmissionRecord  worked by A-rin  reviewed by A-pia",
 				"2 Receipt  script log_receipt  inputs SubmissionRecord  optional ReceivingLog  carried LimsDatabase  outputs ReceivingLogRow,LimsDatabase  worked by A-bram  reviewed by A-pia",
-				"3 Work Order  script create_work_order  inputs ReceivingLogRow  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia",
+				"3 Work Order  script create_work_order  inputs ReceivingLogRow,SubmissionRecord  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia",
 				"4 Results  script compute_results  inputs WorkOrder,Other  carried LimsDatabase  outputs ResultWorksheet,LimsDatabase  worked by A-rin  reviewed by A-anselm",
 				"5 Verification  script verify_results  inputs ResultWorksheet,Other  carried none  outputs VerificationRecord  worked by A-bram  reviewed by A-anselm",
 				"6 Report  script render_roa  inputs VerificationRecord,ReceivingLogRow,Other  carried LimsDatabase  outputs ReportOfAnalysis,ReportOfAnalysis,LimsDatabase  worked by A-ines  reviewed by A-anselm",
@@ -288,7 +288,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(at(11)?.payload).toMatchObject({
 			id: "S-create_work_order",
 			owner_agent: "A-bram",
-			input_types: ["ReceivingLogRow", "LimsDatabase"],
+			input_types: ["ReceivingLogRow", "SubmissionRecord", "LimsDatabase"],
 			output_types: ["WorkOrder", "LimsDatabase"],
 		});
 		expect(at(12)?.payload).toMatchObject({
@@ -391,22 +391,22 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const [version1, version2, version3] = outputsOf("LimsDatabase");
 		expect(
 			at(42)?.payload,
-			"stage 3 takes the Receiving Log row and carries stage 2's database",
-		).toMatchObject({ inputs: [rowId, version1] });
+			"stage 3 takes the Receiving Log row and the record, and carries stage 2's database",
+		).toMatchObject({ inputs: [rowId, recordId, version1] });
 		expect(
 			[46, 47, 48, 49, 50].map((seq) => at(seq)?.payload),
-			"each with a Lineage of the Receiving Log row and stage 2's database",
+			"each with a Lineage of the Receiving Log row, the record and stage 2's database",
 		).toMatchObject([
 			{
 				filename: "lims.sqlite",
 				artifact_type: "LimsDatabase",
-				lineage: [rowId, version1],
+				lineage: [rowId, recordId, version1],
 			},
 			{ filename: "work_order.json", artifact_type: "Other" },
 			{
 				filename: "work_order.xlsx",
 				artifact_type: "WorkOrder",
-				lineage: [rowId, version1],
+				lineage: [rowId, recordId, version1],
 			},
 			{ filename: "stdout.txt" },
 			{ filename: "stderr.txt" },
@@ -627,6 +627,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		const workOrderTree = [
 			`${workOrder} WorkOrder <- R-3 S-create_work_order v1`,
 			...under(rowTree),
+			...under(recordTree),
 			...under(version1Tree),
 		];
 		const stage4Inputs = [
@@ -634,6 +635,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 			`${weighingsId} Other <- none`,
 			`${version2} LimsDatabase <- R-3 S-create_work_order v1`,
 			...under(rowTree),
+			...under(recordTree),
 			...under(version1Tree),
 		];
 

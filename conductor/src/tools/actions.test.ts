@@ -287,11 +287,14 @@ describe("the relational Actions", () => {
 			stageOf([
 				"VerificationRecord",
 				"ReceivingLogRow",
+				"SubmissionRecord",
 				"Other",
 				"LimsDatabase",
 			]),
 		).toBe(6);
-		expect(stageOf(["ReceivingLogRow", "LimsDatabase"])).toBe(3);
+		expect(
+			stageOf(["ReceivingLogRow", "SubmissionRecord", "LimsDatabase"]),
+		).toBe(3);
 		expect(stageOf(["ResultWorksheet", "Other"])).toBe(5);
 		expect(stageOf(["WorkOrder", "Other", "LimsDatabase"])).toBe(4);
 		expect(stageOf(["Other"])).toBeUndefined();

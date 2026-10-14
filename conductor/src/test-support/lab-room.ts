@@ -179,6 +179,7 @@ export const receivingSpecialist: RunModel = async ({ prompt, call }) => {
 		script: `S-${WORK_ORDER.script}`,
 		inputs: [
 			named(logged, "receiving_log_row.xlsx").artifact.id,
+			record.artifact.id,
 			named(logged, "lims.sqlite").artifact.id,
 		],
 		task_id,

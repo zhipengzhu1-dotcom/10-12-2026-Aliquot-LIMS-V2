@@ -23,6 +23,7 @@
   },
   "samples": [
     {
+      "limits": "",
       "lot": "LT-267759",
       "no": "1",
       "no_of_containers": "3",
@@ -31,7 +32,8 @@
       "sample_description": "Tallowby Zinc Picolinate 30 mg Capsules",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     }
   ],
   "schema": "submission/2",

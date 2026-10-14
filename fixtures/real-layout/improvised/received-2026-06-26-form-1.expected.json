@@ -1,9 +1,9 @@
 {
   "bill_to": {
-    "address": "964 Tamsin Lane",
-    "city": "Lindqvist Park, DE 19998",
+    "address": "939 Juniper Mill Drive",
+    "city": "Ashcombe Ridge, NJ 08999",
     "company": "RXD",
-    "contact": "Delphine Vantongeren",
+    "contact": "Delphine Quell",
     "email": "",
     "phone": ""
   },
@@ -14,15 +14,16 @@
     "time_received": "12:01"
   },
   "report_to": {
-    "address": "989 Quarry Hill Road",
-    "city": "Lindqvist Park, DE 19998",
+    "address": "822 Larkspur Way",
+    "city": "Ashcombe Ridge, NJ 08999",
     "company": "RXD",
-    "contact": "Delphine Thorne-Ames",
-    "email": "delphine.thorne-ames@rxd.example",
-    "phone": "(201) 555-0145"
+    "contact": "Senna Quell",
+    "email": "senna.quell@rxd.example",
+    "phone": "(201) 555-0170"
   },
   "samples": [
     {
+      "limits": "NMPA: 92.6 ng/day; NMBA: 0.03 ppm",
       "lot": "77243846",
       "no": "1",
       "no_of_containers": "1",
@@ -31,9 +32,11 @@
       "sample_description": "Bnwwjqrowmpcivy TYx IE",
       "sample_type": "RM",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Nitrosamines: NMPA, NMBA"
     },
     {
+      "limits": "NMPA: 90.7 ng/day; NDIPA: 0.05 ppm",
       "lot": "9906709",
       "no": "2",
       "no_of_containers": "1",
@@ -42,9 +45,11 @@
       "sample_description": "Bnwwjqrowmpcivy TYx IE",
       "sample_type": "RM",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Nitrosamines: NMPA, NDIPA"
     },
     {
+      "limits": "NMPA: 77.1 ng/day; NEIPA: 0.02 ppm",
       "lot": "Z970513",
       "no": "3",
       "no_of_containers": "1",
@@ -53,9 +58,11 @@
       "sample_description": "Cptpqypjclpwlc",
       "sample_type": "RM",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Nitrosamines: NMPA, NEIPA"
     },
     {
+      "limits": "NEIPA: 21.2 ng/day; NDBA: 0.01 ppm",
       "lot": "K294589",
       "no": "4",
       "no_of_containers": "1",
@@ -64,9 +71,11 @@
       "sample_description": "Cptpqypjclpwlc",
       "sample_type": "RM",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Nitrosamines: NEIPA, NDBA"
     },
     {
+      "limits": "",
       "lot": "L631331",
       "no": "5",
       "no_of_containers": "1",
@@ -75,9 +84,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "L631331",
       "no": "6",
       "no_of_containers": "1",
@@ -86,9 +97,11 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "L631331",
       "no": "7",
       "no_of_containers": "1",
@@ -97,16 +110,17 @@
       "sample_description": "Ecimhgvkmirovnj 79mg Yhjmnlig",
       "sample_type": "FP",
       "tat_class": "Regular",
-      "tat_code": "1"
+      "tat_code": "1",
+      "tests_requested": "Average capsule weight"
     }
   ],
   "schema": "submission/2",
   "submitted_by": {
-    "address": "989 Quarry Hill Road",
-    "city": "Lindqvist Park, DE 19998",
+    "address": "822 Larkspur Way",
+    "city": "Ashcombe Ridge, NJ 08999",
     "company": "RXD",
-    "contact": "Delphine Thorne-Ames",
-    "email": "delphine.thorne-ames@rxd.example",
-    "phone": "(201) 555-0145"
+    "contact": "Senna Quell",
+    "email": "senna.quell@rxd.example",
+    "phone": "(201) 555-0170"
   }
 }

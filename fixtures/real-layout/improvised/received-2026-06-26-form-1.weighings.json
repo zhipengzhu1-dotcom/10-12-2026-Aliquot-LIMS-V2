@@ -1,37 +1,37 @@
 [
   {
     "container": 1,
-    "weight_of_20_g": 12.7309,
-    "weight_taken_g": 0.6295
+    "weight_of_20_g": 7.6651,
+    "weight_taken_g": 0.4125
   },
   {
     "container": 2,
-    "weight_of_20_g": 12.6366,
-    "weight_taken_g": 0.576
+    "weight_of_20_g": 7.7486,
+    "weight_taken_g": 0.3724
   },
   {
     "container": 3,
-    "weight_of_20_g": 12.6498,
-    "weight_taken_g": 0.6505
+    "weight_of_20_g": 7.8699,
+    "weight_taken_g": 0.3655
   },
   {
     "container": 4,
-    "weight_of_20_g": 12.583,
-    "weight_taken_g": 0.6914
+    "weight_of_20_g": 7.7335,
+    "weight_taken_g": 0.3543
   },
   {
     "container": 5,
-    "weight_of_20_g": 12.7688,
-    "weight_taken_g": 0.585
+    "weight_of_20_g": 7.7092,
+    "weight_taken_g": 0.4261
   },
   {
     "container": 6,
-    "weight_of_20_g": 12.6386,
-    "weight_taken_g": 0.5771
+    "weight_of_20_g": 7.6937,
+    "weight_taken_g": 0.4101
   },
   {
     "container": 7,
-    "weight_of_20_g": 12.5695,
-    "weight_taken_g": 0.6015
+    "weight_of_20_g": 7.7962,
+    "weight_taken_g": 0.3652
   }
 ]

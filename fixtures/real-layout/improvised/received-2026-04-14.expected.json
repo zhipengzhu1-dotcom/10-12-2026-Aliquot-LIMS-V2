@@ -23,6 +23,7 @@
   },
   "samples": [
     {
+      "limits": "",
       "lot": "X678314",
       "no": "1",
       "no_of_containers": "1",
@@ -31,9 +32,11 @@
       "sample_description": "OND 56mg Naztbvaf",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     },
     {
+      "limits": "",
       "lot": "X678314",
       "no": "2",
       "no_of_containers": "1",
@@ -42,7 +45,8 @@
       "sample_description": "OND 56mg Naztbvaf",
       "sample_type": "FP",
       "tat_class": "Rush1to2Days",
-      "tat_code": "2"
+      "tat_code": "2",
+      "tests_requested": "Average capsule weight"
     }
   ],
   "schema": "submission/2",

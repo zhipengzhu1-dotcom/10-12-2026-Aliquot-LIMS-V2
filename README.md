@@ -475,7 +475,7 @@ The toy workflow is one table of stages, `conductor/src/workflow/stages.ts`. Eac
 
 - Stage 1, Submission, turns a Submission Form into a `SubmissionRecord` (schema `submission/2`), which lists every Sample line of the form, each with its own fields and number of containers. It reads the synthetic layout and the lab's real one into the same record, and tells them apart by the form's tables, never by its form code.
 - Stage 2, Receipt, turns the record into Receiving Log rows (`ReceivingLogRow`, one sheet, one row per container of every Sample in form order, the container's Lab Reference in `#`, the Lab References consecutive across the Samples) and the next version of the toy LIMS database (`LimsDatabase`, `lims.sqlite`). It carries the latest accepted `LimsDatabase`, or creates the database when there is none. When the home names the lab's Receiving Log, it also writes the Shadow (see Parallel run). `docs/design/overview.md`, "Toy System of record", documents the five tables and the Lab Reference numbering.
-- Stage 3, Work Order, turns the Receiving Log rows into one Work Order that plans each Sample (`WorkOrder`, `work_order.xlsx`: a header block with the Work Order number `WO-<year>-<n>`, Client, date received and the due date of its last Sample, then one row per Sample and Test with the Sample's Lot, Product Code, TAT class and due date) and the next database version with its `work_orders` rows. It carries the version stage 2 wrote. Every FP Sample gets the Test "Average capsule weight"; a Sample type with no Tests, RM or IP today, is refused (#82). Each due date follows the rule in `docs/design/overview.md`, "The due date rule".
+- Stage 3, Work Order, turns the Receiving Log rows into one Work Order that plans each Sample (`WorkOrder`, `work_order.xlsx`: a header block with the Work Order number `WO-<year>-<n>`, Client, date received and the due date of its last Sample, then one row per Sample, Test and analyte with the Sample's Lot, Product Code, TAT class, due date, analyte and limit) and the next database version with its `work_orders` rows. It takes the record stage 1 wrote and carries the version stage 2 wrote. Each Sample gets the Tests its line's TESTS REQUESTED names, Average capsule weight or Nitrosamine impurities with the nitrosamines named and their LIMITS; a request it cannot map is refused with its words, and an FP line requesting nothing gets Average capsule weight (#82). Each due date follows the rule in `docs/design/overview.md`, "The due date rule".
 - Stage 4, Results, turns the Work Order and the weighings (`Other`, the `<fixture stem>.weighings.json` beside the Fixture) into a Result Worksheet (`ResultWorksheet`, `result_worksheet.xlsx`: one row per container with the two weights as values and the average as the formula `=F<row>/20`, then a Mean row with an `AVERAGE` formula) and the next database version with its `results` rows. When the weighings name a notebook reference, as the weighings read from a results Message do, row 4 of the header block holds it. It carries the version stage 3 wrote. `docs/design/overview.md`, "The weighings", says where the weighings come from and what the `results` rows hold.
 - Stage 5, Verification, takes the Result Worksheet and the same weighings and writes a Verification Record (`VerificationRecord`, `verification_record.json`). For each container row it holds the average's formula text, the value the formula gives on the worksheet's own cells, the weighing's average, their difference, and whether it is within 0.0001 g. It also holds the same for the Mean row and a verdict, `pass` or `fail`. It carries nothing. Bram works it, never Rin, who works stage 4 (see "The Verifier rule" below).
 - Stage 6, Report, takes the Verification Record from stage 5, the Receiving Log rows from stage 2 and the same weighings, carries the version stage 4 wrote, and renders the Report of Analysis twice from one structure: `report_of_analysis.xlsx` in the layout of the synthetic generator's report, and `report_of_analysis.pdf`, both typed `ReportOfAnalysis`. The report is for the first Sample of the record's Work Order on the Receiving Log rows. Every metadata value comes from that Sample's Receiving Log row or its `samples` row, the result is the record's recomputed mean to 4 places, and the Script refuses to render when any metadata value is missing. The weighings' notebook reference, when they name one, goes below the signature area. The next database version holds a `reports` row naming the Sample and the PDF's Artifact id. Ines works it.
@@ -491,7 +491,7 @@ pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.
 ```text
 1 Submission  script parse_submission  inputs SubmissionForm  carried none  outputs SubmissionRecord  worked by A-rin  reviewed by A-pia
 2 Receipt  script log_receipt  inputs SubmissionRecord  optional ReceivingLog  carried LimsDatabase  outputs ReceivingLogRow,LimsDatabase  worked by A-bram  reviewed by A-pia
-3 Work Order  script create_work_order  inputs ReceivingLogRow  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia
+3 Work Order  script create_work_order  inputs ReceivingLogRow,SubmissionRecord  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia
 4 Results  script compute_results  inputs WorkOrder,Other  carried LimsDatabase  outputs ResultWorksheet,LimsDatabase  worked by A-rin  reviewed by A-anselm
 5 Verification  script verify_results  inputs ResultWorksheet,Other  carried none  outputs VerificationRecord  worked by A-bram  reviewed by A-anselm
 6 Report  script render_roa  inputs VerificationRecord,ReceivingLogRow,Other  carried LimsDatabase  outputs ReportOfAnalysis,ReportOfAnalysis,LimsDatabase  worked by A-ines  reviewed by A-anselm
@@ -585,11 +585,11 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 | 39 | TaskCompleted (Review required from A-pia), as A-bram | T-2 | 38 |
 | 40 | ReviewRecorded (3 on every dimension), as A-pia | T-2 | 39 |
 | 41 | TaskCompleted (Reviewed), as A-pia | T-2 | 40 |
-| 42 | TaskProposed (inputs: the Receiving Log row, and stage 2's database carried) | T-3 | 41 |
+| 42 | TaskProposed (inputs: the Receiving Log row and the record, and stage 2's database carried) | T-3 | 41 |
 | 43 | TaskAssigned | T-3 | 42 |
 | 44 | TaskStarted | T-3 | 43 |
 | 45 | RunStarted | T-3 | 44 |
-| 46–50 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `work_order.json`, `work_order.xlsx` as a `WorkOrder`, stdout, stderr; Lineage the Receiving Log row and stage 2's database) | T-3 | 45 |
+| 46–50 | ArtifactStored (`lims.sqlite` as a `LimsDatabase`, `work_order.json`, `work_order.xlsx` as a `WorkOrder`, stdout, stderr; Lineage the Receiving Log row, the record and stage 2's database) | T-3 | 45 |
 | 51 | RunFinished | T-3 | 45 |
 | 52 | EvaluationRecorded (stage 3, score 1, passed) | T-3 | 51 |
 | 53 | TaskCompleted (Review required from A-pia), as A-bram | T-3 | 52 |
@@ -627,19 +627,21 @@ After one run on a fresh home, `ledger verify` passes and the Ledger holds this 
 | 96 | ReviewRecorded (3 on every dimension), as A-anselm | T-6 | 95 |
 | 97 | TaskCompleted (Reviewed), as A-anselm | T-6 | 96 |
 
-`task list` shows T-1 to T-6 as `Done`. `sandbox artifacts` shows the Fixture and the weighings with no Lineage, the record with a Lineage of the Fixture, stage 2's outputs with a Lineage of the record, stage 3's outputs with a Lineage of the Receiving Log row and stage 2's database, stage 4's outputs with a Lineage of the Work Order, the weighings and stage 3's database, the Verification Record with a Lineage of the worksheet and the weighings, and stage 6's outputs with a Lineage of the Verification Record, the Receiving Log row, the weighings and stage 4's database. `sandbox lineage <database id>` walks from stage 2's database to the record to the Fixture (see Sandbox). `sandbox lineage <work order id>` walks from the Work Order through both of its inputs back to the Fixture:
+`task list` shows T-1 to T-6 as `Done`. `sandbox artifacts` shows the Fixture and the weighings with no Lineage, the record with a Lineage of the Fixture, stage 2's outputs with a Lineage of the record, stage 3's outputs with a Lineage of the Receiving Log row, the record and stage 2's database, stage 4's outputs with a Lineage of the Work Order, the weighings and stage 3's database, the Verification Record with a Lineage of the worksheet and the weighings, and stage 6's outputs with a Lineage of the Verification Record, the Receiving Log row, the weighings and stage 4's database. `sandbox lineage <database id>` walks from stage 2's database to the record to the Fixture (see Sandbox). `sandbox lineage <work order id>` walks from the Work Order through its three inputs back to the Fixture:
 
 ```text
 <work order id> WorkOrder <- R-3 S-create_work_order v1
   <rows id> ReceivingLogRow <- R-2 S-log_receipt v1
     <record id> SubmissionRecord <- R-1 S-parse_submission v1
       <fixture id> SubmissionForm <- none
+  <record id> SubmissionRecord <- R-1 S-parse_submission v1
+    <fixture id> SubmissionForm <- none
   <database id> LimsDatabase <- R-2 S-log_receipt v1
     <record id> SubmissionRecord <- R-1 S-parse_submission v1
       <fixture id> SubmissionForm <- none
 ```
 
-`sandbox lineage <worksheet id>` prints the Result Worksheet `<- R-4 S-compute_results v1`, then under it the Work Order's tree above, the weighings `<- none`, and stage 3's database `<- R-3 S-create_work_order v1` with the Receiving Log row and stage 2's database under it. `sandbox lineage <record id>` on the Verification Record prints it `<- R-5 S-verify_results v1`, then the worksheet's tree, then the weighings `<- none`.
+`sandbox lineage <worksheet id>` prints the Result Worksheet `<- R-4 S-compute_results v1`, then under it the Work Order's tree above, the weighings `<- none`, and stage 3's database `<- R-3 S-create_work_order v1` with the Receiving Log row, the record and stage 2's database under it. `sandbox lineage <record id>` on the Verification Record prints it `<- R-5 S-verify_results v1`, then the worksheet's tree, then the weighings `<- none`.
 
 `sandbox lineage <pdf id>` on the Report of Analysis is the chain the Auditor samples. It prints the PDF `<- R-6 S-render_roa v1`, then four trees under it: the Verification Record's, the Receiving Log row's, the weighings `Other <- none`, and that of stage 4's database `<- R-4 S-compute_results v1`. Every path ends at the Fixture `SubmissionForm <- none` or at the weighings `Other <- none`. The xlsx report has the same Lineage.
 
