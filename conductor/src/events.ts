@@ -193,6 +193,10 @@ const BODIES = [
 			task_id: TaskId.optional(),
 		}),
 	),
+	body(
+		"ReceivingLogNamed",
+		z.strictObject({ path: z.string().min(1), sha256: Sha256 }),
+	),
 ] as const;
 
 export const EventBody = z.discriminatedUnion("kind", [

@@ -3,12 +3,16 @@
 Beside them it writes `manifest.json`, the record itself, and `weighings.json`,
 the record's weighings as the balance would give them to stage 4: one JSON
 array of `{container, weight_of_20_g, weight_taken_g}`.
+
+`--real-layout BLANK` also fills the scrubbed blank Submission Form in the lab's
+real layout with the same record, as `submission_form_real_layout.docx`.
 """
 
 import argparse
 import json
 from pathlib import Path
 
+from synth.real_layout_form import write_real_layout_submission_form
 from synth.receiving_log import write_receiving_log
 from synth.record import invent_record
 from synth.report_of_analysis import write_report_of_analysis
@@ -16,10 +20,14 @@ from synth.result_worksheet import write_result_worksheet
 from synth.submission_form import write_submission_form
 
 
-def generate(seed: int, out: Path) -> None:
+def generate(seed: int, out: Path, real_layout: Path | None = None) -> None:
     record = invent_record(seed)
     out.mkdir(parents=True, exist_ok=True)
     write_submission_form(record, out / "submission_form.docx")
+    if real_layout is not None:
+        write_real_layout_submission_form(
+            record, real_layout, out / "submission_form_real_layout.docx"
+        )
     write_receiving_log(record, out / "receiving_log.xlsx")
     write_result_worksheet(record, out / "result_worksheet.xlsx")
     write_report_of_analysis(record, out / "report_of_analysis.xlsx")
@@ -44,5 +52,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--real-layout", type=Path, metavar="BLANK")
     args = parser.parse_args(argv)
-    generate(args.seed, args.out)
+    generate(args.seed, args.out, args.real_layout)

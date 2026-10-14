@@ -79,7 +79,7 @@ describe("aliquot workflow", () => {
 		expect(result.stdout).toBe(
 			[
 				"1 Submission  script parse_submission  inputs SubmissionForm  carried none  outputs SubmissionRecord  worked by A-rin  reviewed by A-pia",
-				"2 Receipt  script log_receipt  inputs SubmissionRecord  carried LimsDatabase  outputs ReceivingLogRow,LimsDatabase  worked by A-bram  reviewed by A-pia",
+				"2 Receipt  script log_receipt  inputs SubmissionRecord  optional ReceivingLog  carried LimsDatabase  outputs ReceivingLogRow,LimsDatabase  worked by A-bram  reviewed by A-pia",
 				"3 Work Order  script create_work_order  inputs ReceivingLogRow  carried LimsDatabase  outputs WorkOrder,LimsDatabase  worked by A-bram  reviewed by A-pia",
 				"4 Results  script compute_results  inputs WorkOrder,Other  carried LimsDatabase  outputs ResultWorksheet,LimsDatabase  worked by A-rin  reviewed by A-anselm",
 				"5 Verification  script verify_results  inputs ResultWorksheet,Other  carried none  outputs VerificationRecord  worked by A-bram  reviewed by A-anselm",
@@ -282,7 +282,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(at(10)?.payload).toMatchObject({
 			id: "S-log_receipt",
 			owner_agent: "A-bram",
-			input_types: ["SubmissionRecord", "LimsDatabase"],
+			input_types: ["SubmissionRecord", "ReceivingLog", "LimsDatabase"],
 			output_types: ["ReceivingLogRow", "LimsDatabase"],
 		});
 		expect(at(11)?.payload).toMatchObject({
@@ -699,6 +699,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 		copyFileSync(fixture, join(dir, "a-good.docx"));
 		copyFileSync(weighings, join(dir, "a-good.weighings.json"));
 		writeFileSync(join(dir, "b-not-a-docx.docx"), "not a zip archive\n");
+		for (const stem of ["a-good", "b-not-a-docx"]) {
+			writeFileSync(join(dir, `${stem}.expected.json`), "{}\n");
+		}
 		writeFileSync(join(dir, "notes.txt"), "ignored\n");
 
 		const result = aliquot("workflow", "run-all", dir);
@@ -723,7 +726,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		).toHaveLength(6);
 	}, 600_000);
 
-	it("run-all walks subdirectories, holds a known gap only at its own stage, and lists the workbooks it skips", () => {
+	it("run-all walks subdirectories, holds a known gap only at its own stage, and lists the workbooks and forms without an expected outcome it skips", () => {
 		const dir = join(scratch, "fixtures");
 		const nested = join(dir, "real-layout");
 		mkdirSync(nested, { recursive: true });
@@ -740,6 +743,11 @@ describe.skipIf(!requireDocker())(suite, () => {
 		writeFileSync(join(dir, "c-other-stage.docx"), "not a zip archive\n");
 		gap("c-other-stage", 2);
 		writeFileSync(join(nested, "d-no-gap.docx"), "not a zip archive\n");
+		for (const stem of ["a-closed-gap", "b-gap", "c-other-stage"]) {
+			writeFileSync(join(dir, `${stem}.expected.json`), "{}\n");
+		}
+		writeFileSync(join(nested, "d-no-gap.expected.json"), "{}\n");
+		writeFileSync(join(nested, "e-blank.docx"), "not a zip archive\n");
 		writeFileSync(join(nested, "log.xlsx"), "a workbook\n");
 
 		const result = aliquot("workflow", "run-all", dir);
@@ -747,6 +755,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(result.status, result.stderr).toBe(1);
 		const order = [
 			"real-layout/log.xlsx",
+			"real-layout/e-blank.docx",
 			"a-closed-gap.docx",
 			"b-gap.docx",
 			"c-other-stage.docx",
@@ -758,6 +767,9 @@ describe.skipIf(!requireDocker())(suite, () => {
 			"  skipped   no stage starts from a workbook",
 		);
 		expect(result.stdout).toContain(
+			"real-layout/e-blank.docx\n  skipped   no e-blank.expected.json beside it, so it has no expected outcome and is not a Fixture\n",
+		);
+		expect(result.stdout).toContain(
 			`  failed    the known gap at stage 3 (#9) is closed: delete ${join(dir, "a-closed-gap.known-gap.json")}\n`,
 		);
 		expect(result.stdout).toContain(
@@ -767,7 +779,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 			"  failed    stopped at stage 1, not at the known gap's stage 2 (#9)\n",
 		);
 		expect(result.stdout).toMatch(
-			/^4 Fixtures: 0 Done, 1 known gap, 3 Failed; 1 workbook skipped\n$/m,
+			/^4 Fixtures: 0 Done, 1 known gap, 3 Failed; 1 workbook and 1 form skipped\n$/m,
 		);
 		expect(readLedger().verify.ok).toBe(true);
 	}, 600_000);

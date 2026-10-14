@@ -8,10 +8,11 @@ Every file here is synthetic or scrubbed. The synthetic generator in `sandbox/sy
 |---|---|---|
 | `submission-form-seed1.docx` | `synth --seed 1` | `submission-form-seed1.expected.json`: the record `parse_submission` must write. Stage 2 passes with two containers, received Tuesday 2026-01-06. Stage 3 passes with Work Order `WO-2026-0001`, TAT class `Rush3to4Days`, due Monday 2026-01-12. Stage 4 passes on `submission-form-seed1.weighings.json` with averages 0.35443 g and 0.360515 g and a mean of 0.3574725 g. Stage 5 verifies that worksheet against the same weighings with the verdict `pass`. Stage 6 renders the Report of Analysis for `LR-2026-0001`, Lot `LT-268123`, Product Code `TLB-1475`, with the result 0.3575 g. |
 | `submission-form-seed2.docx` | `synth --seed 2` | `submission-form-seed2.expected.json`. Stage 2 passes with three containers of another Client and Lot, received Monday 2026-07-27. Stage 3 passes with Work Order `WO-2026-0002`, TAT class `Regular`, due Monday 2026-08-10. Stage 4 passes on `submission-form-seed2.weighings.json`, three containers. Stage 5 passes on the same weighings. Stage 6 renders the Report of Analysis for `LR-2026-0003`, Lot `LT-269173`, Product Code `CVN-3239`, with the result 0.5821 g. |
+| `real-layout/submission-form-seed4.docx` | `synth --seed 4 --real-layout real-layout/submission-form.docx` | `submission-form-seed4.expected.json`: the record `parse_submission` reads from the lab's real layout. The real form has no cell for the report-to company, street and city, so they are the submitter's, and none for the bill-to phone and email, so they are blank. Stage 2 passes with three containers of `60 ct HDPE bottle`, Lot `LT-267759`, Product Code `TLB-5077`, received Monday 2026-09-28. Stages 3 to 6 pass on `submission-form-seed4.weighings.json`, three containers with a mean average of 0.4484 g. In `run-all` its Lab References continue from seed 2's, `LR-2026-0006` to `0008`. |
 
 Every Fixture needs its weighings beside it, `<fixture stem>.weighings.json`, the `weighings.json` that `synth` writes for its seed. The workflow tracer stores that file as the Operator's `Other` Artifact before stage 4, gives the same Artifact to stage 5, and refuses stage 4 when the file is missing, naming the file.
 
-CI runs every `*.docx` here and in `real-layout/` through all six stages of the toy workflow with `aliquot workflow run-all fixtures`. The job fails when any Fixture fails, other than at its known gap. Per stage, CI checks the following:
+CI runs every `*.docx` here and in `real-layout/` that has its `<stem>.expected.json` beside it through all six stages of the toy workflow with `aliquot workflow run-all fixtures`. A form without one has no expected outcome and is not a Fixture, so `run-all` lists it as skipped: that is the blank `real-layout/submission-form.docx`. The job fails when any Fixture fails, other than at its known gap. Per stage, CI checks the following:
 
 | Stage | What its Evaluation checks on each Fixture |
 |---|---|
@@ -22,9 +23,9 @@ CI runs every `*.docx` here and in `real-layout/` through all six stages of the 
 | 5 Verification | The record names the worksheet and the weighings, every recomputation agrees with the weighings within 0.0001 g, and the verdict says so. |
 | 6 Report | The record's verdict was `pass`, every metadata cell equals the Receiving Log row's and the database's value, the result is the record's mean, the PDF shows the Lab Reference, Lot, Product Code and result, and the `reports` row names the PDF. |
 
-The Fixtures run in name order on one home, this folder's before `real-layout/`'s, so seed 2's stage 2 carries the toy LIMS database that seed 1's stage 6 wrote. Its Lab References continue from seed 1's: `LR-2026-0001` and `0002`, then `0003` to `0005`. Its Work Order number continues the same way.
+The Fixtures run in name order on one home, this folder's before `real-layout/`'s, so seed 2's stage 2 carries the toy LIMS database that seed 1's stage 6 wrote. Its Lab References continue from seed 1's: `LR-2026-0001` and `0002`, then `0003` to `0005`, and seed 4's go on from there. Its Work Order number continues the same way.
 
-`sandbox/tests/test_script_log_receipt.py` runs `log_receipt` on seed 1's expected record, with no database and with one that already holds a Sample from the same year. `sandbox/tests/test_script_create_work_order.py` runs `log_receipt` and then `create_work_order` on seed 1's expected record, once with each TAT class, and checks the due date for each. `sandbox/tests/test_script_compute_results.py` runs those two and then `compute_results` with seed 1's committed weighings, and checks the worksheet's formulas and the `results` rows. `sandbox/tests/test_script_verify_results.py` runs `verify_results` on that worksheet, which passes, and on a copy with one typed average that disagrees with its weights, which fails. `sandbox/tests/test_script_render_roa.py` runs `render_roa` on that Verification Record, seed 1's Receiving Log row and stage 4's database. It checks every metadata cell against its source, reads the PDF back with pdfplumber, and checks the `reports` row. It also checks that the Script refuses a blank Receiving Log or `samples` value and writes nothing. `sandbox/tests/test_synth_cli.py` checks that each Fixture's weighings file is the one its seed writes.
+`sandbox/tests/test_script_log_receipt.py` runs `log_receipt` on seed 1's expected record, with no database and with one that already holds a Sample from the same year. `sandbox/tests/test_script_create_work_order.py` runs `log_receipt` and then `create_work_order` on seed 1's expected record, once with each TAT class, and checks the due date for each. `sandbox/tests/test_script_compute_results.py` runs those two and then `compute_results` with seed 1's committed weighings, and checks the worksheet's formulas and the `results` rows. `sandbox/tests/test_script_verify_results.py` runs `verify_results` on that worksheet, which passes, and on a copy with one typed average that disagrees with its weights, which fails. `sandbox/tests/test_script_render_roa.py` runs `render_roa` on that Verification Record, seed 1's Receiving Log row and stage 4's database. It checks every metadata cell against its source, reads the PDF back with pdfplumber, and checks the `reports` row. It also checks that the Script refuses a blank Receiving Log or `samples` value and writes nothing. `sandbox/tests/test_synth_cli.py` checks that each Fixture's weighings file is the one its seed writes, and that the real-layout Fixture is what seed 4 writes into the blank form. `sandbox/tests/test_script_log_receipt_shadow.py` runs `log_receipt` on seed 4's expected record with the scrubbed Receiving Log as the lab's workbook and checks the Shadow's rows and that no cell of the lab's changed. `sandbox/tests/test_script_compare_receiving_log.py` enters rows by hand in a copy of that workbook and checks the Comparison.
 
 ## Regenerate a Fixture
 
@@ -36,7 +37,15 @@ cp /tmp/synth-1/submission_form.docx fixtures/submission-form-seed1.docx
 cp /tmp/synth-1/weighings.json fixtures/submission-form-seed1.weighings.json
 ```
 
-Seed 2 is the same with `2` in place of `1`. The expected JSON comes from `/tmp/synth-<seed>/manifest.json`, the invented record behind the documents:
+Seed 2 is the same with `2` in place of `1`. The real-layout Fixture fills the scrubbed blank form:
+
+```sh
+uv run --directory sandbox synth --seed 4 --out /tmp/synth-4 --real-layout "$PWD/fixtures/real-layout/submission-form.docx"
+cp /tmp/synth-4/submission_form_real_layout.docx fixtures/real-layout/submission-form-seed4.docx
+cp /tmp/synth-4/weighings.json fixtures/real-layout/submission-form-seed4.weighings.json
+```
+
+Its expected JSON is the manifest's record as the real form carries it, which `sandbox/scripts/parse_submission/main.py` describes: the report-to `company`, `address` and `city` are the submitter's, and the bill-to `phone` and `email` are blank. The expected JSON of seeds 1 and 2 comes from `/tmp/synth-<seed>/manifest.json`, the invented record behind the documents:
 
 - `submitted_by`, `bill_to`, `report_to`: `company`, `contact`, `address` (the manifest's `street`), `city`, `phone`, `email` from `submitter`, `bill_to`, `report_to`.
 - `sample`: `no` is `"1"`; `sample_description` is `product_name`; `sample_type`, `tat_code`, `tat_class`, `lot`, `product_code`, `product_type` as named; `no_of_containers` is the number of `containers`, as text.
@@ -51,8 +60,8 @@ Seed 2 is the same with `2` in place of `1`. The expected JSON comes from `/tmp/
 
 | Fixture | The template it copies | What `run-all` does with it |
 |---|---|---|
-| `real-layout/submission-form.docx` | The Submission Form, blank as the lab prints it | Runs it. Stage 1 fails, which is its known gap (see below). |
-| `real-layout/receiving-log.xlsx` | The Receiving Log workbook: the year's sheet and a hidden daily sheet | Lists it as skipped. |
+| `real-layout/submission-form.docx` | The Submission Form, blank as the lab prints it | Lists it as skipped: it has no expected outcome. The generator fills it to make `submission-form-seed4.docx`, which `run-all` runs. |
+| `real-layout/receiving-log.xlsx` | The Receiving Log workbook: the year's sheet and a hidden daily sheet | Lists it as skipped. The Shadow tests use it as the lab's workbook. |
 | `real-layout/report-of-analysis-finished-product.xlsx` | A Report of Analysis for a finished product | Lists it as skipped. |
 | `real-layout/report-of-analysis-raw-material.xlsx` | A Report of Analysis for a raw material, whose header cells are formulas into the Receiving Log | Lists it as skipped. |
 | `real-layout/analyst-worksheet.xlsx` | An analyst's worksheet: one row per Sample, with the weights and the formulas that compute the result | Lists it as skipped. |
@@ -63,12 +72,10 @@ The scrub keeps a text only when it is on an allowlist: a label the blank form p
 
 A Fixture that the workflow cannot finish yet carries `<fixture stem>.known-gap.json` beside it, with the stage that stops it, the issue that will close the gap, and why. `run-all` counts the Fixture as a known gap, not a failure, only when the run stops at exactly that stage. A run that stops at another stage fails. A run that finishes also fails and names the file to delete, so a closed gap cannot stay listed.
 
-These stages cannot read the real layout yet:
+No Fixture carries a known gap today. Since #76, stage 1 reads the real Submission Form and stage 2 writes the Shadow in the real Receiving Log's sheets and columns. Seed 4 passes stages 3 to 6 because they run on the toy Work Order, worksheet and report, not on the real layouts. These stages cannot read or write the real layout yet:
 
 | Stage | What it cannot read | Issue |
 |---|---|---|
-| 1 Submission | `parse_submission` reads the synthetic Submission Form's layout. The real form's fields sit in other tables and cells, and the scrubbed copy is blank, so stage 1 fails on every required field. | #76 |
-| 2 Receipt | `log_receipt` writes the synthetic Receiving Log, not the real workbook's year and daily sheets and columns. | #76 |
 | 4 Results and 5 Verification | `compute_results` writes, and `verify_results` reads, the synthetic Result Worksheet, not the analyst's worksheet. | none yet |
 | 6 Report | `render_roa` renders the synthetic Report of Analysis, not the two real layouts. | #77 |
 

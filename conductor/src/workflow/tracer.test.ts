@@ -152,7 +152,9 @@ const scriptWithWrongLot = (stage: Stage) => {
 	mkdirSync(dir);
 	const original = join(scriptsRoot, "log_receipt");
 	copyFileSync(join(original, "main.py"), join(dir, "log_receipt.py"));
-	copyFileSync(join(original, "lims_schema.py"), join(dir, "lims_schema.py"));
+	for (const module of ["lims_schema.py", "shadow.py"]) {
+		copyFileSync(join(original, module), join(dir, module));
+	}
 	writeFileSync(
 		join(dir, "main.py"),
 		[

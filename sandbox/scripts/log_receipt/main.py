@@ -32,6 +32,21 @@ Outputs, typed in `/outputs/manifest.json`:
   "rows": [[cell text, ...], ...]}`. Dates read back as YYYY-MM-DD, times
   as HH:MM, a blank cell as "".
 
+The inputs may also hold one `ReceivingLog`, the lab's Receiving Log workbook
+as the Conductor read it (ADR-0018). The Script never writes it. With one, it
+also writes:
+
+- `receiving_log_shadow.xlsx` (`ShadowReceivingLog`): the Shadow, a copy of
+  the lab's workbook with one row per container added to the year's sheet and
+  the day's sheet, in the real columns (`shadow.py` names them).
+- `shadow.json` (`Other`): what the Shadow holds, for the stage 2 Evaluation
+  and the Comparison: `{"schema": "shadow/1", "year": {"sheet", "rows"},
+  "day": {"sheet", "rows", "made"}, "sheets": [{"name", "before", "after"}]}`.
+  `rows` are the new rows' numbers, `made` says whether the day's sheet is
+  new, and `sheets` lists every sheet of either workbook, whose `before` and
+  `after` map each coordinate that holds a value to its text in the lab's
+  workbook and in the Shadow (null where the workbook lacks the sheet).
+
 The Script refuses inputs it cannot read (exit 1, the reason on stderr) and
 judges nothing else: the stage 2 Evaluation decides whether the rows match
 the record.
@@ -50,6 +65,7 @@ from pathlib import Path
 
 from lims_schema import SCHEMA_VERSION, create_schema
 from openpyxl import Workbook, load_workbook
+from shadow import ShadowError, write_shadow
 
 COLUMNS = (
     "#",
@@ -73,31 +89,36 @@ class ReceiptError(Exception):
     """The inputs are not a record and database this Script can read."""
 
 
-def inputs_of(inputs: Path) -> tuple[Path, str, Path | None]:
-    """The record's path and Artifact id, and the carried database's path."""
+def inputs_of(inputs: Path) -> tuple[Path, str, Path | None, Path | None]:
+    """The record's path and Artifact id, and the carried database's and
+    the lab's Receiving Log's paths."""
     manifest = json.loads((inputs / "manifest.json").read_text())
 
     def of_type(artifact_type: str) -> list[dict]:
         return [e for e in manifest if e["artifact_type"] == artifact_type]
 
-    records, databases = of_type("SubmissionRecord"), of_type("LimsDatabase")
+    def path(entry: dict) -> Path:
+        return inputs / entry["artifact_id"] / entry["filename"]
+
+    def optional(artifact_type: str) -> Path | None:
+        entries = of_type(artifact_type)
+        if len(entries) > 1:
+            raise ReceiptError(
+                f"expected at most one {artifact_type} input, got {len(entries)}"
+            )
+        return path(entries[0]) if entries else None
+
+    records = of_type("SubmissionRecord")
     if len(records) != 1:
         raise ReceiptError(
             f"expected exactly one SubmissionRecord input, got {len(records)}"
         )
-    if len(databases) > 1:
-        raise ReceiptError(
-            f"expected at most one LimsDatabase input, got {len(databases)}"
-        )
-
-    def path(entry: dict) -> Path:
-        return inputs / entry["artifact_id"] / entry["filename"]
-
     [record] = records
     return (
         path(record),
         record["artifact_id"],
-        path(databases[0]) if databases else None,
+        optional("LimsDatabase"),
+        optional("ReceivingLog"),
     )
 
 
@@ -220,7 +241,7 @@ def read_back(path: Path) -> dict:
 
 
 def log_receipt(inputs: Path, outputs: Path) -> list[str]:
-    record_path, source, carried = inputs_of(inputs)
+    record_path, source, carried, lab_log = inputs_of(inputs)
     record = json.loads(record_path.read_text())
     on, at, containers = received(record)
 
@@ -257,6 +278,19 @@ def log_receipt(inputs: Path, outputs: Path) -> list[str]:
         },
         "receipt.json": {"artifact_type": "Other", "media_type": "application/json"},
     }
+    if lab_log is not None:
+        held = write_shadow(
+            lab_log, outputs / "receiving_log_shadow.xlsx", record, on, at, refs
+        )
+        (outputs / "shadow.json").write_text(json.dumps(held, indent=2) + "\n")
+        manifest["receiving_log_shadow.xlsx"] = {
+            "artifact_type": "ShadowReceivingLog",
+            "media_type": XLSX,
+        }
+        manifest["shadow.json"] = {
+            "artifact_type": "Other",
+            "media_type": "application/json",
+        }
     (outputs / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return refs
 
@@ -269,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         refs = log_receipt(args.inputs, args.outputs)
-    except (ReceiptError, KeyError, sqlite3.Error) as error:
+    except (ReceiptError, ShadowError, KeyError, sqlite3.Error) as error:
         print(f"log_receipt refused its inputs: {error!r}", file=sys.stderr)
         return 1
     print(f"logged {len(refs)} containers: {', '.join(refs)}")

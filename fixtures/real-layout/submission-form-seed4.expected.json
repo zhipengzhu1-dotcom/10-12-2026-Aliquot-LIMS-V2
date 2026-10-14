@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "78 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "Tallowby Botanicals LLC",
+    "contact": "Idris Halloway",
+    "email": "",
+    "phone": ""
+  },
+  "date_submitted": "2026-09-25",
+  "receipt": {
+    "date_received": "2026-09-28",
+    "received_by": "IS",
+    "time_received": "13:17"
+  },
+  "report_to": {
+    "address": "748 Juniper Mill Drive",
+    "city": "Orrin Bay, NY 14999",
+    "company": "Tallowby Botanicals LLC",
+    "contact": "Senna Thorne-Ames",
+    "email": "senna.thorne-ames@tallowby.example",
+    "phone": "(201) 555-0138"
+  },
+  "sample": {
+    "lot": "LT-267759",
+    "no": "1",
+    "no_of_containers": "3",
+    "product_code": "TLB-5077",
+    "product_type": "60 ct HDPE bottle",
+    "sample_description": "Tallowby Zinc Picolinate 30 mg Capsules",
+    "sample_type": "FP",
+    "tat_class": "Rush1to2Days",
+    "tat_code": "2"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "748 Juniper Mill Drive",
+    "city": "Orrin Bay, NY 14999",
+    "company": "Tallowby Botanicals LLC",
+    "contact": "Calla Halloway",
+    "email": "calla.halloway@tallowby.example",
+    "phone": "(201) 555-0171"
+  }
+}

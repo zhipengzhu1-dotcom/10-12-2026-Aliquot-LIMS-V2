@@ -63,6 +63,11 @@ const ALLOWED: readonly Exemption[] = [
 		reason: "the stage 2 Script, which writes Receiving Log rows",
 	},
 	{
+		phrase: "receiving-log",
+		reason:
+			"the `shadow receiving-log` command, which names the lab's Receiving Log, and the filename of its read",
+	},
+	{
 		phrase: "render_roa",
 		in: "workflow/",
 		reason:

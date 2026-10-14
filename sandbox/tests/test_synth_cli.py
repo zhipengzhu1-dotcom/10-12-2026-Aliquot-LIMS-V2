@@ -71,3 +71,24 @@ def test_each_fixtures_weighings_file_is_what_its_seed_writes(tmp_path):
         committed = FIXTURES / f"submission-form-seed{seed}.weighings.json"
         written = tmp_path / str(seed) / "weighings.json"
         assert committed.read_bytes() == written.read_bytes(), committed.name
+
+
+def test_the_real_layout_fixture_is_what_seed_4_writes_into_the_blank(tmp_path):
+    real_layout = FIXTURES / "real-layout"
+    main(
+        [
+            "--seed",
+            "4",
+            "--out",
+            str(tmp_path),
+            "--real-layout",
+            str(real_layout / "submission-form.docx"),
+        ]
+    )
+    for written, committed in (
+        ("submission_form_real_layout.docx", "submission-form-seed4.docx"),
+        ("weighings.json", "submission-form-seed4.weighings.json"),
+    ):
+        assert (tmp_path / written).read_bytes() == (
+            real_layout / committed
+        ).read_bytes(), committed

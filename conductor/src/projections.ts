@@ -10,6 +10,7 @@ import {
 } from "./sandbox/artifacts.js";
 import { type RunProjection, runProjection } from "./sandbox/runs.js";
 import { type ScriptProjection, scriptProjection } from "./sandbox/scripts.js";
+import { ShadowProjection, type ShadowState } from "./shadow/projection.js";
 import { TaskProjection, type TaskView } from "./task/projection.js";
 import { ProposalProjection, type ProposalState } from "./tools/projection.js";
 import {
@@ -40,6 +41,7 @@ export type Projections = {
 	readonly training: TrainingState;
 	readonly proposals: ProposalState;
 	readonly chains: ChainState;
+	readonly shadow: ShadowState;
 };
 
 const PROJECTIONS: { [K in keyof Projections]: Projection<Projections[K]> } = {
@@ -56,6 +58,7 @@ const PROJECTIONS: { [K in keyof Projections]: Projection<Projections[K]> } = {
 	training: TrainingProjection,
 	proposals: ProposalProjection,
 	chains: ChainProjection,
+	shadow: ShadowProjection,
 };
 
 const KEYS = Object.keys(PROJECTIONS) as (keyof Projections)[];

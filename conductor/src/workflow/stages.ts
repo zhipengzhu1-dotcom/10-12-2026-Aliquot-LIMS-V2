@@ -36,6 +36,12 @@ export type Stage = {
 	 * `Other` is the weighings the Operator keeps beside the Fixture.
 	 */
 	readonly inputs: readonly ArtifactType[];
+	/**
+	 * Types taken as `inputs` are when the workflow run has one, and left out
+	 * when it has none. `ReceivingLog` is a fresh read of the lab's workbook,
+	 * which the run has when the home names one (ADR-0018).
+	 */
+	readonly optional_inputs?: readonly ArtifactType[];
 	/** Types taken from the latest Artifact of that type a Done Task's Run wrote, when there is one. */
 	readonly carried: readonly ArtifactType[];
 	readonly outputs: readonly ArtifactType[];
@@ -87,6 +93,7 @@ export const STAGES: readonly Stage[] = checkStages([
 		name: "Receipt",
 		script: "log_receipt",
 		inputs: ["SubmissionRecord"],
+		optional_inputs: ["ReceivingLog"],
 		carried: ["LimsDatabase"],
 		outputs: ["ReceivingLogRow", "LimsDatabase"],
 		worked_by: AgentId.parse("A-bram"),
