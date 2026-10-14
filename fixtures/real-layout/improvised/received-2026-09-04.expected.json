@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "653 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "RXD",
+    "contact": "Senna Brisk",
+    "email": "senna.brisk@rxd.example",
+    "phone": "(201) 555-0189"
+  },
+  "date_submitted": "2026-09-02",
+  "receipt": {
+    "date_received": "2026-09-04",
+    "received_by": "EX",
+    "time_received": "04:56"
+  },
+  "report_to": {
+    "address": "653 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "RXD",
+    "contact": "Senna Brisk",
+    "email": "senna.brisk@rxd.example",
+    "phone": "(201) 555-0189"
+  },
+  "sample": {
+    "lot": "O249289",
+    "no": "1",
+    "no_of_containers": "1",
+    "product_code": "5382",
+    "product_type": "Jycfvxy",
+    "sample_description": "Pmcxpcgkm Lpj Giucpljj Rgbw & Intt Nydlskj",
+    "sample_type": "FP",
+    "tat_class": "Rush3to4Days",
+    "tat_code": "3"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "653 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "RXD",
+    "contact": "Senna Brisk",
+    "email": "senna.brisk@rxd.example",
+    "phone": "(201) 555-0189"
+  }
+}

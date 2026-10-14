@@ -691,6 +691,8 @@ Shadow row  Lab row  Lab Reference  Status                Field  Shadow  Lab
 
 Nothing in the Conductor opens the lab's workbook for writing. `conductor/src/shadow/commands.test.ts` checks its sha256 before and after stage 2 and the Comparison, on a read-only copy. `sandbox/tests/test_script_compare_receiving_log.py` enters rows by hand in a copy of the scrubbed workbook (one matching, one with a changed Lot, one missing) and checks the report. A receipt said in chat writes no Shadow yet: the Chain's stage 2 takes no `ReceivingLog`.
 
+`fixtures/real-layout/improvised/` holds forms the generator fills from the scrubbed Receiving Log's own rows, so a Comparison has rows of the lab's to pair with (`fixtures/README.md` says how). `conductor/src/shadow/improvised.test.ts` runs stages 1 and 2 and `shadow compare` on each: a faithful form's rows pair with the lab's and differ only in TYPE, EXP DATE, QTY RECD and SENT BY, the mistyped one differs in LOT#, and the unlogged one is missing in the lab's.
+
 ## Intake
 
 The Operator drops work on the society by storing a Submission Form. `aliquot intake <file.docx>` stores the file as a `SubmissionForm` Artifact produced by the Operator, with no Lineage, and prints its id. Bytes the Ledger already holds append nothing, so a second intake of the same file prints `<id> is already stored; nothing appended`. The Director's prompt lists every Submission Form that no Task has been proposed for, and the Scheduler gives the Director a Turn while one is waiting. `aliquot serve` holds the writer lock, so run `intake` before `serve`.

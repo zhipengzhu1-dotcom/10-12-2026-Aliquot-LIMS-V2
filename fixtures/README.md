@@ -9,6 +9,7 @@ Every file here is synthetic or scrubbed. The synthetic generator in `sandbox/sy
 | `submission-form-seed1.docx` | `synth --seed 1` | `submission-form-seed1.expected.json`: the record `parse_submission` must write. Stage 2 passes with two containers, received Tuesday 2026-01-06. Stage 3 passes with Work Order `WO-2026-0001`, TAT class `Rush3to4Days`, due Monday 2026-01-12. Stage 4 passes on `submission-form-seed1.weighings.json` with averages 0.35443 g and 0.360515 g and a mean of 0.3574725 g. Stage 5 verifies that worksheet against the same weighings with the verdict `pass`. Stage 6 renders the Report of Analysis for `LR-2026-0001`, Lot `LT-268123`, Product Code `TLB-1475`, with the result 0.3575 g. |
 | `submission-form-seed2.docx` | `synth --seed 2` | `submission-form-seed2.expected.json`. Stage 2 passes with three containers of another Client and Lot, received Monday 2026-07-27. Stage 3 passes with Work Order `WO-2026-0002`, TAT class `Regular`, due Monday 2026-08-10. Stage 4 passes on `submission-form-seed2.weighings.json`, three containers. Stage 5 passes on the same weighings. Stage 6 renders the Report of Analysis for `LR-2026-0003`, Lot `LT-269173`, Product Code `CVN-3239`, with the result 0.5821 g. |
 | `real-layout/submission-form-seed4.docx` | `synth --seed 4 --real-layout real-layout/submission-form.docx` | `submission-form-seed4.expected.json`: the record `parse_submission` reads from the lab's real layout. The real form has no cell for the report-to company, street and city, so they are the submitter's, and none for the bill-to phone and email, so they are blank. Stage 2 passes with three containers of `60 ct HDPE bottle`, Lot `LT-267759`, Product Code `TLB-5077`, received Monday 2026-09-28. Stages 3 to 6 pass on `submission-form-seed4.weighings.json`, three containers with a mean average of 0.4484 g. In `run-all` its Lab References continue from seed 2's, `LR-2026-0006` to `0008`. |
+| `real-layout/improvised/*.docx` | `python -m synth.improvise` (see [Improvised forms](#improvised-forms)) | `<stem>.expected.json` and `<stem>.weighings.json` for each of seven forms filled from the scrubbed Receiving Log's rows. Five run all six stages; `received-2026-06-26-form-1` (RM) and `unlogged-sample` (IP) stop at stage 3, their known gap. |
 
 Every Fixture needs its weighings beside it, `<fixture stem>.weighings.json`, the `weighings.json` that `synth` writes for its seed. The workflow tracer stores that file as the Operator's `Other` Artifact before stage 4, gives the same Artifact to stage 5, and refuses stage 4 when the file is missing, naming the file.
 
@@ -54,6 +55,28 @@ Its expected JSON is the manifest's record as the real form carries it, which `s
 
 `sandbox/scripts/parse_submission/main.py` documents the schema. `sandbox/tests/test_script_parse_submission.py` runs the Script on each Fixture and compares its output with the expected JSON.
 
+## Improvised forms
+
+`real-layout/improvised/` holds Submission Forms in the lab's real layout, filled from the scrubbed Receiving Log's own rows, so that a Comparison (see the README's Parallel run) pairs the Shadow's rows with rows the lab entered. The generator reads only the scrubbed copies, and invents every value the log does not hold with one seed, so nothing in these forms is real. It rewrites the same bytes on every run:
+
+```sh
+uv run --directory sandbox python -m synth.improvise --log "$PWD/fixtures/real-layout/receiving-log.xlsx" --blank "$PWD/fixtures/real-layout/submission-form.docx" --out "$PWD/fixtures/real-layout/improvised"
+```
+
+`sandbox/synth/improvise.py` documents the rules. The rows received on one date from one Client make one submission. Each row is one Sample line, and a submission longer than the form's ten lines goes on to a second form. A line carries the row's product name, Lot and Product Code. Its TYPE is the row's when that is a Sample Type code (FP, IP, RM), and FP otherwise, because stage 3 plans Tests only for FP. `parse_submission` reads the first line only, and its containers are the form's lines with that line's Lot and Product Code. Contacts, addresses, TAT codes, Tests, limits and weighings are invented.
+
+| Form | What it is | Comparison against the scrubbed log |
+|---|---|---|
+| `received-2026-03-31-lot-mistyped` | Eight lines; the first, 4 containers; every Lot one character off | Every row pairs on its Product Code and differs in `LOT#` |
+| `received-2026-04-14` | Two lines, 2 containers, rush TAT, report-to is the submitter | Every row pairs |
+| `received-2026-05-05` | Nine lines, 6 containers, bill-to filled | Every row pairs |
+| `received-2026-06-26-form-1` | Ten lines, the first RM with 1 container; known gap at stage 3 | Every row pairs; the other Lot of the same Product Code is missing in the Shadow |
+| `received-2026-06-26-form-2` | The last five lines of that day, 3 containers | Every row pairs; the day's other rows of that Product Code are missing in the Shadow |
+| `received-2026-09-04` | One line, 1 container | The row pairs |
+| `unlogged-sample` | An IP Sample on a date, Lot and Product Code the log lacks; known gap at stage 3 | Missing in the lab's |
+
+No row is `matched`: on every paired row the Shadow leaves EXP DATE blank where the lab writes `TBD`, writes QTY RECD `1` where the lab writes a count and a unit, writes the contact's name in SENT BY where the lab writes initials, and, except on RM rows, writes FP in TYPE where the lab writes a stability condition. `sandbox/tests/test_synth_improvise.py` checks that the committed forms are what the generator writes and that the set covers FP, RM and IP, one container and several, regular and rush TAT, a report-to contact other than the submitter, and a filled and a blank bill-to block. `conductor/src/shadow/improvised.test.ts` runs the Comparison on each.
+
 ## Scrubbed copies of the templates
 
 `real-layout/` holds the lab's five templates in their own layout, with every value replaced. The sheets, cell positions, merged cells, column widths, styles, formulas, and the Submission Form's tables are the templates'. The values are not.
@@ -72,7 +95,7 @@ The scrub keeps a text only when it is on an allowlist: a label the blank form p
 
 A Fixture that the workflow cannot finish yet carries `<fixture stem>.known-gap.json` beside it, with the stage that stops it, the issue that will close the gap, and why. `run-all` counts the Fixture as a known gap, not a failure, only when the run stops at exactly that stage. A run that stops at another stage fails. A run that finishes also fails and names the file to delete, so a closed gap cannot stay listed.
 
-No Fixture carries a known gap today. Since #76, stage 1 reads the real Submission Form and stage 2 writes the Shadow in the real Receiving Log's sheets and columns. Seed 4 passes stages 3 to 6 because they run on the toy Work Order, worksheet and report, not on the real layouts. These stages cannot read or write the real layout yet:
+Two Fixtures carry a known gap today, both at stage 3 (#82): `real-layout/improvised/received-2026-06-26-form-1` reads an RM Sample and `real-layout/improvised/unlogged-sample` an IP one, and stage 3 plans Tests only for FP. Since #76, stage 1 reads the real Submission Form and stage 2 writes the Shadow in the real Receiving Log's sheets and columns. Seed 4 passes stages 3 to 6 because they run on the toy Work Order, worksheet and report, not on the real layouts. These stages cannot read or write the real layout yet:
 
 | Stage | What it cannot read | Issue |
 |---|---|---|

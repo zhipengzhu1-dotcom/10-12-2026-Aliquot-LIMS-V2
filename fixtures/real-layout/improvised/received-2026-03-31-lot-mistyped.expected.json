@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "698 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "RXD",
+    "contact": "Idris Vantongeren",
+    "email": "idris.vantongeren@rxd.example",
+    "phone": "(201) 555-0150"
+  },
+  "date_submitted": "2026-03-28",
+  "receipt": {
+    "date_received": "2026-03-31",
+    "received_by": "EX",
+    "time_received": "06:28"
+  },
+  "report_to": {
+    "address": "698 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "RXD",
+    "contact": "Calla Lindgard",
+    "email": "calla.lindgard@rxd.example",
+    "phone": "(201) 555-0149"
+  },
+  "sample": {
+    "lot": "P147464",
+    "no": "1",
+    "no_of_containers": "4",
+    "product_code": "0868W",
+    "product_type": "Jcdmg",
+    "sample_description": "Ppnhfbdvbtfoexk 90mg Qfqkpwb",
+    "sample_type": "FP",
+    "tat_class": "Regular",
+    "tat_code": "1"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "698 Larkspur Way",
+    "city": "Orrin Bay, NY 14999",
+    "company": "RXD",
+    "contact": "Idris Vantongeren",
+    "email": "idris.vantongeren@rxd.example",
+    "phone": "(201) 555-0150"
+  }
+}

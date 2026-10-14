@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "689 Tamsin Lane",
+    "city": "Ashcombe Ridge, NJ 08999",
+    "company": "RXD",
+    "contact": "Maren Vantongeren",
+    "email": "",
+    "phone": ""
+  },
+  "date_submitted": "2026-05-04",
+  "receipt": {
+    "date_received": "2026-05-05",
+    "received_by": "EX",
+    "time_received": "23:21"
+  },
+  "report_to": {
+    "address": "768 Tamsin Lane",
+    "city": "Ashcombe Ridge, NJ 08999",
+    "company": "RXD",
+    "contact": "Calla Lindgard",
+    "email": "calla.lindgard@rxd.example",
+    "phone": "(201) 555-0130"
+  },
+  "sample": {
+    "lot": "X857170",
+    "no": "1",
+    "no_of_containers": "6",
+    "product_code": "2251V",
+    "product_type": "Jcdmg",
+    "sample_description": "YCR 34mg Uhwablmw",
+    "sample_type": "FP",
+    "tat_class": "Rush3to4Days",
+    "tat_code": "3"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "768 Tamsin Lane",
+    "city": "Ashcombe Ridge, NJ 08999",
+    "company": "RXD",
+    "contact": "Calla Thorne-Ames",
+    "email": "calla.thorne-ames@rxd.example",
+    "phone": "(201) 555-0184"
+  }
+}

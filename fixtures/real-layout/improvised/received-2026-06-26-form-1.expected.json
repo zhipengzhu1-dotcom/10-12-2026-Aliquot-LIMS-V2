@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "770 Juniper Mill Drive",
+    "city": "Velmora Heights, NJ 07998",
+    "company": "RXD",
+    "contact": "Maren Quell",
+    "email": "",
+    "phone": ""
+  },
+  "date_submitted": "2026-06-23",
+  "receipt": {
+    "date_received": "2026-06-26",
+    "received_by": "EX",
+    "time_received": "12:01"
+  },
+  "report_to": {
+    "address": "847 Quarry Hill Road",
+    "city": "Velmora Heights, NJ 07998",
+    "company": "RXD",
+    "contact": "Maren Vantongeren",
+    "email": "maren.vantongeren@rxd.example",
+    "phone": "(201) 555-0122"
+  },
+  "sample": {
+    "lot": "77243846",
+    "no": "1",
+    "no_of_containers": "1",
+    "product_code": "D11981",
+    "product_type": "Sjtgdw",
+    "sample_description": "Bnwwjqrowmpcivy TYx IE",
+    "sample_type": "RM",
+    "tat_class": "Regular",
+    "tat_code": "1"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "847 Quarry Hill Road",
+    "city": "Velmora Heights, NJ 07998",
+    "company": "RXD",
+    "contact": "Maren Vantongeren",
+    "email": "maren.vantongeren@rxd.example",
+    "phone": "(201) 555-0122"
+  }
+}
