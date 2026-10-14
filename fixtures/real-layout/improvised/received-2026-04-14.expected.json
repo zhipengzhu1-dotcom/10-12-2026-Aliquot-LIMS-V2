@@ -1,0 +1,44 @@
+{
+  "bill_to": {
+    "address": "675 Juniper Mill Drive",
+    "city": "Westhallow, CT 06999",
+    "company": "RXD",
+    "contact": "Delphine Brisk",
+    "email": "delphine.brisk@rxd.example",
+    "phone": "(201) 555-0141"
+  },
+  "date_submitted": "2026-04-11",
+  "receipt": {
+    "date_received": "2026-04-14",
+    "received_by": "EX",
+    "time_received": "07:44"
+  },
+  "report_to": {
+    "address": "675 Juniper Mill Drive",
+    "city": "Westhallow, CT 06999",
+    "company": "RXD",
+    "contact": "Delphine Brisk",
+    "email": "delphine.brisk@rxd.example",
+    "phone": "(201) 555-0141"
+  },
+  "sample": {
+    "lot": "X678314",
+    "no": "1",
+    "no_of_containers": "2",
+    "product_code": "8054G",
+    "product_type": "Xsmmejc",
+    "sample_description": "OND 56mg Naztbvaf",
+    "sample_type": "FP",
+    "tat_class": "Rush1to2Days",
+    "tat_code": "2"
+  },
+  "schema": "submission/1",
+  "submitted_by": {
+    "address": "675 Juniper Mill Drive",
+    "city": "Westhallow, CT 06999",
+    "company": "RXD",
+    "contact": "Delphine Brisk",
+    "email": "delphine.brisk@rxd.example",
+    "phone": "(201) 555-0141"
+  }
+}
