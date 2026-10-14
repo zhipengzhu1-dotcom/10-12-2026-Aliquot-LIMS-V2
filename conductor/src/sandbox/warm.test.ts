@@ -34,14 +34,6 @@ const suite = dockerAvailable
  */
 const WARM_RUN_MS = process.env.CI ? 250 : 100;
 
-/**
- * vitest runs the other Docker suites beside this one, and their containers
- * take the CPU a Run needs. Ten Runs in a row under the bound show the warm
- * path; a few tries of ten keep a busy moment from failing it. A warm path
- * that fell back to a container per Run, about 250 ms, fails every try.
- */
-const BATCHES = 5;
-
 const odile = { tag: "Agent", id: AgentId.parse("A-odile") } as const;
 const operator = { tag: "Operator" } as const;
 
@@ -178,28 +170,20 @@ describe.skipIf(!requireDocker())(suite, () => {
 		expect(cold.exit_code, "the cold Run succeeds").toBe(0);
 
 		await run("parse_message", [message.id]);
-		const batches: number[][] = [];
-		for (let batch = 0; batch < BATCHES; batch++) {
-			const times: number[] = [];
-			for (let i = 0; i < 10; i++) {
-				const started = performance.now();
-				const warmRun = await run("parse_message", [message.id]);
-				times.push(Math.round(performance.now() - started));
-				expect(
-					record(warmRun),
-					"a warm Run records what a cold Run does",
-				).toEqual(record(cold));
-			}
-			batches.push(times);
-			console.log(
-				`parse_message: cold Run ${cold.duration_ms} ms; ten warm Runs, end to end: ${times.join(", ")} ms`,
-			);
-			if (Math.max(...times) < WARM_RUN_MS) break;
+		const times: number[] = [];
+		for (let i = 0; i < 10; i++) {
+			const started = performance.now();
+			const warmRun = await run("parse_message", [message.id]);
+			times.push(Math.round(performance.now() - started));
+			expect(
+				record(warmRun),
+				"a warm Run records what a cold Run does",
+			).toEqual(record(cold));
 		}
-		expect(
-			batches.some((times) => Math.max(...times) < WARM_RUN_MS),
-			`ten consecutive warm Runs each under ${WARM_RUN_MS} ms`,
-		).toBe(true);
+		console.log(
+			`parse_message: cold Run ${cold.duration_ms} ms; ten warm Runs, end to end: ${times.join(", ")} ms`,
+		);
+		for (const ms of times) expect(ms).toBeLessThan(WARM_RUN_MS);
 	}, 120_000);
 
 	it("gives a warm Run no network", async () => {
