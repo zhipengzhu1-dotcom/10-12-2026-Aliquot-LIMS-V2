@@ -11,7 +11,7 @@ Aliquot LIMS is the automation engine behind the LIMS of a regulated pharmaceuti
 
 - `conductor/` is the Conductor, a TypeScript package (pnpm, Node 24). The `aliquot` command line starts at `conductor/src/cli.ts`. The interface that `aliquot serve` serves is in `conductor/ui/`.
 - `sandbox/` holds the Sandbox Scripts and their tests, a Python project managed by uv (Python 3.13 or later).
-- `fixtures/` holds the Fixture Artifacts committed to git. Every Fixture is synthetic.
+- `fixtures/` holds the Fixture Artifacts committed to git. Every Fixture is synthetic, except those in `fixtures/real-layout/`, which are scrubbed copies of the templates with every value replaced.
 - `Templates/` is ignored by git and stays out of the repository (ADR-0009).
 
 ## Development
@@ -69,7 +69,18 @@ uv run --directory sandbox synth --seed 42 --out /tmp/synth-42
 
 The output directory gets `submission_form.docx`, `receiving_log.xlsx`, `result_worksheet.xlsx`, `report_of_analysis.xlsx`, `manifest.json`, which holds the invented record so tests can check the documents without parsing them, and `weighings.json`, the record's weighings as stage 4 takes them (one `{container, weight_of_20_g, weight_taken_g}` per container). `uv run --directory sandbox` runs in `sandbox/`, so a relative `--out` path lands under `sandbox/`. Every name, address, code, and Lot number is invented.
 
-To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms with `gh secret set ALIQUOT_FORBIDDEN_TERMS`, which prompts for the value. When `CI` is set and the variable is unset, the test fails with `set the ALIQUOT_FORBIDDEN_TERMS repository secret (ADR-0009)` instead of skipping, so CI cannot go green without the check.
+To check the output and the Sandbox source for real lab terms, set `ALIQUOT_FORBIDDEN_TERMS` to a comma-separated list before you run pytest. Without the variable, that test is skipped with a notice. The list must never be committed (ADR-0009). In CI, the pytest step reads it from the repository secret `ALIQUOT_FORBIDDEN_TERMS`: the Operator sets that secret to the comma-separated list of the real terms with `gh secret set ALIQUOT_FORBIDDEN_TERMS`, which prompts for the value. When `CI` is set and the variable is unset, the test fails with `set the ALIQUOT_FORBIDDEN_TERMS repository secret (ADR-0009)` instead of skipping, so CI cannot go green without the check. The same check scans every file under `fixtures/`.
+
+### Scrubbed copies of the templates
+
+`anonymize` reads the lab's five templates from the folder you name and writes scrubbed copies in their layout. It replaces every value that is not on its allowlist of labels and units with a synthetic value of the same shape, and it prints counts only. Run it on the lab's machine:
+
+```sh
+uv run --directory sandbox anonymize "$PWD/Templates" --out "$PWD/fixtures/real-layout"
+ALIQUOT_TEMPLATES="$PWD/Templates" uv run --directory sandbox pytest tests/test_anonymize_templates.py
+```
+
+The second command proves that no template value survives in any Fixture and that the copies keep the templates' layout. Without `ALIQUOT_TEMPLATES`, as in CI, those tests are skipped with the reason. [fixtures/README.md](fixtures/README.md#scrubbed-copies-of-the-templates) says what the scrub keeps and which stages cannot read the real layout yet.
 
 ### Data directory
 
@@ -468,7 +479,7 @@ A stage carries the latest Artifact of a carried type that a Run of a `Done` Tas
 ```sh
 pnpm -C conductor cli --home /tmp/aliquot workflow stages
 pnpm -C conductor cli --home /tmp/aliquot workflow run fixtures/submission-form-seed1.docx
-pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.docx; exits 1 if any Task fails
+pnpm -C conductor cli --home /tmp/aliquot workflow run-all fixtures   # every *.docx under it; exits 1 if a Fixture fails other than at its known gap
 ```
 
 ```text
@@ -640,7 +651,7 @@ AppendRefused: TaskAssigned refused: A-rin was assigned T-4, whose Run wrote the
 
 A second `workflow run` on another Fixture carries the version stage 6 wrote. Stage 2's next version names its own record and that version in its Lineage, its Lab References continue the numbering, and its Work Order is `WO-<year>-0002`.
 
-CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Evaluation fails. `run-all` takes the Fixtures in name order on one home, so each Fixture's stage 2 carries the last database version that the Fixture before it wrote in a `Done` Task. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
+CI runs `workflow run-all` on `fixtures/` after the conductor tests, so the job fails when any Fixture fails, other than at its known gap. `run-all` takes the Fixtures in name order on one home, a folder's own before its subfolders', so each Fixture's stage 2 carries the last database version that the Fixture before it wrote in a `Done` Task. A Fixture with `<stem>.known-gap.json` beside it may stop at the stage that file names, and only there: `run-all` prints the gap and its issue and does not count it as a failure. `run-all` lists every workbook under the folder as skipped, since no stage starts from one. To add a Fixture, see [fixtures/README.md](fixtures/README.md).
 
 ## Intake
 
