@@ -20,39 +20,139 @@ import type { Actor } from "../types/actor.js";
 import { ArtifactFilename, ArtifactType } from "../types/artifact.js";
 import type { Run, ScriptRef } from "../types/script.js";
 import { type ArtifactMeta, openArtifacts } from "./artifacts.js";
+import {
+	runDirs,
+	SANDBOX_FLAGS,
+	type Sandbox,
+	scriptCommand,
+	TIME_LIMIT_EXIT_CODE,
+} from "./container.js";
 import { imageId } from "./image.js";
 import { finishRun, startRun } from "./lifecycle.js";
 import { findScript, scriptDir } from "./scripts.js";
 
-// The Conductor never loads Script code. A Run is one `docker run` child
-// process; the Script's directory only ever reaches the container as a
-// read-only bind mount.
+// The Conductor never loads Script code. A Run happens in a Sandbox
+// container; the Script's directory only ever reaches it read-only.
 
-/** The container's limits (ADR-0003). */
-const SANDBOX_FLAGS = [
-	"--rm",
-	"--network",
-	"none",
-	"--cap-drop",
-	"ALL",
-	"--cpus",
-	"1",
-	"--memory",
-	"512m",
-	"--pids-limit",
-	"256",
-	"--read-only",
-	"--tmpfs",
-	"/tmp",
-] as const;
+/** Spawn `docker run`, and `docker kill` the container when time runs out. */
+const runContainer = async (
+	args: readonly string[],
+	name: string,
+	timeoutMs: number,
+) => {
+	const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
+	const stdout: Buffer[] = [];
+	const stderr: Buffer[] = [];
+	child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+	child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+
+	let timedOut = false;
+	let exited = false;
+	const kill = async () => {
+		timedOut = true;
+		// The container may still be starting; retry until it is gone.
+		for (let attempt = 0; attempt < 40 && !exited; attempt++) {
+			const killed = await new Promise<boolean>((resolve) =>
+				spawn("docker", ["kill", name], { stdio: "ignore" })
+					.on("error", () => resolve(false))
+					.on("close", (code) => resolve(code === 0)),
+			);
+			if (killed) return;
+			await sleep(250);
+		}
+		if (!exited) child.kill("SIGKILL");
+	};
+	const timer = setTimeout(kill, timeoutMs);
+
+	const code = await new Promise<number>((resolve) => {
+		child.on("error", (error) => {
+			stderr.push(
+				Buffer.from(`[aliquot] could not start docker: ${error.message}\n`),
+			);
+			resolve(127);
+		});
+		child.on("close", (status, signal) => {
+			resolve(status ?? 128 + (signal ? constants.signals[signal] : 0));
+		});
+	});
+	exited = true;
+	clearTimeout(timer);
+	return {
+		code: timedOut ? TIME_LIMIT_EXIT_CODE : code,
+		timedOut,
+		stdout: Buffer.concat(stdout),
+		stderr: Buffer.concat(stderr),
+	};
+};
 
 /**
- * Exit code of a Run the runner kills at its time limit: 124, the timeout
- * convention of coreutils `timeout`. Docker reports 137 (128 + SIGKILL) for
- * any killed container, so 137 keeps meaning an OOM kill or a kill from
- * outside the runner.
+ * The command line's Sandbox: every Run is a `docker run` of its own, in a
+ * fresh temporary directory, with the Script's directory mounted read-only.
  */
-export const TIME_LIMIT_EXIT_CODE = 124;
+const coldSandbox: Sandbox = {
+	workspace: async (image, scriptDir) => {
+		if (!imageId(image)) return undefined;
+		const work = mkdtempSync(join(tmpdir(), "aliquot-run-"));
+		const dirs = runDirs(work);
+		return {
+			...dirs,
+			execute: async ({ run_id, entrypoint, timeoutMs }) => {
+				const name = `aliquot-${run_id}-${randomUUID().slice(0, 8)}`;
+				const exit = await runContainer(
+					[
+						"run",
+						"--rm",
+						"--name",
+						name,
+						...SANDBOX_FLAGS,
+						"-v",
+						`${scriptDir}:/script:ro`,
+						"-v",
+						`${dirs.inputs}:/inputs:ro`,
+						"-v",
+						`${dirs.outputs}:/outputs`,
+						image,
+						...scriptCommand(entrypoint),
+					],
+					name,
+					timeoutMs,
+				);
+				return {
+					code: exit.code,
+					stdout: exit.stdout,
+					stderr: exit.stderr,
+					notes: exit.timedOut
+						? [
+								`${run_id} killed after the ${timeoutMs} ms time limit (docker kill ${name}); exit code ${TIME_LIMIT_EXIT_CODE}, the time-limit code`,
+							]
+						: [],
+				};
+			},
+			release: async () => {
+				// Best effort: on Linux a Script's subdirectories belong to uid 10001.
+				try {
+					rmSync(work, { recursive: true, force: true });
+				} catch {}
+			},
+		};
+	},
+};
+
+let sandbox: Sandbox = coldSandbox;
+
+/**
+ * Run every Script in `next` from now on, until the returned function puts
+ * the previous Sandbox back. The command line keeps the cold Sandbox, a
+ * container per Run; `aliquot serve` puts its warm Sandbox here, so every
+ * Run the serve starts, by any path, is a warm Run.
+ */
+export const useSandbox = (next: Sandbox): (() => void) => {
+	const previous = sandbox;
+	sandbox = next;
+	return () => {
+		sandbox = previous;
+	};
+};
 
 export type RunScriptOptions = {
 	ledger: Ledger;
@@ -104,59 +204,6 @@ export const guessMediaType = (filename: string): string =>
 
 const unique = <T>(items: readonly T[]): T[] => [...new Set(items)];
 
-type Exit = { code: number; timedOut: boolean; stdout: Buffer; stderr: Buffer };
-
-/** Spawn `docker run`, and `docker kill` the container when time runs out. */
-const runContainer = async (
-	args: readonly string[],
-	name: string,
-	timeoutMs: number,
-): Promise<Exit> => {
-	const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
-	const stdout: Buffer[] = [];
-	const stderr: Buffer[] = [];
-	child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-	child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-
-	let timedOut = false;
-	let exited = false;
-	const kill = async () => {
-		timedOut = true;
-		// The container may still be starting; retry until it is gone.
-		for (let attempt = 0; attempt < 40 && !exited; attempt++) {
-			const killed = await new Promise<boolean>((resolve) =>
-				spawn("docker", ["kill", name], { stdio: "ignore" })
-					.on("error", () => resolve(false))
-					.on("close", (code) => resolve(code === 0)),
-			);
-			if (killed) return;
-			await sleep(250);
-		}
-		if (!exited) child.kill("SIGKILL");
-	};
-	const timer = setTimeout(kill, timeoutMs);
-
-	const code = await new Promise<number>((resolve) => {
-		child.on("error", (error) => {
-			stderr.push(
-				Buffer.from(`[aliquot] could not start docker: ${error.message}\n`),
-			);
-			resolve(127);
-		});
-		child.on("close", (status, signal) => {
-			resolve(status ?? 128 + (signal ? constants.signals[signal] : 0));
-		});
-	});
-	exited = true;
-	clearTimeout(timer);
-	return {
-		code: timedOut ? TIME_LIMIT_EXIT_CODE : code,
-		timedOut,
-		stdout: Buffer.concat(stdout),
-		stderr: Buffer.concat(stderr),
-	};
-};
-
 /** Every regular file under `dir`, as sorted relative POSIX paths. */
 const listFiles = (dir: string, skipped: string[]): string[] =>
 	readdirSync(dir, { recursive: true, withFileTypes: true })
@@ -197,21 +244,16 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 	});
 	const ref: ScriptRef = { id: script.id, version: script.version };
 	const image = `sha256:${script.image_digest}`;
-	if (!imageId(image)) {
+	const workspace = await sandbox.workspace(image, scriptDir(home, script));
+	if (!workspace) {
 		throw new Error(
 			`${script.id} v${script.version} needs image ${image}, which Docker does not have; rebuild it or revise the Script`,
 		);
 	}
 
 	const artifacts = openArtifacts({ ledger, home });
-	const work = mkdtempSync(join(tmpdir(), "aliquot-run-"));
 	try {
-		const inputsDir = join(work, "inputs");
-		const outputsDir = join(work, "outputs");
-		mkdirSync(inputsDir, { mode: 0o755 });
-		mkdirSync(outputsDir);
-		// The container runs as uid 10001; it must be able to write here.
-		chmodSync(outputsDir, 0o777);
+		const { inputs: inputsDir, outputs: outputsDir } = workspace;
 		const manifest: InputManifestEntry[] = staged.map((artifact) => {
 			const filename = artifact.filename ?? artifact.id;
 			const target = join(inputsDir, artifact.id, filename);
@@ -241,39 +283,15 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 			inputs,
 		});
 
-		const name = `aliquot-${runId}-${randomUUID().slice(0, 8)}`;
 		const startedAt = performance.now();
-		const exit = await runContainer(
-			[
-				"run",
-				"--name",
-				name,
-				...SANDBOX_FLAGS,
-				"-v",
-				`${scriptDir(home, script)}:/script:ro`,
-				"-v",
-				`${inputsDir}:/inputs:ro`,
-				"-v",
-				`${outputsDir}:/outputs`,
-				image,
-				"python",
-				`/script/${script.entrypoint}`,
-				"--inputs",
-				"/inputs",
-				"--outputs",
-				"/outputs",
-			],
-			name,
-			options.timeoutMs,
-		);
+		const exit = await workspace.execute({
+			run_id: runId,
+			entrypoint: script.entrypoint,
+			timeoutMs: options.timeoutMs,
+		});
 		const duration_ms = Math.round(performance.now() - startedAt);
 
-		const notes: string[] = [];
-		if (exit.timedOut) {
-			notes.push(
-				`${runId} killed after the ${options.timeoutMs} ms time limit (docker kill ${name}); exit code ${TIME_LIMIT_EXIT_CODE}, the time-limit code`,
-			);
-		}
+		const notes = [...exit.notes];
 		const files = listFiles(outputsDir, notes);
 		let declared: z.infer<typeof OutputManifest> = {};
 		if (files.includes("manifest.json")) {
@@ -348,9 +366,6 @@ export const runScript = async (options: RunScriptOptions): Promise<Run> => {
 		};
 		return finishRun(ledger, { actor, run }).run;
 	} finally {
-		// Best effort: on Linux a Script's subdirectories belong to uid 10001.
-		try {
-			rmSync(work, { recursive: true, force: true });
-		} catch {}
+		await workspace.release();
 	}
 };
