@@ -193,7 +193,7 @@ One execution of one Script version on specific input Artifacts.
 _Avoid_: execution, job, invocation
 
 **Fixture**:
-An Artifact with a known expected outcome that every new Script version must handle before it replaces the previous version.
+An Artifact with a known expected outcome that every new Script version must handle before it replaces the previous version. A Fixture the workflow cannot finish yet carries a known gap: the stage that stops it and the issue that will close it.
 _Avoid_: test data, sample (Sample is a lab term)
 
 **Evaluation**:

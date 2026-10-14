@@ -722,4 +722,53 @@ describe.skipIf(!requireDocker())(suite, () => {
 			),
 		).toHaveLength(6);
 	}, 600_000);
+
+	it("run-all walks subdirectories, holds a known gap only at its own stage, and lists the workbooks it skips", () => {
+		const dir = join(scratch, "fixtures");
+		const nested = join(dir, "real-layout");
+		mkdirSync(nested, { recursive: true });
+		const gap = (stem: string, stage: number) =>
+			writeFileSync(
+				join(dir, `${stem}.known-gap.json`),
+				JSON.stringify({ stage, issue: 9, reason: "a gap for the test" }),
+			);
+		copyFileSync(fixture, join(dir, "a-closed-gap.docx"));
+		copyFileSync(weighings, join(dir, "a-closed-gap.weighings.json"));
+		gap("a-closed-gap", 3);
+		writeFileSync(join(dir, "b-gap.docx"), "not a zip archive\n");
+		gap("b-gap", 1);
+		writeFileSync(join(dir, "c-other-stage.docx"), "not a zip archive\n");
+		gap("c-other-stage", 2);
+		writeFileSync(join(nested, "d-no-gap.docx"), "not a zip archive\n");
+		writeFileSync(join(nested, "log.xlsx"), "a workbook\n");
+
+		const result = aliquot("workflow", "run-all", dir);
+
+		expect(result.status, result.stderr).toBe(1);
+		const order = [
+			"real-layout/log.xlsx",
+			"a-closed-gap.docx",
+			"b-gap.docx",
+			"c-other-stage.docx",
+			"real-layout/d-no-gap.docx",
+		].map((name) => result.stdout.indexOf(`${name}\n`));
+		expect(order.every((at) => at >= 0)).toBe(true);
+		expect([...order].sort((x, y) => x - y)).toEqual(order);
+		expect(result.stdout).toContain(
+			"  skipped   no stage starts from a workbook",
+		);
+		expect(result.stdout).toContain(
+			`  failed    the known gap at stage 3 (#9) is closed: delete ${join(dir, "a-closed-gap.known-gap.json")}\n`,
+		);
+		expect(result.stdout).toContain(
+			"  known gap stage 1, #9: a gap for the test\n",
+		);
+		expect(result.stdout).toContain(
+			"  failed    stopped at stage 1, not at the known gap's stage 2 (#9)\n",
+		);
+		expect(result.stdout).toMatch(
+			/^4 Fixtures: 0 Done, 1 known gap, 3 Failed; 1 workbook skipped\n$/m,
+		);
+		expect(readLedger().verify.ok).toBe(true);
+	}, 600_000);
 });

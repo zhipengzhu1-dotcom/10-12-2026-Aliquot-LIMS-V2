@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 SANDBOX = Path(__file__).resolve().parents[1]
+FIXTURES = SANDBOX.parent / "fixtures"
 SKIP_DIRS = {".venv", "__pycache__", ".pytest_cache", ".ruff_cache"}
 
 
@@ -58,6 +59,31 @@ def test_generated_documents_carry_no_forbidden_term(generated):
 
 def test_sandbox_source_carries_no_forbidden_term():
     assert hits(source_texts(), forbidden_terms()) == []
+
+
+def fixture_texts():
+    """Every committed Fixture, each Office part as UTF-8 and as UTF-16.
+
+    A thumbnail holds its text as UTF-16."""
+    for path in sorted(FIXTURES.rglob("*")):
+        if not path.is_file():
+            continue
+        yield f"{path.relative_to(FIXTURES)} (name)", path.name
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                for name in z.namelist():
+                    data = z.read(name)
+                    yield (
+                        f"{path.name}:{name}",
+                        html.unescape(data.decode("utf-8", "replace")),
+                    )
+                    yield f"{path.name}:{name}", data.decode("utf-16-le", "replace")
+        else:
+            yield path.name, path.read_text(encoding="utf-8")
+
+
+def test_committed_fixtures_carry_no_forbidden_term():
+    assert hits(fixture_texts(), forbidden_terms()) == []
 
 
 def test_the_generator_never_references_the_confidential_folder():
