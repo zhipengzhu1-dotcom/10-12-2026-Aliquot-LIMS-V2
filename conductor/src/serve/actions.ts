@@ -9,50 +9,48 @@ import { pause, resume, revise } from "../org/lifecycle.js";
 import { open, say } from "../room/lifecycle.js";
 import { assign, handOff, review } from "../task/lifecycle.js";
 import { giveCoaching } from "../training/lifecycle.js";
-import type { Actor } from "../types/actor.js";
+import type { Person } from "../types/actor.js";
 import { AgentDefinition } from "../types/agent-definition.js";
 import { Review } from "../types/merit.js";
 import { Room } from "../types/room.js";
 import { orderRest } from "../vitality/lifecycle.js";
 
-const OPERATOR: Actor = { tag: "Operator" };
-
 const Reason = z.string().regex(/\S/, "must not be empty");
 
 type Action<B extends z.ZodType> = {
 	readonly body: B;
-	/** Run the lifecycle verb as the Operator and return the seq of its Event. */
-	readonly run: (ledger: Ledger, body: z.infer<B>) => Seq;
+	/** Run the lifecycle verb as `by`, the person acting as the Operator, and return the seq of its Event. */
+	readonly run: (ledger: Ledger, body: z.infer<B>, by: Person) => Seq;
 };
 
 const action = <B extends z.ZodType>(
 	body: B,
-	run: (ledger: Ledger, body: z.infer<B>) => Seq,
+	run: (ledger: Ledger, body: z.infer<B>, by: Person) => Seq,
 ): Action<B> => ({ body, run });
 
 /**
  * The Operator's actions, by the verb in `/api/actions/<verb>`. Each
- * runs the lifecycle verb its command runs, always as the Operator: the body
- * takes no `--as`, and a Room the Operator opens is opened by the Operator.
+ * runs the lifecycle verb its command runs, always as the Operator, named by
+ * the person the request came from: the body takes no `--as`, and a Room the
+ * Operator opens is opened by that person.
  */
 export const ACTIONS = {
 	pause: action(
 		z.strictObject({ agent_id: AgentId, reason: Reason }),
-		(ledger, body) => pause(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => pause(ledger, { actor: by, ...body }).seq,
 	),
 	resume: action(
 		z.strictObject({ agent_id: AgentId }),
-		(ledger, body) => resume(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => resume(ledger, { actor: by, ...body }).seq,
 	),
 	revise: action(
 		z.strictObject({ definition: AgentDefinition }),
-		(ledger, body) => revise(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => revise(ledger, { actor: by, ...body }).seq,
 	),
 	"retire-request": action(
 		z.strictObject({ agent_id: AgentId, reason: Reason }),
-		(ledger, payload) =>
-			requestGate(ledger, { actor: OPERATOR, kind: "RetireAgent", payload })
-				.seq,
+		(ledger, payload, by) =>
+			requestGate(ledger, { actor: by, kind: "RetireAgent", payload }).seq,
 	),
 	"gate-decide": action(
 		z.strictObject({
@@ -61,8 +59,9 @@ export const ACTIONS = {
 			hash: Sha256,
 			reason: Reason,
 		}),
-		(ledger, { gate_id, decision, hash, reason }) =>
+		(ledger, { gate_id, decision, hash, reason }, by) =>
 			decideGate(ledger, {
+				actor: by,
 				gate_id,
 				meaning: decision,
 				payload_hash: hash,
@@ -71,15 +70,15 @@ export const ACTIONS = {
 	),
 	"task-assign": action(
 		z.strictObject({ task_id: TaskId, assignee: AgentId }),
-		(ledger, body) => assign(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => assign(ledger, { actor: by, ...body }).seq,
 	),
 	"task-handoff": action(
 		z.strictObject({ task_id: TaskId, to: AgentId, reason: Reason }),
-		(ledger, body) => handOff(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => handOff(ledger, { actor: by, ...body }).seq,
 	),
 	"task-review": action(
 		Review.omit({ reviewer: true }),
-		(ledger, body) => review(ledger, { ...body, reviewer: OPERATOR }).seq,
+		(ledger, body, by) => review(ledger, { ...body, reviewer: by }).seq,
 	),
 	"room-say": action(
 		z.strictObject({
@@ -87,11 +86,11 @@ export const ACTIONS = {
 			body: z.string().min(1),
 			reply_to: Seq.optional(),
 		}),
-		(ledger, body) => say(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => say(ledger, { actor: by, ...body }).seq,
 	),
 	"room-open": action(
 		Room.omit({ opened_by: true }),
-		(ledger, room) => open(ledger, { ...room, opened_by: OPERATOR }).seq,
+		(ledger, room, by) => open(ledger, { ...room, opened_by: by }).seq,
 	),
 	"rest-order": action(
 		z.strictObject({
@@ -99,7 +98,7 @@ export const ACTIONS = {
 			action: z.enum(["begin", "end"]),
 			reason: Reason,
 		}),
-		(ledger, body) => orderRest(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => orderRest(ledger, { actor: by, ...body }).seq,
 	),
 	coach: action(
 		z.strictObject({
@@ -107,7 +106,7 @@ export const ACTIONS = {
 			note: Reason,
 			task_id: TaskId.optional(),
 		}),
-		(ledger, body) => giveCoaching(ledger, { actor: OPERATOR, ...body }).seq,
+		(ledger, body, by) => giveCoaching(ledger, { actor: by, ...body }).seq,
 	),
 } satisfies Record<string, Action<z.ZodType>>;
 
@@ -119,14 +118,15 @@ export type ActionResult =
 	| { readonly status: 400 | 404 | 409; readonly text: string };
 
 /**
- * Run `verb` on `input`, the request body as parsed JSON. A body that does
- * not fit the verb is a usage error (400), and a refusal is the Ledger's own
- * text (409), as the command prints it.
+ * Run `verb` on `input`, the request body as parsed JSON, as `by`. A body
+ * that does not fit the verb is a usage error (400), and a refusal is the
+ * Ledger's own text (409), as the command prints it.
  */
 export const runAction = (
 	ledger: Ledger,
 	verb: string,
 	input: unknown,
+	by: Person,
 ): ActionResult => {
 	if (!Object.hasOwn(ACTIONS, verb)) {
 		return { status: 404, text: `no action ${verb}` };
@@ -143,7 +143,7 @@ export const runAction = (
 	const stop = ledger.onAppend((event) => written.push(event));
 	let seq: Seq;
 	try {
-		seq = run(ledger, parsed.data);
+		seq = run(ledger, parsed.data, by);
 	} catch (error) {
 		if (error instanceof AppendRefused) {
 			return { status: 409, text: error.message };

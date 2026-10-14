@@ -4,6 +4,7 @@ import { AgentId, ArtifactId, RunId, ScriptId, Sha256 } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import { assign, propose, start } from "../task/lifecycle.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import type { Actor } from "../types/actor.js";
 import { lineageOf } from "./artifacts.js";
 import { finishRun, register, startRun, store } from "./lifecycle.js";
@@ -97,7 +98,7 @@ describe("the Sandbox lifecycle", () => {
 	});
 
 	it("starts a Run under the next free Run id on the caller's cause, and names its RunStarted and Task as the cause and Task of every Artifact it produces and of its RunFinished", () => {
-		seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
 		const odile: Actor = { tag: "Agent", id: copy.owner_agent };
 		const task_id = propose(ledger, {
 			actor: operator,

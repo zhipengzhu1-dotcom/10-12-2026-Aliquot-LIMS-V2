@@ -12,6 +12,7 @@ import {
 } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { scenario, scores } from "../test-support/scenario.js";
 import { reviewSampled } from "../vitality/trust.js";
 
@@ -117,7 +118,7 @@ describe("TaskProjection", () => {
 	});
 
 	it("drives a Task Proposed to Done through Review, one state per Event", () => {
-		seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
 		const seeded = ledger.all().length;
 		const states = [
 			proposed(),
@@ -144,7 +145,7 @@ describe("TaskProjection", () => {
 	});
 
 	it("returns a handed-off Task to Assigned with the new assignee, and the Event records the old one", () => {
-		seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
 		ledger.append(proposed());
 		ledger.append(assigned(odile));
 		ledger.append(started());
@@ -184,7 +185,7 @@ describe("TaskProjection", () => {
 
 describe("TaskProjection beyond the happy path", () => {
 	const inProgress = () => {
-		seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
 		ledger.append(proposed());
 		ledger.append(assigned());
 		ledger.append(started());
@@ -251,7 +252,7 @@ describe("the Task state machine at append", () => {
 	});
 
 	it("refuses completing a Task that is not InProgress or UnderReview, naming its state", () => {
-		seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
 		ledger.append(proposed());
 		ledger.append(assigned());
 
@@ -266,7 +267,7 @@ describe("the Task state machine at append", () => {
 	});
 
 	it("refuses a Hand-off from an Agent who does not hold the Task", () => {
-		seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
 		ledger.append(proposed());
 		ledger.append(assigned(odile));
 		ledger.append(started());
@@ -279,7 +280,7 @@ describe("the Task state machine at append", () => {
 	});
 
 	it("refuses failing a Task that is already Done", () => {
-		seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
 		ledger.append(proposed());
 		ledger.append(assigned());
 		ledger.append(started());

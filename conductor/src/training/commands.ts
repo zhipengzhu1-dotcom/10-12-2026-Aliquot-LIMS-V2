@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
-	actorText,
+	actingAs,
+	actorName,
 	fromInvocation,
-	parseActor,
 	parseOrUsage,
 	readAll,
 	withLedger,
@@ -87,7 +87,7 @@ const publish = async (args: string[], ctx: CommandContext) => {
 	if (title === undefined || title === "") {
 		throw new UsageError("--title is required");
 	}
-	const actor = parseActor(values.as);
+	const actor = actingAs(ctx, values.as);
 	const body_md =
 		file === undefined || file === "-"
 			? await readAll(ctx.stdin)
@@ -122,7 +122,7 @@ const show = async (args: string[], ctx: CommandContext) => {
 		return 1;
 	}
 	ctx.stdout.write(
-		`${skill.id} version ${skill.version}: ${skill.title}\nby ${actorText(skill.author)} at seq ${skill.seq}\n\n${skill.body_md.replace(/\n?$/, "\n")}`,
+		`${skill.id} version ${skill.version}: ${skill.title}\nby ${actorName(skill.author)} at seq ${skill.seq}\n\n${skill.body_md.replace(/\n?$/, "\n")}`,
 	);
 	return 0;
 };
@@ -212,7 +212,7 @@ export const trainingCommands: CommandTable = {
 			const agent_id = agentOf("coach", positionals);
 			const task_id =
 				values.task === undefined ? undefined : taskIdOf(values.task);
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			const note = await stdinText(ctx, "the Coaching");
 			const { seq } = withLedger(ctx.home, true, (ledger) =>
 				giveCoaching(ledger, { actor, agent_id, task_id, note }),

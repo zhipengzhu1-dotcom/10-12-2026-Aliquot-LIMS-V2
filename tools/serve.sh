@@ -38,7 +38,12 @@ setting() {
 }
 access_team="$(setting access_team)"
 access_aud="$(setting access_aud)"
-operator_email="$(setting operator_email)"
+# Each person the Access policy allows acts as the Operator under their own email (ADR-0019).
+operator_emails=()
+while IFS= read -r email; do
+	operator_emails+=(--operator-email "$email")
+done < <(jq -r '.operator_emails // [] | .[] | select(type == "string" and . != "" and (startswith("<") | not))' "$settings")
+[ "${#operator_emails[@]}" -gt 0 ] || { echo "serve: $settings needs \"operator_emails\", a list of at least one email" >&2; exit 2; }
 
 # The tunnel's ingress names the Conductor's port, so the Conductor listens where the tunnel sends.
 port="$(sed -n 's|^ *service: http://127\.0\.0\.1:\([0-9][0-9]*\)$|\1|p' "$tunnel_config")"
@@ -62,7 +67,7 @@ trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
 
 node "$root/conductor/dist/cli.js" --home "$home" serve --bind 127.0.0.1 --port "$port" ${no_schedule:+--no-schedule} \
-	--access-team "$access_team" --access-aud "$access_aud" --operator-email "$operator_email" &
+	--access-team "$access_team" --access-aud "$access_aud" "${operator_emails[@]}" &
 serve_pid=$!
 
 if [ "$tunnel" = yes ]; then

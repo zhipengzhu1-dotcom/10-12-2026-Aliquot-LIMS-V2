@@ -1,5 +1,5 @@
 import { DIMENSIONS, type Dimension } from "./csv.js";
-import { escapeHtml } from "./markup.js";
+import { type ActorJson, actorName, escapeHtml } from "./markup.js";
 import type { Sources } from "./views.js";
 
 const LEDGER = "ledger?limit=1000";
@@ -14,7 +14,7 @@ export const FLOW_SOURCES = [
 	LEDGER,
 ] as const;
 
-type Actor = { readonly tag: string; readonly id?: string };
+type Actor = ActorJson;
 
 type Stage = {
 	readonly number: number;
@@ -81,6 +81,7 @@ const flowJson = (data: Sources) =>
 		ledger: data[LEDGER],
 	}) as FlowJson;
 
+/** Whom a Task goes to: a role, not an act, so the Operator here is unnamed. */
 const actorText = (actor: Actor): string => actor.id ?? actor.tag;
 
 /** The stage number of each Task's latest Run, from the Script it ran. */
@@ -281,7 +282,7 @@ const eventPanel = (
 	}
 	const height = rows.length * ROW_PX;
 	const row = (e: FlowEvent) =>
-		`<li data-seq="${e.seq}"${ownSeqs.has(e.seq) ? "" : ' class="outside"'}><span class="seq">${e.seq}</span> <span class="kind">${escapeHtml(e.kind)}</span> <span class="actor">${escapeHtml(actorText(e.actor))}</span> <span class="detail">${escapeHtml(detailOf(e))}</span>${
+		`<li data-seq="${e.seq}"${ownSeqs.has(e.seq) ? "" : ' class="outside"'}><span class="seq">${e.seq}</span> <span class="kind">${escapeHtml(e.kind)}</span> <span class="actor">${escapeHtml(actorName(e.actor))}</span> <span class="detail">${escapeHtml(detailOf(e))}</span>${
 			e.causation_id === undefined
 				? ""
 				: ` <span class="cause">cause ${e.causation_id}</span>`

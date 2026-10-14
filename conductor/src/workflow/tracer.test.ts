@@ -26,6 +26,7 @@ import { AgentId, ArtifactId, Sha256 } from "../ids.js";
 import { lineageOf, openArtifacts, walkLineage } from "../sandbox/artifacts.js";
 import { buildImage, scriptsRoot } from "../sandbox/image.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import type { ArtifactType } from "../types/artifact.js";
 import { pdfText } from "./evaluate.js";
@@ -83,11 +84,13 @@ const trace = ({
 	runWorkflow({
 		ledger: s.ledger,
 		home,
+		operator: TEST_OPERATOR,
 		formPath,
 		plan: stages.map((stage) => {
 			const script = ensureScript({
 				ledger: s.ledger,
 				home,
+				operator: TEST_OPERATOR,
 				stage,
 				source: source(stage),
 				image,

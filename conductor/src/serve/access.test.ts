@@ -2,6 +2,8 @@ import { generateKeyPairSync, type KeyObject, sign } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
+import { Email } from "../types/actor.js";
 import { cloudflareAccess } from "./access.js";
 import { type Serving, serve } from "./http.js";
 
@@ -63,15 +65,18 @@ beforeEach(async () => {
 		);
 	}) as typeof fetch;
 	ledger = openMemoryLedger();
-	seedOrg(ledger);
+	seedOrg(ledger, TEST_OPERATOR);
 	serving = await serve(ledger, {
 		port: 0,
 		bind: "127.0.0.1",
 		ui: "/nonexistent",
-		admit: cloudflareAccess(
-			{ team: TEAM, aud: AUD, email: EMAIL },
-			{ fetch: certs, say: (line) => said.push(line) },
-		),
+		people: {
+			tag: "Access",
+			admit: cloudflareAccess(
+				{ team: TEAM, aud: AUD, emails: [Email.parse(EMAIL)] },
+				{ fetch: certs, say: (line) => said.push(line) },
+			),
+		},
 	});
 });
 

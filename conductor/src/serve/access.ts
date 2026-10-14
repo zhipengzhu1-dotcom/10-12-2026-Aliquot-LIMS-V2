@@ -1,16 +1,20 @@
 import { createPublicKey, type KeyObject, verify } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { z } from "zod";
+import { type Email, emailOf } from "../types/actor.js";
 
-/** Who Cloudflare Access must vouch for: `--access-team`, `--access-aud` and `--operator-email`. */
+/**
+ * Who Cloudflare Access must vouch for: `--access-team`, `--access-aud`, and
+ * the people `--operator-email` lists, any one of whom may act as the Operator.
+ */
 export type AccessPolicy = {
 	readonly team: string;
 	readonly aud: string;
-	readonly email: string;
+	readonly emails: readonly Email[];
 };
 
-/** Whether a request may reach the Conductor. */
-export type Admit = (req: IncomingMessage) => Promise<boolean>;
+/** The person a request comes from, or undefined when it may not reach the Conductor. */
+export type Admit = (req: IncomingMessage) => Promise<Email | undefined>;
 
 /** Without a `max-age`, the team's keys are fetched again after an hour. */
 const DEFAULT_CERTS_LIFETIME_S = 3600;
@@ -39,7 +43,8 @@ export const certsUrl = (team: string) =>
 /**
  * Admit a request only when its `Cf-Access-Jwt-Assertion` carries an RS256
  * signature by one of the team's published keys, an `aud` that includes the
- * policy's, the Operator's email, and an `exp` still ahead. The keys are
+ * policy's, one of the policy's emails, and an `exp` still ahead, and answer
+ * the admitted person's email, lowercased. The keys are
  * fetched on first use and kept for the lifetime their response gives. The
  * first admitted request of each email says so in one line; later ones and
  * refused ones say nothing.
@@ -92,7 +97,7 @@ export const cloudflareAccess = (
 
 	return async (req) => {
 		const token = req.headers["cf-access-jwt-assertion"];
-		if (typeof token !== "string") return false;
+		if (typeof token !== "string") return undefined;
 		const [header, claims, signature, ...extra] = token.split(".");
 		if (
 			header === undefined ||
@@ -100,30 +105,33 @@ export const cloudflareAccess = (
 			signature === undefined ||
 			extra.length > 0
 		) {
-			return false;
+			return undefined;
 		}
 		const parsedHeader = Header.safeParse(decoded(header));
-		if (!parsedHeader.success) return false;
+		if (!parsedHeader.success) return undefined;
 		const key = (await keys()).get(parsedHeader.data.kid);
-		if (key === undefined) return false;
+		if (key === undefined) return undefined;
 		const signed = verify(
 			"sha256",
 			Buffer.from(`${header}.${claims}`),
 			key,
 			Buffer.from(signature, "base64url"),
 		);
-		if (!signed) return false;
+		if (!signed) return undefined;
 		const parsedClaims = Claims.safeParse(decoded(claims));
-		if (!parsedClaims.success) return false;
+		if (!parsedClaims.success) return undefined;
 		const { aud, email, exp } = parsedClaims.data;
+		const person = emailOf(email);
 		const admitted =
 			(Array.isArray(aud) ? aud : [aud]).includes(policy.aud) &&
-			email.toLowerCase() === policy.email.toLowerCase() &&
+			person !== undefined &&
+			policy.emails.includes(person) &&
 			exp * 1000 > now().getTime();
-		if (admitted && !seen.has(email.toLowerCase())) {
-			seen.add(email.toLowerCase());
+		if (!admitted) return undefined;
+		if (!seen.has(person)) {
+			seen.add(person);
 			say(`Admitted ${email}, verified by Cloudflare Access`);
 		}
-		return admitted;
+		return person;
 	};
 };

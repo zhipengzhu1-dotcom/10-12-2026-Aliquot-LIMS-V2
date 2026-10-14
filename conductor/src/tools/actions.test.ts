@@ -17,6 +17,7 @@ import { finishRun, startRun, store } from "../sandbox/lifecycle.js";
 import { memoryStorage } from "../storage.js";
 import { assign, propose, start } from "../task/lifecycle.js";
 import { forge } from "../test-support/forge.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import { finishTurn, startTurn } from "../turn/lifecycle.js";
 import { Action } from "../types/action.js";
@@ -451,7 +452,7 @@ describe("the Charter's Actions", () => {
 		if (odile === undefined) throw new Error("the roster is empty");
 
 		expect(() =>
-			seedOrg(ledger, [
+			seedOrg(ledger, TEST_OPERATOR, [
 				{
 					...odile,
 					charter: {

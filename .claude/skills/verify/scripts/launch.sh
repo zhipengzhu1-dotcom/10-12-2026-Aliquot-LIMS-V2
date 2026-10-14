@@ -39,6 +39,7 @@ printf '%s\n' "$greeting" | aliquot --home "$AQ_HOME" room say RM-lab --as A-odi
 
 printf '$ aliquot --home %s serve --port %s --no-schedule\n' "$AQ_HOME" "$port" >>"$log"
 nohup env -u ALIQUOT_API_KEY -u ANTHROPIC_API_KEY -u ALIQUOT_LIVE_TURN -u ALIQUOT_SCRIPTED_MODEL \
+	ALIQUOT_OPERATOR="$VERIFY_OPERATOR" \
 	"$ALIQUOT" --home "$AQ_HOME" serve --port "$port" --no-schedule >"$PROOF/serve.log" 2>&1 &
 launcher=$!
 

@@ -8,6 +8,10 @@ import { AgentId } from "../ids.js";
 import { type Ledger, openMemoryLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
 import { seedRooms } from "../room/seed.js";
+import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../test-support/operator.js";
 import { startTurn } from "../turn/lifecycle.js";
 import { type Serving, serve } from "./http.js";
 import { PROJECTION_ROUTES } from "./routes.js";
@@ -22,12 +26,13 @@ beforeEach(async () => {
 	writeFileSync(join(dir, "ui", "index.html"), "<title>Aliquot</title>");
 	writeFileSync(join(dir, "secret.html"), "not the interface");
 	ledger = openMemoryLedger();
-	seedOrg(ledger);
-	seedRooms(ledger);
+	seedOrg(ledger, TEST_OPERATOR);
+	seedRooms(ledger, TEST_OPERATOR);
 	serving = await serve(ledger, {
 		port: 0,
 		bind: "127.0.0.1",
 		ui: join(dir, "ui"),
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
 	});
 });
 

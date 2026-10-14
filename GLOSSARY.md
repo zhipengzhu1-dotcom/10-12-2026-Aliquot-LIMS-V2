@@ -1,13 +1,13 @@
 # Aliquot LIMS
 
-Aliquot LIMS is the automation engine behind the LIMS of a regulated pharmaceutical contract testing lab (ADR-0017). A society of AI agents does the lab's paperwork and computation, under the audit and control of one human operator. This glossary has two parts. The first part names the agent society. The second part names the lab work that the agents do.
+Aliquot LIMS is the automation engine behind the LIMS of a regulated pharmaceutical contract testing lab (ADR-0017). A society of AI agents does the lab's paperwork and computation, under the audit and control of named people acting as the Operator. This glossary has two parts. The first part names the agent society. The second part names the lab work that the agents do.
 
 ## Agent society
 
 ### Organization
 
 **Operator**:
-The one human who runs the Conductor, decides every Gate, and reviews the Director, the Steward, and the Auditor. In the Ledger the Operator is the actor `Operator`.
+The role of the named person who runs the Conductor, decides every Gate, and reviews the Director, the Steward, and the Auditor. More than one person may act as the Operator, each under their own email. In the Ledger the Operator is the actor `Operator` with the person's email, and every Event the person authors names that email (ADR-0019). An Event written before #74 names no email and reads as `Operator (unnamed)`.
 _Avoid_: the human, user, admin, owner
 
 **Lab staff**:
@@ -165,7 +165,7 @@ The Server-Sent Events at `/api/events`: one for each Event the Ledger appends, 
 _Avoid_: feed, websocket
 
 **Operator action**:
-A lifecycle verb the Operator runs through the Interface, as `POST /api/actions/<verb>`, which appends the same Event the matching command appends, always as the Operator.
+A lifecycle verb the Operator runs through the Interface, as `POST /api/actions/<verb>`, which appends the same Event the matching command appends, always as the Operator, named by the person the request comes from.
 _Avoid_: RPC, endpoint
 
 **Tool**:

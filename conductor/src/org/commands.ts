@@ -1,12 +1,17 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import {
-	parseActor,
+	actingAs,
 	parseOrThrow,
 	parseOrUsage,
+	personOf,
 	withLedger,
 } from "../cli-support.js";
-import { type CommandTable, UsageError } from "../command.js";
+import {
+	type CommandContext,
+	type CommandTable,
+	UsageError,
+} from "../command.js";
 import { requestGate } from "../gate/lifecycle.js";
 import { AgentId, GateId } from "../ids.js";
 import { AgentDefinition } from "../types/agent-definition.js";
@@ -21,7 +26,12 @@ const options = {
 } as const;
 
 /** Parse `<id> [more positionals] [--reason R] [--as A-<id>]`. */
-const parse = (command: string, args: string[], positionals: string[]) => {
+const parse = (
+	ctx: CommandContext,
+	command: string,
+	args: string[],
+	positionals: string[],
+) => {
 	const parsed = parseArgs({ args, options, allowPositionals: true });
 	if (parsed.positionals.length !== positionals.length) {
 		throw new UsageError(
@@ -38,7 +48,7 @@ const parse = (command: string, args: string[], positionals: string[]) => {
 		reason: parsed.values.reason,
 		as: parsed.values.as,
 		gate: parsed.values.gate,
-		actor: parseActor(parsed.values.as),
+		actor: actingAs(ctx, parsed.values.as),
 	};
 };
 
@@ -63,9 +73,10 @@ export const orgCommands: CommandTable = {
 			"Recruit the eight-agent starting roster; a second run appends nothing",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const ids = withLedger(ctx.home, true, seedOrg).map(
-				(r) => r.agent.definition.id,
-			);
+			const by = personOf(ctx);
+			const ids = withLedger(ctx.home, true, (ledger) =>
+				seedOrg(ledger, by),
+			).map((r) => r.agent.definition.id);
 			if (ids.length === 0) {
 				const count = rosterDefinitions().length;
 				ctx.stdout.write(
@@ -91,7 +102,7 @@ export const orgCommands: CommandTable = {
 		args: "<id> --reason <text> [--as <agent>]",
 		describe: "Pause an Agent",
 		run: async (args, ctx) => {
-			const { id, reason, actor } = parse("pause", args, ["id"]);
+			const { id, reason, actor } = parse(ctx, "pause", args, ["id"]);
 			const why = needReason("pause", reason);
 			withLedger(ctx.home, true, (ledger) =>
 				pause(ledger, { actor, agent_id: id, reason: why }),
@@ -104,7 +115,7 @@ export const orgCommands: CommandTable = {
 		args: "<id> [--as <agent>]",
 		describe: "Resume a paused Agent",
 		run: async (args, ctx) => {
-			const { id, actor } = parse("resume", args, ["id"]);
+			const { id, actor } = parse(ctx, "resume", args, ["id"]);
 			withLedger(ctx.home, true, (ledger) =>
 				resume(ledger, { actor, agent_id: id }),
 			);
@@ -117,7 +128,9 @@ export const orgCommands: CommandTable = {
 		describe:
 			"Request a RetireAgent Gate for an Agent, or retire it through the approved Gate; its Events stay in the Ledger",
 		run: async (args, ctx) => {
-			const { id, reason, as, gate, actor } = parse("retire", args, ["id"]);
+			const { id, reason, as, gate, actor } = parse(ctx, "retire", args, [
+				"id",
+			]);
 			if (gate === undefined) {
 				const why = needReason("retire", reason);
 				const { id: gate_id, payload_hash } = withLedger(
@@ -144,7 +157,7 @@ export const orgCommands: CommandTable = {
 			const gate_id = parseOrUsage(GateId, gate, "--gate must look like G-1");
 			withLedger(ctx.home, true, (ledger) =>
 				retire(ledger, {
-					actor: { tag: "Operator" },
+					actor,
 					agent_id: id,
 					gate_id,
 					reason,
@@ -159,7 +172,10 @@ export const orgCommands: CommandTable = {
 		describe:
 			"Revise an Agent definition from a JSON file holding the full next version",
 		run: async (args, ctx) => {
-			const { id, rest, actor } = parse("revise", args, ["id", "file.json"]);
+			const { id, rest, actor } = parse(ctx, "revise", args, [
+				"id",
+				"file.json",
+			]);
 			const [file = ""] = rest;
 			const definition = parseOrThrow(
 				AgentDefinition,

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentId } from "../src/ids.js";
 import { type Serving, serve } from "../src/serve/http.js";
+import { TEST_OPERATOR_EMAIL } from "../src/test-support/operator.js";
 import {
 	type Scenario,
 	scenario,
@@ -35,7 +36,12 @@ let s: Scenario;
 let serving: Serving;
 
 const start = async () => {
-	serving = await serve(s.ledger, { port: 0, bind: "127.0.0.1", ui: "." });
+	serving = await serve(s.ledger, {
+		port: 0,
+		bind: "127.0.0.1",
+		ui: ".",
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
+	});
 };
 
 beforeEach(async () => {

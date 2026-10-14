@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentId, ArtifactId } from "../ids.js";
 import { openLedger } from "../ledger.js";
 import { seedOrg } from "../org/seed.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { startTurn } from "../turn/lifecycle.js";
 import { turnPrompt } from "../turn/prompt.js";
 
@@ -35,7 +36,7 @@ const eventCount = () => {
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-intake-"));
 	const ledger = openLedger({ home, writer: true });
-	seedOrg(ledger);
+	seedOrg(ledger, TEST_OPERATOR);
 	ledger.close();
 });
 

@@ -1,8 +1,10 @@
 import { parseArgs } from "node:util";
 import {
+	actingAs,
+	actorName,
 	actorText,
-	parseActor,
 	parseOrUsage,
+	personOf,
 	withLedger,
 } from "../cli-support.js";
 import { type CommandTable, UsageError } from "../command.js";
@@ -14,7 +16,6 @@ import { Refusal } from "../reduce.js";
 import { review as reviewTask } from "../task/lifecycle.js";
 import { assigneeOf } from "../task/projection.js";
 import { countedTokens } from "../turn/projection.js";
-import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { Score } from "../types/merit.js";
 import type { Policy, Vitality } from "../types/vitality.js";
@@ -29,8 +30,6 @@ import { mean, scoresOf } from "./work.js";
  * given. A cautious placeholder until slice 1 measures real use.
  */
 export const DEFAULT_ENERGY_BUDGET_TOKENS = 1_000_000;
-
-const OPERATOR: Actor = { tag: "Operator" };
 
 const agentId = (text: string | undefined) =>
 	parseOrUsage(AgentId, text, "expected an Agent id like A-rin");
@@ -274,6 +273,7 @@ export const vitalityCommands: CommandTable = {
 			});
 			const only = atMostOne(positionals, "sample");
 			const energyBudgetTokens = budget(values.budget);
+			const actor = personOf(ctx);
 			return withLedger(ctx.home, true, (ledger) => {
 				const now = new Date();
 				const agents =
@@ -282,7 +282,7 @@ export const vitalityCommands: CommandTable = {
 						: [only];
 				for (const agent of agents) {
 					const { vitality } = sample(ledger, {
-						actor: OPERATOR,
+						actor,
 						agent,
 						now,
 						energyBudgetTokens,
@@ -316,7 +316,7 @@ export const vitalityCommands: CommandTable = {
 				);
 			}
 			const action = values.begin ? "begin" : "end";
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			const reason = required(values.reason, "--reason");
 			withLedger(ctx.home, true, (ledger) =>
 				orderRest(ledger, { actor, agent_id: id, action, reason }),
@@ -349,7 +349,7 @@ export const vitalityCommands: CommandTable = {
 				positionals[0],
 				"expected a Task id like T-1",
 			);
-			const reviewer = parseActor(values.as);
+			const reviewer = actingAs(ctx, values.as);
 			if (values.note === undefined) throw new UsageError("--note is required");
 			const review = {
 				task_id,
@@ -367,7 +367,7 @@ export const vitalityCommands: CommandTable = {
 				return revisedBetween(before, ledger.projections.org);
 			});
 			ctx.stdout.write(
-				`Recorded a Review of ${task_id} by ${actorText(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
+				`Recorded a Review of ${task_id} by ${actorName(reviewer)}: mean ${n2(mean(scoresOf(review)))}\n`,
 			);
 			for (const d of revised) ctx.stdout.write(revisedLine(d));
 			return 0;

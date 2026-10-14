@@ -3,12 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestGate } from "../src/gate/lifecycle.js";
 import { AgentId, GateId } from "../src/ids.js";
 import { type Serving, serve } from "../src/serve/http.js";
+import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../src/test-support/operator.js";
 import { type Scenario, scenario } from "../src/test-support/scenario.js";
 import { act, answerText } from "./actions.js";
 import { definitionDiff, gatesView } from "./gates.js";
 import { formOf, submit } from "./test-support.js";
 
-const OPERATOR = { tag: "Operator" } as const;
+const OPERATOR = TEST_OPERATOR;
 const NOW = "2026-10-01T01:00:00.000Z";
 
 let s: Scenario;
@@ -16,7 +20,12 @@ let serving: Serving;
 
 beforeEach(async () => {
 	s = scenario("2026-10-01T00:00:00.000Z");
-	serving = await serve(s.ledger, { port: 0, bind: "127.0.0.1", ui: "." });
+	serving = await serve(s.ledger, {
+		port: 0,
+		bind: "127.0.0.1",
+		ui: ".",
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
+	});
 	const direct = globalThis.fetch;
 	vi.stubGlobal("fetch", (route: string, init?: RequestInit) =>
 		direct(`${serving.url}${route}`, init),
@@ -116,7 +125,7 @@ describe("the Gates view", () => {
 		const page = await gatesPage();
 
 		const retire = section(page, "G-1");
-		expect(retire).toContain("<dt>Requester</dt><dd>Operator</dd>");
+		expect(retire).toContain("<dt>Requester</dt><dd>operator@lab.test</dd>");
 		expect(retire).toContain("<dt>Age</dt><dd>1h 0m</dd>");
 		expect(retire).toContain(
 			"<dt>Lifetime</dt><dd>1d 0h, expires in 23h 0m</dd>",

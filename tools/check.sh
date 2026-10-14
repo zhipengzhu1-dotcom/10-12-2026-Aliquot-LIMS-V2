@@ -42,9 +42,10 @@ sandbox() {
 }
 
 # The toy workflow on every Fixture against a fresh home: fails when any Evaluation fails.
+# The check acts as the Operator, so it names itself as the person (ADR-0019).
 workflow() {
 	local home="$scratch/home"
-	step "workflow run-all fixtures" pnpm --silent -C conductor cli --home "$home" workflow run-all "$PWD/fixtures"
+	step "workflow run-all fixtures" pnpm --silent -C conductor cli --home "$home" --operator check@aliquot.invalid workflow run-all "$PWD/fixtures"
 	step "ledger verify" pnpm --silent -C conductor cli --home "$home" ledger verify
 }
 

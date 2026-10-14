@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppendRefused } from "../append-guard.js";
 import { AgentId, GateId } from "../ids.js";
 import { openMemoryLedger } from "../ledger.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
@@ -15,7 +16,7 @@ const odile: Actor = { tag: "Agent", id: AgentId.parse("A-odile") };
 describe("org seed", () => {
 	it("recruits the eight roster Agents on Probation, authored by the Operator", () => {
 		const ledger = openMemoryLedger();
-		const appended = seedOrg(ledger);
+		const appended = seedOrg(ledger, TEST_OPERATOR);
 
 		const events = ledger.all();
 		expect(appended.map((r) => r.seq)).toEqual(events.map((e) => e.seq));
@@ -61,8 +62,8 @@ describe("org seed", () => {
 
 	it("appends nothing when run a second time", () => {
 		const ledger = openMemoryLedger();
-		seedOrg(ledger);
-		const again = seedOrg(ledger);
+		seedOrg(ledger, TEST_OPERATOR);
+		const again = seedOrg(ledger, TEST_OPERATOR);
 
 		expect(again).toEqual([]);
 		expect(ledger.all()).toHaveLength(8);

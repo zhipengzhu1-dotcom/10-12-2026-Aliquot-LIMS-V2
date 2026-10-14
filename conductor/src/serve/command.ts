@@ -2,15 +2,17 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { personOf } from "../cli-support.js";
 import { type Command, UsageError } from "../command.js";
 import { openLedger } from "../ledger.js";
 import type { SchedulerOptions } from "../scheduler/plan.js";
 import { openScheduler } from "../scheduler/scheduler.js";
 import { loginFrom, loginText } from "../turn/auth.js";
 import { chosenModel } from "../turn/commands.js";
+import { type Email, emailOf } from "../types/actor.js";
 import { DEFAULT_ENERGY_BUDGET_TOKENS } from "../vitality/commands.js";
 import { cloudflareAccess } from "./access.js";
-import { serve } from "./http.js";
+import { type People, serve } from "./http.js";
 
 const LOOPBACK = "127.0.0.1";
 
@@ -58,25 +60,35 @@ const wholeAbove0 = (text: string, flag: string): number => {
 	return Number(text);
 };
 
-/** Cloudflare Access takes all three flags or none. */
+const emailFlag = (text: string): Email => {
+	const email = emailOf(text);
+	if (email === undefined) {
+		throw new UsageError(
+			`--operator-email must be a person's email, not ${JSON.stringify(text)}`,
+		);
+	}
+	return email;
+};
+
+/** Cloudflare Access takes all three flags or none; `--operator-email` once per person. */
 const accessOf = (values: {
 	"access-team"?: string | undefined;
 	"access-aud"?: string | undefined;
-	"operator-email"?: string | undefined;
+	"operator-email"?: string[] | undefined;
 }) => {
 	const {
 		"access-team": team,
 		"access-aud": aud,
-		"operator-email": email,
+		"operator-email": emails,
 	} = values;
-	if (team === undefined && aud === undefined && email === undefined)
+	if (team === undefined && aud === undefined && emails === undefined)
 		return undefined;
-	if (team === undefined || aud === undefined || email === undefined) {
+	if (team === undefined || aud === undefined || emails === undefined) {
 		throw new UsageError(
 			"Cloudflare Access needs all of --access-team, --access-aud and --operator-email",
 		);
 	}
-	return { team, aud, email };
+	return { team, aud, emails: emails.map(emailFlag) };
 };
 
 const stopSignal = () =>
@@ -91,14 +103,16 @@ const stopSignal = () =>
 	});
 
 /**
- * `aliquot serve`: the long-running Conductor. It holds the Ledger's writer
+ * `aliquot serve`: the long-running Conductor. Each action names the person
+ * it came from: whom Cloudflare Access vouched for, or, serving 127.0.0.1
+ * only, the person `--operator` names. It holds the Ledger's writer
  * from start to SIGINT or SIGTERM, so a command that writes meanwhile is
  * refused by the writer lock, and closes it before it exits. Unless
  * `--no-schedule`, the Scheduler ticks meanwhile, and the Ledger closes only
  * once the Turns it started have finished.
  */
 export const serveCommand: Command = {
-	args: "[--port 8787] [--bind 127.0.0.1] [--access-team <team> --access-aud <aud> --operator-email <email>] [--tick 15s] [--duty 30m] [--concurrency 2] [--budget <tokens>] [--no-schedule]",
+	args: "[--port 8787] [--bind 127.0.0.1] [--access-team <team> --access-aud <aud> --operator-email <email>...] [--tick 15s] [--duty 30m] [--concurrency 2] [--budget <tokens>] [--no-schedule]",
 	describe:
 		"Hold the Ledger, serve the Operator's interface (Projections, Events over SSE, and actions), and schedule Turns every Tick",
 	run: async (args, ctx) => {
@@ -110,7 +124,7 @@ export const serveCommand: Command = {
 				bind: { type: "string", default: LOOPBACK },
 				"access-team": { type: "string" },
 				"access-aud": { type: "string" },
-				"operator-email": { type: "string" },
+				"operator-email": { type: "string", multiple: true },
 				tick: { type: "string", default: "15s" },
 				duty: { type: "string", default: "30m" },
 				concurrency: { type: "string", default: "2" },
@@ -149,6 +163,10 @@ export const serveCommand: Command = {
 		}
 
 		const say = (line: string) => ctx.stdout.write(`${line}\n`);
+		const people: People =
+			access === undefined
+				? { tag: "Local", email: personOf(ctx).email }
+				: { tag: "Access", admit: cloudflareAccess(access, { say }) };
 		const ledger = openLedger({ home, writer: true });
 		let signal: NodeJS.Signals;
 		try {
@@ -168,9 +186,7 @@ export const serveCommand: Command = {
 				port,
 				bind: values.bind,
 				ui: UI_DIR,
-				...(access === undefined
-					? {}
-					: { admit: cloudflareAccess(access, { say }) }),
+				people,
 				...(scheduler === undefined ? {} : { scheduler: scheduler.report }),
 			});
 			ctx.stdout.write(`Serving ${home} at ${serving.url}\n`);

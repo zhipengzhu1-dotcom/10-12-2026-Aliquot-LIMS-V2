@@ -45,6 +45,10 @@ import {
 	VERIFICATION,
 	written,
 } from "../test-support/lab-room.js";
+import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { RunModel } from "../turn/model.js";
 import { pdfText } from "../workflow/evaluate.js";
@@ -62,7 +66,7 @@ let s: Scenario;
 let home: string;
 beforeEach(() => {
 	s = scenario(T0);
-	seedRooms(s.ledger);
+	seedRooms(s.ledger, TEST_OPERATOR);
 	home = mkdtempSync(join(tmpdir(), "aliquot-results-"));
 });
 afterEach(() => {
@@ -491,6 +495,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 		});
 
 		decideGate(s.ledger, {
+			actor: TEST_OPERATOR,
 			gate_id: GateId.parse("G-1"),
 			payload_hash: opened?.payload_hash ?? ("" as Sha256),
 			meaning: "approve",
@@ -500,6 +505,7 @@ describe.skipIf(!requireDocker())(suite, () => {
 			port: 0,
 			bind: "127.0.0.1",
 			ui: ".",
+			people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
 		});
 		try {
 			const { gates } = (await (

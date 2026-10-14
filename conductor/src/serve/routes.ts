@@ -6,7 +6,7 @@ import type { Projections } from "../projections.js";
 import { LAB_ROOM } from "../room/seed.js";
 import { assigneeOf } from "../task/projection.js";
 import { tokensInWindow } from "../turn/projection.js";
-import { actorText } from "../types/actor.js";
+import { actorName, actorText } from "../types/actor.js";
 import type { Review } from "../types/merit.js";
 import { DEFAULT_ENERGY_BUDGET_TOKENS } from "../vitality/commands.js";
 import { standingOf } from "../vitality/merit.js";
@@ -81,7 +81,7 @@ const reviewRows = (p: Projections) => {
  * cover live Agents only, as `vitality show` and `vitality tiers` print them.
  * `training` holds every Agent's Memory notes and Coaching, and every version
  * of each Skill. `chat` is the Lab Room's Messages in seq order, each with
- * the sayer's name from the Org.
+ * the sayer's name from the Org, or the Operator's email.
  */
 export const PROJECTION_ROUTES = {
 	org: (p: Projections) => p.org,
@@ -99,7 +99,7 @@ export const PROJECTION_ROUTES = {
 				name:
 					actor.tag === "Agent"
 						? (p.org.agents.get(actor.id)?.definition.name ?? actor.id)
-						: actor.tag,
+						: actorName(actor),
 				...(causation_id === undefined ? {} : { reply_to: causation_id }),
 			})),
 	}),

@@ -3,10 +3,12 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
-	actorText,
+	actingAs,
+	actorName,
 	parseActor,
 	parseOrThrow,
 	parseOrUsage,
+	personOf,
 	readAll,
 	withLedger,
 } from "../cli-support.js";
@@ -42,7 +44,7 @@ const membersText = (room: Room) =>
 const messageLine = (m: Message) => {
 	const reply =
 		m.causation_id === undefined ? "" : ` (reply to ${m.causation_id})`;
-	return `${m.seq}  ${m.ts}  ${actorText(m.actor)}${reply}: ${m.body}`;
+	return `${m.seq}  ${m.ts}  ${actorName(m.actor)}${reply}: ${m.body}`;
 };
 
 export const roomCommands: CommandTable = {
@@ -50,7 +52,10 @@ export const roomCommands: CommandTable = {
 		describe: "Open the Lab Room for every Agent; a second run appends nothing",
 		run: async (args, ctx) => {
 			parseArgs({ args });
-			const opened = withLedger(ctx.home, true, seedRooms);
+			const by = personOf(ctx);
+			const opened = withLedger(ctx.home, true, (ledger) =>
+				seedRooms(ledger, by),
+			);
 			ctx.stdout.write(
 				opened
 					? `Opened ${LAB_ROOM.id} (${LAB_ROOM.name}) for Everyone\n`
@@ -79,7 +84,11 @@ export const roomCommands: CommandTable = {
 			} catch (error) {
 				throw new Error(`the Room is not JSON: ${(error as Error).message}`);
 			}
-			const room = parseOrThrow(Room, json, "not a Room");
+			const parsed = parseOrThrow(Room, json, "not a Room");
+			const room =
+				parsed.opened_by.tag === "Operator"
+					? { ...parsed, opened_by: personOf(ctx) }
+					: parsed;
 			withLedger(ctx.home, true, (ledger) => open(ledger, room));
 			ctx.stdout.write(
 				`Opened ${room.id} (${room.name}) for ${membersText(room)}\n`,
@@ -97,7 +106,7 @@ export const roomCommands: CommandTable = {
 				allowPositionals: true,
 			});
 			const room_id = roomIdOf("say", positionals);
-			const actor = parseActor(values.as);
+			const actor = actingAs(ctx, values.as);
 			const replyTo = values["reply-to"];
 			const reply_to =
 				replyTo === undefined
@@ -107,7 +116,7 @@ export const roomCommands: CommandTable = {
 			const { seq } = withLedger(ctx.home, true, (ledger) =>
 				say(ledger, { actor, room_id, body, reply_to }),
 			);
-			ctx.stdout.write(`${seq}  ${actorText(actor)} in ${room_id}\n`);
+			ctx.stdout.write(`${seq}  ${actorName(actor)} in ${room_id}\n`);
 			return 0;
 		},
 	},

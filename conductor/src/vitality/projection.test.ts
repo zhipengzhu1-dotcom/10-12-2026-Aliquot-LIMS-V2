@@ -7,6 +7,7 @@ import { seedOrg } from "../org/seed.js";
 import type { Projections } from "../projections.js";
 import { memoryStorage, type Storage } from "../storage.js";
 import { forge, forgeBeforeAdr0011 } from "../test-support/forge.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario, scores } from "../test-support/scenario.js";
 import type { Actor, EventActor } from "../types/actor.js";
 import { orderRest } from "./lifecycle.js";
@@ -418,7 +419,7 @@ describe("the tier catch-up when the Ledger opens for writing", () => {
 		old.close();
 		const unsupported = memoryStorage();
 		const seeded = openMemoryLedger({ storage: unsupported });
-		seedOrg(seeded);
+		seedOrg(seeded, TEST_OPERATOR);
 		const events = seeded.all();
 		const recruited = events.find(
 			(e) => e.kind === "AgentRecruited" && e.payload.id === ines,

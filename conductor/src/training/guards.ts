@@ -1,10 +1,9 @@
 import { type AppendGuard, reasonOf } from "../append-guard.js";
-import { canonicalJson } from "../hash.js";
 import type { AgentId, TaskId } from "../ids.js";
 import { notInOrg } from "../org/projection.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
-import { actorText, type EventActor } from "../types/actor.js";
+import { actorText, type EventActor, sameRole } from "../types/actor.js";
 
 const missingTask = (projections: Projections, task_id: TaskId) =>
 	projections.tasks.tasks.has(task_id)
@@ -74,7 +73,7 @@ const trainingRules: AppendGuard = (projections, event) => {
 		}
 		case "SkillPublished": {
 			const { id, version, author } = event.payload;
-			if (canonicalJson(author) !== canonicalJson(event.actor)) {
+			if (!sameRole(author, event.actor)) {
 				return `${id} version ${version} names ${actorText(author)} as its author, but the actor is ${actorText(event.actor)}`;
 			}
 			const previous = projections.training.skills.get(id)?.at(-1);

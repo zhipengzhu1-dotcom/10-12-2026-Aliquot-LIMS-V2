@@ -6,6 +6,10 @@ import { open } from "../src/room/lifecycle.js";
 import { seedRooms } from "../src/room/seed.js";
 import { type Serving, serve } from "../src/serve/http.js";
 import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../src/test-support/operator.js";
+import {
 	type Scenario,
 	scenario,
 	scores,
@@ -27,8 +31,13 @@ let serving: Serving;
 
 beforeEach(async () => {
 	s = scenario("2026-10-01T00:00:00.000Z");
-	seedRooms(s.ledger);
-	serving = await serve(s.ledger, { port: 0, bind: "127.0.0.1", ui: "." });
+	seedRooms(s.ledger, TEST_OPERATOR);
+	serving = await serve(s.ledger, {
+		port: 0,
+		bind: "127.0.0.1",
+		ui: ".",
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
+	});
 	const direct = globalThis.fetch;
 	vi.stubGlobal("fetch", (route: string, init?: RequestInit) =>
 		direct(`${serving.url}${route}`, init),

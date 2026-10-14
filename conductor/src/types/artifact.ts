@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ArtifactId, RunId, Sha256 } from "../ids.js";
+import { Operator } from "./actor.js";
 
 export const ArtifactType = z.enum([
 	"SubmissionForm",
@@ -21,7 +22,7 @@ export const Artifact = z.strictObject({
 	artifact_type: ArtifactType,
 	produced_by: z.discriminatedUnion("tag", [
 		z.strictObject({ tag: z.literal("Run"), id: RunId }),
-		z.strictObject({ tag: z.literal("Operator") }),
+		Operator,
 	]),
 	lineage: z.array(ArtifactId),
 });

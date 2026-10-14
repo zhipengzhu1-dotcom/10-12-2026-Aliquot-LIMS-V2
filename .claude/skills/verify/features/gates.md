@@ -29,7 +29,7 @@ Preconditions:
 - **Read the ids and hash.** `scripts/api.sh "$RUN" get gates` gives the Gate ids by `payload.agent_id` and each `payload_hash`.
 - **Reject and approve.** `scripts/browser.mjs "$RUN" gates/decide goto '#/gates' wait '[data-gate="G-1"] table.diff' fill '#reject-G-1-reason' 'verify: rejected from the Gates view' click '#reject-G-1 button' text '#answer' 'Appended GateDecided' gone '[data-gate="G-1"] .state-open'`, then `approve` on `G-2` the same way.
 - **Refusal.** `scripts/api.sh "$RUN" act gate-decide '{"gate_id":"G-1","decision":"approve","hash":"<hash>","reason":"again"}' --expect 409`. The body starts `GateDecided refused`.
-- **Proof.** Two `GateDecided` rows by `{"tag":"Operator"}`, each with the Gate's `payload_hash`, and `/api/org` still has Mabel with `retired: false`.
+- **Proof.** Two `GateDecided` rows by `{"email":"verify@lab.test","tag":"Operator"}`, each with `decided_by` naming the same person and the Gate's `payload_hash`, the closed Gate's line reading `decided by verify@lab.test`, and `/api/org` still has Mabel with `retired: false`.
 
 ## The chat flow's ExternalMessage Gate, by hand
 

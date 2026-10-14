@@ -26,7 +26,9 @@ On 2026-10-13 the repository holds slices 0, 1 and 2 of the roadmap, all on synt
 
 **The interface and its views.** `aliquot serve` serves every Projection under `/api/`, the Events over Server-Sent Events, the Operator's actions, and a single-page application in plain TypeScript. A new tab opens on the Access landing, and ENTER opens the shell: a black slab with the navigation over bone content. Nine routes exist. Org, Flow, Agent, Chat, Gates, Performance and Ledger are drawn. Rooms and Scripts have their routes and show their JSON as it came, until a ticket draws them. The project `verify` skill drives the views in a browser and writes a proof.
 
-**Tunnel and Access.** With a Cloudflare Access team, audience and Operator email, the Conductor admits only a request whose Access assertion is valid; without them it serves `127.0.0.1` only. `tools/serve.sh`, `tools/tunnel/` and `docs/ops/tunnel.md` hold the Tunnel configuration and the account steps, each with its undo. The owner has not applied them (gate G2), so no Tunnel, DNS route or Access application exists yet.
+**People.** Every Event a person authors names the person by email ([ADR-0019](../adr/0019-every-human-act-names-the-person.md)). The Operator is a role that named people play: the command line takes the person from `--operator` or `ALIQUOT_OPERATOR` and refuses an Operator command without one, and the interface takes the person from the Access assertion. Events written before #74 read as `Operator (unnamed)`.
+
+**Tunnel and Access.** With a Cloudflare Access team, audience and a list of Operator emails, the Conductor admits only a request whose Access assertion is valid and names a listed person; without them it serves `127.0.0.1` only, for the person named at start. `tools/serve.sh`, `tools/tunnel/` and `docs/ops/tunnel.md` hold the Tunnel configuration and the account steps, each with its undo. The owner has not applied them (gate G2), so no Tunnel, DNS route or Access application exists yet.
 
 **The live run.** On 2026-10-13 the society ran live once, on one Fixture, through the Scheduler on the subscription login, for 20 minutes ([live-run-2026-10.md](live-run-2026-10.md)). Four Turns counted 28,140 tokens, every Mood was `fresh`, and the run stopped at stage 1. The stage 1 Task was escalated, and its target got no Turn; #63 fixed that. No full chain and no chat flow has yet run live.
 
@@ -51,7 +53,9 @@ Everything in the system derives from ten shapes. The Ledger holds Events. Every
 An Event is one entry in the Ledger. Events are numbered, append-only, and hash-chained, so a changed or deleted Event breaks the chain. `kind` is a closed union. A Projection is a reducer over Event kinds, so an illegal state change has no Event that can express it.
 
 ```ts
-type Actor = { tag: "Agent"; id: AgentId } | { tag: "Operator" };
+// email: the person acting as the Operator, lowercased; absent on an Event before #74 (ADR-0019)
+// and on a payload that only refers to the role, such as a reviewer to be.
+type Actor = { tag: "Agent"; id: AgentId } | { tag: "Operator"; email?: Email };
 type EventActor = Actor | { tag: "Conductor" };
 
 type Event = {
@@ -209,7 +213,7 @@ type Artifact = {
 	sha256: Sha256;
 	media_type: string;
 	artifact_type: ArtifactType;
-	produced_by: { tag: "Run"; id: RunId } | { tag: "Operator" };
+	produced_by: { tag: "Run"; id: RunId } | { tag: "Operator"; email?: Email };
 	lineage: ArtifactId[];
 };
 ```
@@ -312,7 +316,7 @@ type TrustTier = "Probation" | "Trusted" | "Senior" | "Mentor";
 
 ### 8. Gate
 
-A Gate is a request for an Operator decision. Only the Operator emits `GateDecided`. The decision is the electronic signature record. The Ledger stamps `decided_at` with the decision Event's own `ts`, so the caller supplies no time and the signature time is the time the decision is recorded (ADR-0006).
+A Gate is a request for an Operator decision. Only the Operator emits `GateDecided`. The decision is the electronic signature record, and it names the person who signed it, as its actor and as `decided_by` (ADR-0019). The Ledger stamps `decided_at` with the decision Event's own `ts`, so the caller supplies no time and the signature time is the time the decision is recorded (ADR-0006).
 
 One module, the Gate lifecycle (`gate/lifecycle.ts`), appends every Gate Event: it requests a Gate under the next free gate id and records the Operator's decision on it, and each verb returns the Gate and the seq it appended. A decision names the Gate's request as its `causation_id` and carries the payload hash the Operator checked, which the Ledger refuses, writing nothing, when it is not the stored one. A request that blocks a Task comes only from the Task lifecycle's `block`, which names the Task's previous Event as the request's cause. Biome refuses a call to the Gate lifecycle's `requestGateForTask` in any other module.
 
@@ -323,7 +327,7 @@ type GateState = "Open" | "Approved" | "Rejected" | "Expired";
 
 type GateDecision = {
 	gate_id: GateId;
-	decided_by: { tag: "Operator" };
+	decided_by: { tag: "Operator"; email?: Email };
 	decided_at: IsoTime;
 	payload_hash: Sha256;
 	meaning: "approve" | "reject";
@@ -445,7 +449,7 @@ Every table is `STRICT`. Every row's `source_artifact` holds the Artifact id of 
 
 Stage 2 assigns each container a Lab Reference at receipt, `LR-<year received>-<n>` with n written as four digits or more. n is one more than the highest n for that year in `samples`, so the numbering continues from the carried version, and a container numbered in one version is never numbered again.
 
-**Interface.** `aliquot serve` is the Conductor process. It holds the Ledger's writer for its lifetime. On Node's built-in `http`, with no framework, it serves four things: every Projection as JSON under `/api/`, the Ledger's Events as Server-Sent Events at `/api/events` with each Event's seq as its id, the Operator's actions at `POST /api/actions/<verb>`, and a single-page application. An action runs the lifecycle verb its command runs, as the Operator, and answers with the Event it appended or the Ledger's refusal. The application is plain TypeScript in `conductor/ui/`, compiled to ES modules with no bundler. Without Cloudflare Access, the Conductor serves `127.0.0.1` only. With Access, it admits only a request whose `Cf-Access-Jwt-Assertion` is signed by one of the team's published keys and names the application's audience and the Operator's email. README.md's Serve section lists the routes. Cloudflare Tunnel exposes the application at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the Operator's email. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
+**Interface.** `aliquot serve` is the Conductor process. It holds the Ledger's writer for its lifetime. On Node's built-in `http`, with no framework, it serves four things: every Projection as JSON under `/api/`, the Ledger's Events as Server-Sent Events at `/api/events` with each Event's seq as its id, the Operator's actions at `POST /api/actions/<verb>`, and a single-page application. An action runs the lifecycle verb its command runs, as the Operator named by the person the request came from, and answers with the Event it appended or the Ledger's refusal. `GET /api/operator` answers that person's email, which the Access landing shows. The application is plain TypeScript in `conductor/ui/`, compiled to ES modules with no bundler. Without Cloudflare Access, the Conductor serves `127.0.0.1` only, for the person `--operator` named at start. With Access, it admits only a request whose `Cf-Access-Jwt-Assertion` is signed by one of the team's published keys and names the application's audience and one of the emails a repeated `--operator-email` lists. README.md's Serve section lists the routes. Cloudflare Tunnel exposes the application at `agents.nitrolims-demo.com`, and Cloudflare Access admits only the listed emails. We prefer a subdomain to the path `app.nitrolims-demo.com/development`. A path would route through whatever serves `app.` today and would share its cookies.
 
 **Cost.** Everything on Cloudflare stays on the free tier, which covers Tunnel, Access for up to 50 users, and DNS. There is no Workers paid plan, no Containers, and no R2 beyond the free tier. The Ledger and the Artifact store stay on the Mac.
 
@@ -553,7 +557,7 @@ Each slice ends in something the Operator can check. The first edition is the ch
    - #73: one live run of the chat flow, from a receipt in the Lab Room to a decided `ExternalMessage` Gate, after #70, #71 and #72. Slice 2 is finished when its note is read.
 
    Two more items stay open. At gate G2 the owner applies the Tunnel and Access setup in `docs/ops/tunnel.md`. The Rooms and Scripts views still show their JSON as it came, until a ticket draws them.
-4. **Identity, before slice 3.** #74: every Event a person authors names the person by email, from the Cloudflare Access assertion in the interface and from `--operator` on the command line, and `aliquot serve` admits a list of people. Events written before it read as the unnamed Operator (ADR-0012). The email on the actor is the shape the seam to the human LIMS will use (ADR-0017).
+4. **Identity, before slice 3.** Done ([ADR-0019](../adr/0019-every-human-act-names-the-person.md)). #74: every Event a person authors names the person by email, from the Cloudflare Access assertion in the interface and from `--operator` on the command line, and `aliquot serve` admits a list of people. Events written before it read as the unnamed Operator (ADR-0012). The email on the actor is the shape the seam to the human LIMS will use (ADR-0017).
 5. **Slice 3, real work in parallel.** The same flow on the lab's real documents, run beside the lab's own work first (ADR-0018). #75: scrubbed copies of the real templates, in their layout, become Fixtures (the `anonymize` of the risks table). #76: stages 1 and 2 read the real Submission Form layout and write a shadow Receiving Log in the real columns and sheets, with a comparison against the rows the lab entered by hand. #77: reports in the real layouts, beside the lab's, once #76's comparisons are read. Slice 3 has started when the first comparison is read. Only after the Operator has judged the parallel run does a separate ticket write the real Receiving Log behind the `WriteSystemOfRecord` Gate.
 
 After slice 3, by the owner's word: the Client submission interface, where a Client gives text, .csv, .xlsx or .txt, a model on Sonnet or Haiku fills the lab's Submission Form, the Client confirms it, and the Client sees status and downloads the report; the seam to aliquot-lims-dev; and the login mechanism, chosen last, before deployment.

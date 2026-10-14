@@ -11,7 +11,7 @@ import type { AgentId, GateId } from "../ids.js";
 import type { Projections } from "../projections.js";
 import { Refusal } from "../reduce.js";
 import { Action, isAction } from "../types/action.js";
-import { actorText, type EventActor } from "../types/actor.js";
+import { actorText, type EventActor, sameRole } from "../types/actor.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { tierCauseRefusal, tierRefusal } from "../vitality/trust.js";
 import { notInOrg } from "./projection.js";
@@ -73,7 +73,7 @@ export const retirementGate = (
 
 /** A definition's author is the actor that writes it (ADR-0005). */
 const authorRefusal = (event: Event, definition: AgentDefinition) =>
-	canonicalJson(definition.revised_by) === canonicalJson(event.actor)
+	sameRole(definition.revised_by, event.actor)
 		? undefined
 		: `${definition.id}'s definition names ${actorText(definition.revised_by)} as revised_by, but the actor is ${actorText(event.actor)}`;
 

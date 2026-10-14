@@ -9,6 +9,7 @@ import { dirname, extname, resolve, sep } from "node:path";
 import type { Ledger } from "../ledger.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
 import type { SchedulerReport } from "../scheduler/scheduler.js";
+import { type Email, person } from "../types/actor.js";
 import type { Admit } from "./access.js";
 import { runAction } from "./actions.js";
 import {
@@ -20,17 +21,24 @@ import {
 } from "./routes.js";
 import { eventStream, lastEventId } from "./sse.js";
 
+/**
+ * Behind Cloudflare Access, each request comes from the person Access vouches
+ * for. Without it, every request comes from the one person named when the
+ * Conductor started, and the Conductor answers only requests addressed to the
+ * loopback host, so a page on another site cannot reach it by rebinding a
+ * hostname to 127.0.0.1.
+ */
+export type People =
+	| { readonly tag: "Access"; readonly admit: Admit }
+	| { readonly tag: "Local"; readonly email: Email };
+
 export type ServeOptions = {
 	readonly port: number;
 	readonly bind: string;
 	/** The compiled single-page application: `index.html` and its modules. */
 	readonly ui: string;
-	/**
-	 * Cloudflare Access. Without it the Conductor answers only requests addressed
-	 * to the loopback host, so a page on another site cannot reach it by
-	 * rebinding a hostname to 127.0.0.1.
-	 */
-	readonly admit?: Admit;
+	/** Who each request comes from, the person every action names. */
+	readonly people: People;
 	/** The Scheduler's last Tick, for `GET /api/scheduler`; absent under `--no-schedule`. */
 	readonly scheduler?: () => SchedulerReport;
 };
@@ -126,7 +134,9 @@ export const serve = async (
 	let loopbackHosts: ReadonlySet<string> = new Set();
 
 	const route = async (req: IncomingMessage, res: ServerResponse) => {
-		if (options.admit === undefined) {
+		const { people } = options;
+		let email: Email | undefined;
+		if (people.tag === "Local") {
 			if (!loopbackHosts.has(req.headers.host ?? "")) {
 				return text(
 					res,
@@ -134,16 +144,25 @@ export const serve = async (
 					"the Conductor answers only 127.0.0.1 without Cloudflare Access",
 				);
 			}
-		} else if (!(await options.admit(req))) {
-			res.writeHead(401);
-			return res.end();
+			email = people.email;
+		} else {
+			email = await people.admit(req);
+			if (email === undefined) {
+				res.writeHead(401);
+				return res.end();
+			}
 		}
 
 		const url = new URL(req.url ?? "/", "http://conductor");
 		const path = url.pathname;
 		const action = /^\/api\/actions\/([^/]+)$/.exec(path)?.[1];
 		if (req.method === "POST" && action !== undefined) {
-			const result = runAction(ledger, action, await readJsonBody(req));
+			const result = runAction(
+				ledger,
+				action,
+				await readJsonBody(req),
+				person(email),
+			);
 			return result.status === 200
 				? json(res, toJson(result.event))
 				: text(res, result.status, result.text);
@@ -151,6 +170,7 @@ export const serve = async (
 		if (req.method !== "GET")
 			return text(res, 405, `${req.method} ${path} is not served`);
 
+		if (path === "/api/operator") return json(res, toJson({ email }));
 		if (path === "/api/events") {
 			const after = lastEventId(req, url);
 			if (after === "invalid")

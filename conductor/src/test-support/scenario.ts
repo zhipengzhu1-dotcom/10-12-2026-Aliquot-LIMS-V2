@@ -34,6 +34,7 @@ import type { Review, Score } from "../types/merit.js";
 import type { Task } from "../types/task.js";
 import { reviewerOf } from "../vitality/reviewers.js";
 import { recordEvaluation } from "../workflow/lifecycle.js";
+import { TEST_OPERATOR } from "./operator.js";
 
 export type Scores = Pick<
 	Review,
@@ -57,7 +58,7 @@ export const scores = (score: Score, overrides: Partial<Scores> = {}) => ({
 /** An Event that the Task lifecycle does not own, which a test may append itself. */
 export type NonTaskEvent = Exclude<NewEvent, { kind: TaskEventKind }>;
 
-const operator: Actor = { tag: "Operator" };
+const operator = TEST_OPERATOR;
 const artifact = ArtifactId.parse("a".repeat(64));
 
 /**
@@ -77,7 +78,7 @@ export const scenario = (
 		home === undefined
 			? openMemoryLedger({ ...opened, ...(storage && { storage }) })
 			: openLedger({ ...opened, home });
-	seedOrg(ledger);
+	seedOrg(ledger, operator);
 	// One stored Artifact and one registered Script, so Runs pass the Sandbox guards.
 	store(
 		ledger,
@@ -254,6 +255,7 @@ export const scenario = (
 		if (open === undefined) throw new Error(`${gate_id} was not stored`);
 		const { payload_hash } = open;
 		return decideGate(ledger, {
+			actor: operator,
 			gate_id,
 			payload_hash,
 			meaning,

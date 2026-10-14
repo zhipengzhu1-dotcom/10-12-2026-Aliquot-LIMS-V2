@@ -9,6 +9,10 @@ import { AgentId } from "../ids.js";
 import { pause } from "../org/lifecycle.js";
 import { rosterDefinitions } from "../org/seed.js";
 import { LAB_ROOM, seedRooms } from "../room/seed.js";
+import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Verb } from "./actions.js";
 import { type Serving, serve } from "./http.js";
@@ -301,9 +305,14 @@ const aliquot = ({ args, input = "" }: { args: string[]; input?: string }) =>
 beforeEach(async () => {
 	home = mkdtempSync(join(tmpdir(), "aliquot-actions-"));
 	s = scenario("2026-10-01T00:00:00.000Z", { home });
-	seedRooms(s.ledger);
+	seedRooms(s.ledger, TEST_OPERATOR);
 	stopped = false;
-	serving = await serve(s.ledger, { port: 0, bind: "127.0.0.1", ui: home });
+	serving = await serve(s.ledger, {
+		port: 0,
+		bind: "127.0.0.1",
+		ui: home,
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
+	});
 });
 
 afterEach(async () => {

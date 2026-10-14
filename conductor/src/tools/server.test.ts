@@ -14,6 +14,7 @@ import { openArtifacts } from "../sandbox/artifacts.js";
 import { register } from "../sandbox/lifecycle.js";
 import { assign, propose, start } from "../task/lifecycle.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
+import { TEST_OPERATOR } from "../test-support/operator.js";
 import { type Scenario, scenario } from "../test-support/scenario.js";
 import type { Actor } from "../types/actor.js";
 import { aliquotServer, preToolUse, sdkToolName } from "./sdk.js";
@@ -300,7 +301,7 @@ describe("the Agent's MCP server", () => {
 
 	it("says, reads and opens Rooms as the Agent, under the Room membership rule", async () => {
 		const [rin, ines] = [await as("rin"), await as("ines")];
-		seedRooms(s.ledger);
+		seedRooms(s.ledger, TEST_OPERATOR);
 
 		const said = await done(rin, "send_message", {
 			room_id: "RM-lab",
@@ -334,7 +335,7 @@ describe("the Agent's MCP server", () => {
 
 	it("stores the Operator's Message as an Other Artifact of its JSON, naming its MessageSent, once", async () => {
 		const [bram, rin] = [await as("bram"), await as("rin")];
-		seedRooms(s.ledger);
+		seedRooms(s.ledger, TEST_OPERATOR);
 		const { seq } = say(s.ledger, {
 			actor: { tag: "Operator" },
 			room_id: RoomId.parse("RM-lab"),

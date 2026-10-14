@@ -12,6 +12,9 @@ const IN_PROCESS = [
 
 export default defineConfig({
 	test: {
+		// Every command line a test spawns acts for this person, as README's
+		// examples do; a test of the refusal unsets it. TEST_OPERATOR matches it.
+		env: { ALIQUOT_OPERATOR: "operator@lab.test" },
 		projects: [
 			{
 				extends: true,

@@ -4,6 +4,10 @@ import { AgentId, RoomId } from "../src/ids.js";
 import { open, say } from "../src/room/lifecycle.js";
 import { seedRooms } from "../src/room/seed.js";
 import { type Serving, serve } from "../src/serve/http.js";
+import {
+	TEST_OPERATOR,
+	TEST_OPERATOR_EMAIL,
+} from "../src/test-support/operator.js";
 import { type Scenario, scenario } from "../src/test-support/scenario.js";
 import { answerText } from "./actions.js";
 import { chatView } from "./chat.js";
@@ -17,8 +21,13 @@ let serving: Serving;
 
 beforeEach(async () => {
 	s = scenario("2026-10-13T09:00:00.000Z");
-	seedRooms(s.ledger);
-	serving = await serve(s.ledger, { port: 0, bind: "127.0.0.1", ui: "." });
+	seedRooms(s.ledger, TEST_OPERATOR);
+	serving = await serve(s.ledger, {
+		port: 0,
+		bind: "127.0.0.1",
+		ui: ".",
+		people: { tag: "Local", email: TEST_OPERATOR_EMAIL },
+	});
 	const direct = globalThis.fetch;
 	vi.stubGlobal("fetch", (route: string, init?: RequestInit) =>
 		direct(`${serving.url}${route}`, init),
@@ -64,7 +73,7 @@ describe("the Chat view", () => {
 			opened_by: { tag: "Operator" },
 		});
 		const first = say(s.ledger, {
-			actor: { tag: "Operator" },
+			actor: TEST_OPERATOR,
 			room_id: lab,
 			body: "Received some samples from Acme",
 		});
@@ -83,7 +92,7 @@ describe("the Chat view", () => {
 		const page = await chatPage();
 
 		expect(listed(page)).toEqual([
-			`${first.seq} Operator: Received some samples from Acme`,
+			`${first.seq} operator@lab.test Operator: Received some samples from Acme`,
 			`${reply.seq} Odile A-odile: Which product, Lot and Product Code? &lt;b&gt;`,
 		]);
 		expect(page).toContain(`seq ${reply.seq}, replying to seq ${first.seq}`);
@@ -108,7 +117,7 @@ describe("the Chat view", () => {
 		expect(answerText(answer)).toMatch(/^Appended MessageSent at seq \d+$/);
 		expect(s.events().at(-1)).toMatchObject({
 			kind: "MessageSent",
-			actor: { tag: "Operator" },
+			actor: TEST_OPERATOR,
 			payload: {
 				room_id: "RM-lab",
 				body: "Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A",
@@ -117,7 +126,7 @@ describe("the Chat view", () => {
 		const after = listed(await chatPage());
 		expect(after).toHaveLength(2);
 		expect(after.at(-1)).toBe(
-			`${s.events().at(-1)?.seq} Operator: Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A`,
+			`${s.events().at(-1)?.seq} operator@lab.test Operator: Received 3 bottles of Vitamin C 500 mg capsules, Lot 2403A`,
 		);
 	});
 

@@ -4,7 +4,7 @@ The Chat view at `#/chat` shows the Lab Room `RM-lab`: every Message in seq orde
 
 ## Sub-features
 
-- `chat-list` draws `ol.chat` with one `li.message[data-seq="<seq>"]` per Message: `.said b` holds the sayer's name (an Agent's name with its id in `.said b .muted`; the Operator's is just `Operator`), a second `.muted` in `.said` holds the seq and `replying to seq <n>`, and `.body` the text, escaped.
+- `chat-list` draws `ol.chat` with one `li.message[data-seq="<seq>"]` per Message: `.said b` holds the sayer's name (an Agent's name with its id in `.said b .muted`; the Operator's is the person's email with `Operator` muted beside it, `verify@lab.test` in a verify run), a second `.muted` in `.said` holds the seq and `replying to seq <n>`, and `.body` the text, escaped.
 - `chat-say` is `form#chat-say[data-action="room-say"]` with the textarea `#chat-body`; its fixed body is `{"room_id":"RM-lab"}`.
 - `chat-redraw` draws a Message another client says without a reload, from the Event stream.
 - `chat-note` is the `.note` line about `aliquot intake`.
@@ -22,9 +22,9 @@ Preconditions:
 - The baseline of [README.md](./README.md): `RM-lab` holds Odile's Message and nothing else.
 
 - **Whole drive.** Run `scripts/drive.sh "$RUN" chat`.
-- **Say through the box.** `<base>` is the Ledger head before the drive (`sqlite3 "$RUN/home/ledger.sqlite" 'select max(seq) from events'`). `scripts/browser.mjs "$RUN" chat/ui goto '#/chat' mark wait '#chat-say' text 'li.message .said b' 'Odile' text '.note' 'aliquot intake' fill '#chat-body' '<report>' click '#chat-say button' text '#answer' 'Appended MessageSent at seq <base+1>' text 'li.message[data-seq="<base+1>"] .body' '<report>' text 'li.message[data-seq="<base+1>"] .said b' 'Operator'`.
+- **Say through the box.** `<base>` is the Ledger head before the drive (`sqlite3 "$RUN/home/ledger.sqlite" 'select max(seq) from events'`). `scripts/browser.mjs "$RUN" chat/ui goto '#/chat' mark wait '#chat-say' text 'li.message .said b' 'Odile' text '.note' 'aliquot intake' fill '#chat-body' '<report>' click '#chat-say button' text '#answer' 'Appended MessageSent at seq <base+1>' text 'li.message[data-seq="<base+1>"] .body' '<report>' text 'li.message[data-seq="<base+1>"] .said b' 'verify@lab.test'`.
 - **Redraw from another client.** Continue the same browser run with `outside room-say '{"room_id":"RM-lab","body":"verify: a second client says this"}' wait 'li.message[data-seq="<base+2>"]' wait 'ol.chat > li:last-child[data-seq="<base+2>"]' same-page`. The last wait proves newest last on the screen, not only in `/api/chat`.
-- **Proof.** `scripts/api.sh "$RUN" get chat` lists Odile's Message, then the two Operator Messages, in seq order; the Ledger holds exactly two new `MessageSent` rows by `{"tag":"Operator"}` in `RM-lab`.
+- **Proof.** `scripts/api.sh "$RUN" get chat` lists Odile's Message, then the two Operator Messages named `verify@lab.test`, in seq order; the Ledger holds exactly two new `MessageSent` rows by `{"email":"verify@lab.test","tag":"Operator"}` in `RM-lab`.
 
 ## Gotchas
 

@@ -5,7 +5,7 @@ The Ledger view at `#/ledger` shows the Events newest first, 50 a page, each wit
 ## Sub-features
 
 - `ledger-verdict` reads `Ledger verified: <n> Events, chain intact. Checked at <time> UTC.` in `p.verdict[role=status]`.
-- `ledger-rows` draws `tr#event-<seq>` newest first, 50 a page.
+- `ledger-rows` draws `tr#event-<seq>` newest first, 50 a page. The third cell is the actor: an Agent id, `Conductor`, the email of the person who acted as the Operator (`verify@lab.test` in a verify run), or `Operator (unnamed)` for an Event written before #74.
 - `ledger-payload` opens `details#payload-<seq>` on click; a redraw keeps it open.
 - `ledger-live` puts a new Event at the top of the newest page with no page load; the verdict and `Checked at` refresh with it.
 - `ledger-verify` re-reads the verdict from the `[data-reload]` Verify button; it does the same read the live refresh does, so prove it only with no Event in flight.
