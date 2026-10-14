@@ -32,6 +32,9 @@ step aliquot --home "$AQ_HOME" org seed
 step aliquot --home "$AQ_HOME" workflow run "$REPO/fixtures/submission-form-seed1.docx"
 step aliquot --home "$AQ_HOME" intake "$REPO/fixtures/submission-form-seed2.docx"
 step aliquot --home "$AQ_HOME" room seed
+# The parse Scripts the Conductor's Chains run; workflow run registered the stages.
+step aliquot --home "$AQ_HOME" sandbox register --name parse_message --owner A-bram --input-types Other --output-types SubmissionRecord
+step aliquot --home "$AQ_HOME" sandbox register --name parse_results_message --owner A-rin --input-types Other,WorkOrder --output-types Other
 greeting='Morning, everyone. What is the lab waiting on?'
 printf '$ echo %s | aliquot --home %s room say RM-lab --as A-odile\n' "'$greeting'" "$AQ_HOME" >>"$log"
 printf '%s\n' "$greeting" | aliquot --home "$AQ_HOME" room say RM-lab --as A-odile >>"$log" 2>&1 ||
@@ -82,7 +85,7 @@ cat >"$PROOF/proof.md" <<EOF
 
 - Run directory: \`$RUN\`
 - Commit: $(git -C "$REPO" rev-parse --short HEAD) on $(git -C "$REPO" branch --show-current)
-- Home: \`$AQ_HOME\`, seeded by [launch.log](launch.log): \`org seed\`, \`workflow run\` on seed 1, \`intake\` of seed 2, \`room seed\` and one Message by Odile in RM-lab
+- Home: \`$AQ_HOME\`, seeded by [launch.log](launch.log): \`org seed\`, \`workflow run\` on seed 1, \`intake\` of seed 2, \`room seed\`, the two parse Scripts registered, and one Message by Odile in RM-lab
 - Interface: $url, \`serve --no-schedule\`, pid $server, output in [serve.log](serve.log)
 EOF
 
