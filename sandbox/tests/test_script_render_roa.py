@@ -15,7 +15,11 @@ import pytest
 from openpyxl import load_workbook
 from test_script_compute_results import WEIGHINGS, WEIGHINGS_ID, noted
 from test_script_create_work_order import DATABASE_ID, ROW_ID, XLSX, put, query, run
-from test_script_verify_results import verification, worksheet
+from test_script_verify_results import (
+    nitrosamine_worksheet,
+    verification,
+    worksheet,
+)
 
 RECORD_ID = "9" * 64
 
@@ -346,3 +350,76 @@ def test_it_refuses_a_record_whose_work_order_has_no_sample_on_the_receiving_log
     assert result.returncode == 1
     assert "no Sample of Work Order WO-2026-0999" in result.stderr
     assert list(outputs.iterdir()) == []
+
+
+def nitrosamine_chain(tmp_path: Path) -> dict[str, Path]:
+    """Stages 2 to 5 on seed 1's expected record requesting two nitrosamines,
+    with the hand-worked readings: the four inputs stage 6 takes."""
+    stage5 = tmp_path / "stage5"
+    stage5.mkdir()
+    sheet, readings = nitrosamine_worksheet(stage5)
+    made, verified = verification(stage5, sheet, readings)
+    assert made.returncode == 0, made.stderr
+    return {
+        "record": verified / "verification_record.json",
+        "row": stage5 / "stage4" / "receipt-outputs" / "receiving_log_row.xlsx",
+        "weighings": readings,
+        "database": stage5 / "stage4" / "outputs" / "lims.sqlite",
+    }
+
+
+def test_it_renders_a_row_per_nitrosamine_in_the_unit_of_its_limit(tmp_path):
+    result, outputs = render(tmp_path, nitrosamine_chain(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    ws = load_workbook(outputs / "report_of_analysis.xlsx").active
+    assert [c.value for c in ws[22]] == [
+        "Test",
+        "Method",
+        "Specification",
+        "Result",
+        "Unit",
+        "Judgement",
+    ]
+    assert [[c.value for c in ws[row]][:6] for row in (23, 24)] == [
+        [
+            "Nitrosamine impurities: NDEA",
+            "QAL-SOP-207",
+            "NMT 46.4 ng/day",
+            45.0,
+            "ng/day",
+            "Pass",
+        ],
+        [
+            "Nitrosamine impurities: NDMA",
+            "QAL-SOP-207",
+            "NMT 0.02 ppm",
+            0.024,
+            "ppm",
+            "Fail",
+        ],
+    ]
+    assert ws.cell(27, 1).value == "Rendered By", "the signature area follows"
+    with pdfplumber.open(outputs / "report_of_analysis.pdf") as pdf:
+        text = pdf.pages[0].extract_text()
+    assert (
+        "Nitrosamine impurities: NDMA QAL-SOP-207 NMT 0.02 ppm 0.0240 ppm Fail" in text
+    )
+
+
+def test_a_reading_below_its_reporting_limit_is_reported_as_below_it(tmp_path):
+    given = nitrosamine_chain(tmp_path)
+    record = json.loads(given["record"].read_text())
+    for entry in record["nitrosamines"]:
+        entry["container"] = 3 - entry["container"]
+    given["record"] = tmp_path / "swapped.json"
+    given["record"].write_text(json.dumps(record))
+
+    result, outputs = render(tmp_path, given)
+
+    assert result.returncode == 0, result.stderr
+    ws = load_workbook(outputs / "report_of_analysis.xlsx").active
+    assert [[c.value for c in ws[row]][2:6] for row in (23, 24)] == [
+        ["NMT 46.4 ng/day", "< RL", "ppm", "Pass"],
+        ["NMT 0.02 ppm", 0.01, "ppm", "Pass"],
+    ]

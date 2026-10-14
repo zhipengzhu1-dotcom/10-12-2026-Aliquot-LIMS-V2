@@ -31,8 +31,22 @@
   },
   {
     "container": 7,
-    "weight_of_20_g": 8.2346,
-    "weight_taken_g": 0.4132
+    "nitrosamines": {
+      "weight_taken_mg": 243.42,
+      "final_volume_ml": 5.0,
+      "dilution": 1.0,
+      "max_daily_dose_mg": 3000.0,
+      "readings": {
+        "NMPA": {
+          "concentration_ng_ml": 1.9672,
+          "reporting_limit_ng_ml": 0.05
+        },
+        "NDMA": {
+          "concentration_ng_ml": 0.5984,
+          "reporting_limit_ng_ml": 0.05
+        }
+      }
+    }
   },
   {
     "container": 8,

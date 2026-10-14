@@ -814,19 +814,121 @@ const WorksheetReadBack = z.object({
 	sheet: z.array(z.array(Cell)),
 });
 
+/** One container's nitrosamine preparation and readings, as `compute_results` documents them. */
+const Preparation = z.object({
+	weight_taken_mg: z.number(),
+	final_volume_ml: z.number(),
+	dilution: z.number(),
+	max_daily_dose_mg: z.number().optional(),
+	readings: z.record(
+		z.string(),
+		z.object({
+			concentration_ng_ml: z.number(),
+			reporting_limit_ng_ml: z.number(),
+		}),
+	),
+});
+type Preparation = z.infer<typeof Preparation>;
+
 /**
  * The weighings file: one entry per container, as `synth` writes
- * `weighings.json`. Weighings read from the Operator's results Message
+ * `weighings.json`, weighed for Average capsule weight or carrying
+ * nitrosamine readings. Weighings read from the Operator's results Message
  * (`parse_results_message`) also give each entry the notebook reference.
  */
 const Weighings = z.array(
 	z.object({
 		container: z.int(),
-		weight_of_20_g: z.number(),
-		weight_taken_g: z.number(),
+		weight_of_20_g: z.number().optional(),
+		weight_taken_g: z.number().optional(),
+		nitrosamines: Preparation.optional(),
 		notebook_reference: z.string().min(1).optional(),
 	}),
 );
+type Weighing = z.infer<typeof Weighings>[number];
+
+/** The entries weighed for Average capsule weight. */
+const capsulesOf = (weighings: readonly Weighing[]) =>
+	weighings.flatMap(({ container, weight_of_20_g, weight_taken_g }) =>
+		weight_of_20_g === undefined || weight_taken_g === undefined
+			? []
+			: [{ container, weight_of_20_g, weight_taken_g }],
+	);
+
+export const NITROSAMINE_COLUMNS = [
+	"#",
+	"Analyte",
+	"Wt Taken (mg)",
+	"VF (mL)",
+	"Dilution",
+	"Conc. (mg/mL)",
+	"Measured (ng/mL)",
+	"Reporting Limit (ng/mL)",
+	"Content (ppm)",
+	"Max Daily Dose (mg/day)",
+	"Intake (ng/day)",
+	"Limit",
+	"Judgement",
+] as const;
+
+/** How far a nitrosamine result may be from this Evaluation's arithmetic, relative to it. */
+export const NITROSAMINE_TOLERANCE = 1e-6;
+
+const near = (value: unknown, expected: number | undefined) =>
+	typeof value === "number" &&
+	expected !== undefined &&
+	Math.abs(value - expected) <=
+		NITROSAMINE_TOLERANCE * Math.max(1, Math.abs(expected));
+
+type Nitrosamine = {
+	/** ng/mL over the weight taken / VF * dilution: ng per mg, a ppm. */
+	readonly content: number;
+	/** The content times the maximum daily dose, in ng/day, without a dose undefined. */
+	readonly intake: number | undefined;
+	readonly below: boolean;
+};
+
+/** One analyte's results from its container's preparation, as `compute_results` documents the arithmetic. */
+const nitrosamineOf = (
+	given: Preparation | undefined,
+	analyte: string,
+): Nitrosamine | undefined => {
+	const reading = given?.readings[analyte];
+	if (given === undefined || reading === undefined) return undefined;
+	const mgPerMl =
+		(given.weight_taken_mg / given.final_volume_ml) * given.dilution;
+	const content = reading.concentration_ng_ml / mgPerMl;
+	return {
+		content,
+		intake:
+			given.max_daily_dose_mg === undefined
+				? undefined
+				: content * given.max_daily_dose_mg,
+		below: reading.concentration_ng_ml < reading.reporting_limit_ng_ml,
+	};
+};
+
+/**
+ * The judgement of one analyte against its Work Order limit, the rule
+ * `compute_results` documents: no limit and an `unread:` limit are not
+ * judged, a reading below its reporting limit passes, a limit in ng/day
+ * needs a daily dose, and otherwise the result in the limit's unit (a ppm
+ * is 1000 ng/g) passes when it is at most the limit.
+ */
+export const judgementOf = (limit: string, found: Nitrosamine): string => {
+	if (limit === "") return "No limit";
+	if (limit.startsWith("unread: ")) return "Limit unread";
+	if (found.below) return "Pass";
+	const [number = "", unit] = limit.split(" ");
+	const measured =
+		unit === "ng/day"
+			? found.intake
+			: unit === "ng/g"
+				? found.content * 1000
+				: found.content;
+	if (measured === undefined) return "No daily dose";
+	return measured <= Number(number) ? "Pass" : "Fail";
+};
 
 /** The label of the notebook reference in the worksheet's header and the report's signature area. */
 export const NOTEBOOK_LABEL = "Notebook Reference";
@@ -889,6 +991,110 @@ const readResults = (artifact: StageArtifact): Results =>
 	}));
 
 /**
+ * Stage 4's checks of the worksheet's nitrosamine block, from its column
+ * row at `header` (-1 when it has none) to the first row without a
+ * container: each row's Conc., Content and Intake are the formulas
+ * `compute_results` documents (Intake blank without a daily dose), its
+ * typed values are its container's preparation and its analyte's reading,
+ * and its Judgement is `judgementOf` its Limit. Each row's `results` rows
+ * hold the content in ppm and, with a dose, the intake in ng/day, within
+ * `NITROSAMINE_TOLERANCE`. Every reading has a row, and every Lab Reference
+ * the Work Order plans for Nitrosamine impurities has readings.
+ */
+const checkNitrosamines = (
+	sheet: readonly (readonly Cell[])[],
+	header: number,
+	weighings: readonly Weighing[],
+	refs: readonly string[],
+	before: Results,
+	after: Results,
+	check: (ok: boolean, finding: string) => void,
+): void => {
+	const given = new Map(
+		weighings.flatMap((w) =>
+			w.nitrosamines ? [[w.container, w.nitrosamines] as const] : [],
+		),
+	);
+	const body = header < 0 ? [] : sheet.slice(header + 1);
+	const end = body.findIndex(
+		(cells) => cells[0] === null || cells[0] === undefined,
+	);
+	const rows = body
+		.slice(0, end < 0 ? body.length : end)
+		.map((cells, i) => ({ at: header + 2 + i, cells }));
+	const refOf = new Map(
+		refs.map((ref) => [before.containers.get(ref), ref] as const),
+	);
+	for (const { at, cells } of rows) {
+		const [container, analyte, taken, vf, dilution, conc, measured, rl] = cells;
+		const [content, dose, intake, limit, judgement] = cells.slice(8);
+		const prep =
+			typeof container === "number" ? given.get(container) : undefined;
+		const name = String(analyte);
+		const reading = prep?.readings[name];
+		const where = `row ${at} (container ${shown(container)}, ${shown(analyte)})`;
+		const formulas = [
+			`=C${at}/D${at}*E${at}`,
+			`=G${at}/F${at}`,
+			prep?.max_daily_dose_mg === undefined ? null : `=I${at}*J${at}`,
+		];
+		check(
+			[conc, content, intake].every((cell, i) => cell === formulas[i]),
+			`${where}: Conc., Content and Intake are ${[conc, content, intake].map(shown).join(", ")}, not the formulas ${formulas.map(shown).join(", ")}`,
+		);
+		check(
+			prep !== undefined &&
+				reading !== undefined &&
+				taken === prep.weight_taken_mg &&
+				vf === prep.final_volume_ml &&
+				dilution === prep.dilution &&
+				measured === reading.concentration_ng_ml &&
+				rl === reading.reporting_limit_ng_ml &&
+				dose === (prep.max_daily_dose_mg ?? null),
+			`${where}: the typed values are not container ${shown(container)}'s preparation and ${name} reading`,
+		);
+		const found = nitrosamineOf(prep, name);
+		const expected = found && judgementOf(String(limit ?? ""), found);
+		check(
+			found !== undefined && judgement === expected,
+			`${where}: Judgement is ${shown(judgement)}, not ${expected ?? "(no reading)"} against the limit ${shown(limit)}`,
+		);
+		const ref =
+			typeof container === "number" ? refOf.get(container) : undefined;
+		const test = `${NITROSAMINE_IMPURITIES}: ${name}`;
+		const value = after.values.get(resultKey(ref ?? "", test));
+		check(
+			near(value, found?.content),
+			`${ref ?? where}: results holds ${value ?? "no row"} for ${test}, not ${found?.content ?? "(no reading)"} ppm`,
+		);
+		if (found?.intake !== undefined) {
+			const daily = after.values.get(resultKey(ref ?? "", `${test}, intake`));
+			check(
+				near(daily, found.intake),
+				`${ref ?? where}: results holds ${daily ?? "no row"} for ${test}, intake, not ${found.intake} ng/day`,
+			);
+		}
+	}
+	for (const [container, prep] of given) {
+		for (const analyte of Object.keys(prep.readings)) {
+			check(
+				rows.some(
+					({ cells }) => cells[0] === container && cells[1] === analyte,
+				),
+				`container ${container}: the worksheet has no row for its ${analyte} reading`,
+			);
+		}
+	}
+	for (const ref of refs) {
+		const container = before.containers.get(ref);
+		check(
+			container !== undefined && given.has(container),
+			`${ref}: the weighings give no nitrosamine readings for container ${container ?? "(none)"}`,
+		);
+	}
+};
+
+/**
  * Stage 4's Evaluation of its Run. On the worksheet: every container row's
  * average is the formula `=F<row>/20`, its two weights equal the weighing
  * of its container, every weighing has a row, the Mean row averages the
@@ -898,7 +1104,10 @@ const readResults = (artifact: StageArtifact): Results =>
  * Sample of the Work Order, as the carried version lists them, the
  * `results` row for "Average capsule weight" equals its container row's
  * weight of 20 capsules divided by 20, and its Work Order mean row equals
- * the mean of those, each within `RESULTS_TOLERANCE_G`. The worksheet
+ * the mean of those, each within `RESULTS_TOLERANCE_G`. A worksheet
+ * without that block passes this part only when the Work Order plans no
+ * Average capsule weight. A nitrosamine block, or a Work Order planning
+ * Nitrosamine impurities, gets `checkNitrosamines`. The worksheet
  * comes from `result_worksheet.json`, because the Conductor has no xlsx
  * reader; the weighings are the Run's `Other` input.
  */
@@ -924,10 +1133,59 @@ export const evaluateResults = ({ inputs, outputs }: RunArtifacts): Scored => {
 		const header = sheet.findIndex((row) =>
 			RESULT_WORKSHEET_COLUMNS.every((column, i) => row[i] === column),
 		);
-		if (header < 0) {
+		const nitrosamineHeader = sheet.findIndex((row) =>
+			NITROSAMINE_COLUMNS.every((column, i) => row[i] === column),
+		);
+		if (header < 0 && nitrosamineHeader < 0) {
 			throw new Unreadable(
 				`the worksheet has no row of the Result Worksheet's columns ${RESULT_WORKSHEET_COLUMNS.join(", ")}`,
 			);
+		}
+		const number = sheet.find((row) => row[0] === "Work Order")?.[1];
+
+		const findings: string[] = [];
+		let checks = 0;
+		const check = (ok: boolean, finding: string) => {
+			checks++;
+			if (!ok) findings.push(finding);
+		};
+		const checkNotebook = () => {
+			const notebook = notebookOf(weighings);
+			const headed = labelled(
+				sheet.slice(0, header < 0 ? nitrosamineHeader : header),
+				NOTEBOOK_LABEL,
+			);
+			check(
+				headed === notebook,
+				`the header's ${NOTEBOOK_LABEL} is ${shown(headed)}, not the weighings' ${notebook ?? "(none)"}`,
+			);
+		};
+		const planned = (test: string) =>
+			before.workOrders
+				.filter((r) => r.work_order === number && r.test === test)
+				.map((r) => r.lab_reference);
+		if (nitrosamineHeader >= 0 || planned(NITROSAMINE_IMPURITIES).length > 0) {
+			checkNitrosamines(
+				sheet,
+				nitrosamineHeader,
+				weighings,
+				planned(NITROSAMINE_IMPURITIES),
+				before,
+				after,
+				check,
+			);
+		}
+		if (header < 0) {
+			checkNotebook();
+			check(
+				planned(AVERAGE_WEIGHT_TEST).length === 0,
+				`Work Order ${shown(number)} plans ${AVERAGE_WEIGHT_TEST}, and the worksheet has no row of its columns`,
+			);
+			return {
+				score: (checks - findings.length) / checks,
+				passed: findings.length === 0,
+				findings,
+			};
 		}
 		const body = sheet.slice(header + 1);
 		const meanAt = body.findIndex((row) => row[WEIGHT_TAKEN] === "Mean");
@@ -939,15 +1197,8 @@ export const evaluateResults = ({ inputs, outputs }: RunArtifacts): Scored => {
 			at: first + i,
 			cells,
 		}));
-		const number = sheet.find((row) => row[0] === "Work Order")?.[1];
-
-		const findings: string[] = [];
-		let checks = 0;
-		const check = (ok: boolean, finding: string) => {
-			checks++;
-			if (!ok) findings.push(finding);
-		};
-		const weighingOf = new Map(weighings.map((w) => [w.container, w]));
+		const capsules = capsulesOf(weighings);
+		const weighingOf = new Map(capsules.map((w) => [w.container, w]));
 		const averages = new Map<number, number>();
 		for (const { at, cells } of rows) {
 			const container = cells[CONTAINER];
@@ -973,7 +1224,7 @@ export const evaluateResults = ({ inputs, outputs }: RunArtifacts): Scored => {
 				averages.set(container, of20 / 20);
 			}
 		}
-		for (const { container } of weighings) {
+		for (const { container } of capsules) {
 			check(
 				rows.some(({ cells }) => cells[CONTAINER] === container),
 				`container ${container}: the worksheet has no row for its weighing`,
@@ -984,16 +1235,9 @@ export const evaluateResults = ({ inputs, outputs }: RunArtifacts): Scored => {
 			meanRow[AVERAGE] === meanFormula,
 			`the Mean row's Average Weight (g) is ${shown(meanRow[AVERAGE])}, not the formula ${meanFormula}`,
 		);
-		const notebook = notebookOf(weighings);
-		const headed = labelled(sheet.slice(0, header), NOTEBOOK_LABEL);
-		check(
-			headed === notebook,
-			`the header's ${NOTEBOOK_LABEL} is ${shown(headed)}, not the weighings' ${notebook ?? "(none)"}`,
-		);
+		checkNotebook();
 
-		const refs = before.workOrders
-			.filter((r) => r.work_order === number && r.test === AVERAGE_WEIGHT_TEST)
-			.map((r) => r.lab_reference);
+		const refs = planned(AVERAGE_WEIGHT_TEST);
 		check(
 			refs.length > 0,
 			`Work Order ${shown(number)} has no ${AVERAGE_WEIGHT_TEST} rows in the carried database`,
@@ -1038,13 +1282,29 @@ const Recomputed = z.object({
 	recomputed_g: z.number().nullable(),
 });
 
+/** A recomputed nitrosamine result of a Verification Record. */
+const RecomputedResult = z.object({ recomputed: z.number().nullable() });
+
+/** One analyte's entry of a Verification Record, the fields stages 5 and 6 read. */
+const VerifiedNitrosamine = z.object({
+	container: Cell,
+	analyte: Cell,
+	limit: z.string(),
+	below_reporting_limit: z.boolean(),
+	content_ppm: RecomputedResult,
+	intake_ng_day: RecomputedResult.nullable(),
+	judgement: Cell,
+});
+type VerifiedNitrosamine = z.infer<typeof VerifiedNitrosamine>;
+
 /** `verification_record.json` (schema `verification_record/1`), the fields stage 5 checks. */
 const VerificationRecordFile = z.object({
 	schema: z.literal("verification_record/1"),
 	worksheet: z.string(),
 	weighings: z.string(),
 	rows: z.array(Recomputed.extend({ container: Cell })),
-	mean: Recomputed,
+	mean: Recomputed.nullable(),
+	nitrosamines: z.array(VerifiedNitrosamine).default([]),
 	verdict: z.enum(["pass", "fail"]),
 });
 
@@ -1053,8 +1313,11 @@ const VerificationRecordFile = z.object({
  * Worksheet and the weighings the Run took; it has a row for every
  * weighing; each row's recomputed average is its container's weight of 20
  * capsules divided by 20, and the recomputed mean the mean of those, each
- * within `RESULTS_TOLERANCE_G`, computed here from the Run's weighings; and
- * its verdict is `pass` exactly when all of that agrees. The Run's
+ * within `RESULTS_TOLERANCE_G`, computed here from the Run's weighings. It
+ * has an entry for every nitrosamine reading, whose recomputed content and
+ * intake are this Evaluation's arithmetic within `NITROSAMINE_TOLERANCE`
+ * and whose judgement is `judgementOf` its limit. Its verdict is `pass`
+ * exactly when all of that agrees. The Run's
  * Artifacts name no Agent, so the rule that the Verifier is not the
  * worksheet's author is the workflow guard's, on whoever takes the Task.
  */
@@ -1093,10 +1356,11 @@ export const evaluateVerification = ({
 			value !== null &&
 			expected !== undefined &&
 			Math.abs(value - expected) <= RESULTS_TOLERANCE_G;
+		const capsules = capsulesOf(weighings);
 		const averageOf = new Map(
-			weighings.map((w) => [w.container, w.weight_of_20_g / 20]),
+			capsules.map((w) => [w.container, w.weight_of_20_g / 20]),
 		);
-		for (const { container } of weighings) {
+		for (const { container } of capsules) {
 			check(
 				record.rows.some((r) => r.container === container),
 				`container ${container}: the record has no row for its weighing`,
@@ -1113,11 +1377,38 @@ export const evaluateVerification = ({
 			);
 		}
 		const averages = [...averageOf.values()];
-		const mean = averages.reduce((sum, a) => sum + a, 0) / averages.length;
-		check(
-			within(record.mean.recomputed_g, mean),
-			`the Mean row's ${record.mean.formula ?? "typed value"} recomputes to ${record.mean.recomputed_g ?? "nothing"}, not ${mean}, the mean of the weighings' averages, within ${RESULTS_TOLERANCE_G} g`,
-		);
+		if (averages.length > 0 || record.mean !== null) {
+			const mean = averages.reduce((sum, a) => sum + a, 0) / averages.length;
+			check(
+				within(record.mean?.recomputed_g ?? null, mean),
+				`the Mean row's ${record.mean?.formula ?? "typed value"} recomputes to ${record.mean?.recomputed_g ?? "nothing"}, not ${mean}, the mean of the weighings' averages, within ${RESULTS_TOLERANCE_G} g`,
+			);
+		}
+		for (const { container, nitrosamines } of weighings) {
+			for (const analyte of Object.keys(nitrosamines?.readings ?? {})) {
+				const entry = record.nitrosamines.find(
+					(n) => n.container === container && n.analyte === analyte,
+				);
+				const where = `container ${container}, ${analyte}`;
+				const found = nitrosamineOf(nitrosamines, analyte);
+				if (entry === undefined || found === undefined) {
+					check(false, `${where}: the record has no entry for its reading`);
+					continue;
+				}
+				check(
+					near(entry.content_ppm.recomputed, found.content) &&
+						(found.intake === undefined
+							? (entry.intake_ng_day?.recomputed ?? null) === null
+							: near(entry.intake_ng_day?.recomputed, found.intake)),
+					`${where}: the record recomputes ${entry.content_ppm.recomputed ?? "nothing"} ppm and ${entry.intake_ng_day?.recomputed ?? "no"} ng/day, not ${found.content} ppm and ${found.intake ?? "no"} ng/day, within ${NITROSAMINE_TOLERANCE} of them`,
+				);
+				const expected = judgementOf(entry.limit, found);
+				check(
+					entry.judgement === expected,
+					`${where}: the worksheet judges ${shown(entry.judgement)}, not ${expected} against the limit ${shown(entry.limit)}`,
+				);
+			}
+		}
 		const agrees = findings.length === named;
 		check(
 			record.verdict === (agrees ? "pass" : "fail"),
@@ -1196,9 +1487,40 @@ const ReportReadBack = z.object({
 const VerifiedMean = z.object({
 	schema: z.literal("verification_record/1"),
 	work_order: z.string(),
-	mean: z.object({ recomputed_g: z.number().nullable() }),
+	mean: z.object({ recomputed_g: z.number().nullable() }).nullable(),
+	nitrosamines: z.array(VerifiedNitrosamine).default([]),
 	verdict: z.enum(["pass", "fail"]),
 });
+
+/**
+ * The Report of Analysis row of one analyte, as `render_roa` draws it from
+ * the record: the result in the unit of its limit (the intake for a limit
+ * in ng/day when there is one, the content in ng/g for a limit in ng/g,
+ * else the content in ppm), "< RL" below the reporting limit.
+ */
+export const reportedNitrosamine = (entry: VerifiedNitrosamine) => {
+	const unit = entry.limit.split(" ")[1] ?? "";
+	const intake = entry.intake_ng_day?.recomputed ?? null;
+	const content = entry.content_ppm.recomputed;
+	const [value, shownUnit] =
+		unit === "ng/day" && intake !== null
+			? [intake, unit]
+			: unit === "ng/g"
+				? [content === null ? null : content * 1000, unit]
+				: [content, "ppm"];
+	return {
+		test: `${NITROSAMINE_IMPURITIES}: ${shown(entry.analyte)}`,
+		specification:
+			entry.limit === ""
+				? "Report value"
+				: entry.limit.startsWith("unread: ")
+					? entry.limit.slice("unread: ".length)
+					: `NMT ${entry.limit}`,
+		value: entry.below_reporting_limit ? "< RL" : value,
+		unit: shownUnit,
+		judgement: entry.judgement,
+	};
+};
 
 /**
  * The strings a PDF's `Tj` operators show, one per line, read from the
@@ -1267,10 +1589,12 @@ const readReported = (
  * verdict pass. Every Client and metadata cell of the report equals the
  * value `REPORT_METADATA` names in the Sample's Receiving Log row and in
  * the database version the Run carried, and the Sample is on the record's
- * Work Order. The result equals
- * the record's recomputed mean within `RESULTS_TOLERANCE_G`. The PDF's text
- * shows the report's Lab Reference, Lot, Product Code and result to 4
- * places. The signature area's Notebook Reference, in the sheet and in the
+ * Work Order. When the record has a mean, the Average capsule weight
+ * result equals it within `RESULTS_TOLERANCE_G`. Each of the record's
+ * nitrosamine entries for the Sample's container has its row as
+ * `reportedNitrosamine` draws it, the result within 0.00005. The PDF's text
+ * shows the report's Lab Reference, Lot, Product Code and each result to 4
+ * places, or "< RL". The signature area's Notebook Reference, in the sheet and in the
  * PDF's text, is the notebook reference of the weighings the Run took, and
  * absent from the sheet when they name none. The `reports` row of the
  * version the Run wrote names the Sample, the report's Document Revision
@@ -1356,21 +1680,56 @@ export const evaluateReport = ({ inputs, outputs }: RunArtifacts): Scored => {
 			);
 		}
 
-		const result = resultRow[RESULT];
-		const mean = record.mean.recomputed_g;
-		check(
-			typeof result === "number" &&
-				mean !== null &&
-				Math.abs(result - mean) <= RESULTS_TOLERANCE_G,
-			`the result is ${shown(result)}, not the Verification Record's mean ${mean ?? "(none)"}, within ${RESULTS_TOLERANCE_G} g`,
+		const body = sheet.slice(header + 1);
+		const end = body.findIndex(
+			(row) => row[0] === null || row[0] === undefined,
 		);
+		const resultRows = body.slice(0, end < 0 ? body.length : end);
 		const text = pdfText(pdf.bytes);
-		const shownInPdf = [
+		const shownInPdf: [string, string | undefined][] = [
 			["Lab Reference", ref],
 			["Lot", cells.get("Lot")],
 			["Product Code", cells.get("Product Code")],
-			["result", typeof result === "number" ? result.toFixed(4) : undefined],
-		] as const;
+		];
+		if (record.mean !== null) {
+			const result = resultRows.find((row) => row[0] === AVERAGE_WEIGHT_TEST)?.[
+				RESULT
+			];
+			const mean = record.mean.recomputed_g;
+			check(
+				typeof result === "number" &&
+					mean !== null &&
+					Math.abs(result - mean) <= RESULTS_TOLERANCE_G,
+				`the result is ${shown(result)}, not the Verification Record's mean ${mean ?? "(none)"}, within ${RESULTS_TOLERANCE_G} g`,
+			);
+			shownInPdf.push([
+				"result",
+				typeof result === "number" ? result.toFixed(4) : undefined,
+			]);
+		}
+		const container = before.sample?.container;
+		for (const entry of record.nitrosamines) {
+			if (String(entry.container) !== container) continue;
+			const expected = reportedNitrosamine(entry);
+			const row = resultRows.find((r) => r[0] === expected.test);
+			const [, , specification, value, unit, judgement] = row ?? [];
+			check(
+				specification === expected.specification &&
+					(typeof expected.value === "number"
+						? typeof value === "number" &&
+							Math.abs(value - expected.value) <= 0.00005
+						: value === expected.value) &&
+					unit === expected.unit &&
+					judgement === expected.judgement,
+				`${expected.test}: the report holds ${row ? [specification, value, unit, judgement].map(shown).join(", ") : "no row"}, not the record's ${[expected.specification, expected.value, expected.unit, expected.judgement].map(shown).join(", ")}`,
+			);
+			shownInPdf.push([
+				`${expected.test} result`,
+				typeof expected.value === "number"
+					? expected.value.toFixed(4)
+					: (expected.value ?? undefined),
+			]);
+		}
 		for (const [what, value] of shownInPdf) {
 			check(
 				value !== undefined && text.split("\n").includes(value),

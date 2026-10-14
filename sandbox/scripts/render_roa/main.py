@@ -12,13 +12,20 @@ exactly one `Other`, the weighings stage 4 computed from, and exactly one
 The report is for the first Sample of the record's Work Order, by Lab
 Reference, that the Receiving Log row lists. Every metadata value is read
 from that Sample's Receiving Log row or from its `samples` row, as `CLIENT`
-and `METADATA` name the source of each; the Test from its `work_orders` row;
-the result is the record's recomputed mean, rounded to 4 places, and the
-unit is that of the Sample's `results` row for the Test. The letterhead, the Method, the
-Specification and the Document Revision belong to the report form, not to
-the Sample. The signature area names this Script and the Verification
-Record, whose Runs' actors the Ledger holds, and, below them, the notebook
-reference the weighings name, when they name one.
+and `METADATA` name the source of each; the Tests from its `work_orders`
+rows. For Average capsule weight the result is the record's recomputed
+mean, rounded to 4 places, and the unit is that of the Sample's `results`
+row for the Test. For Nitrosamine impurities there is one row per analyte
+the record lists for the Sample's container, `nitrosamine_row()`: the
+result in the unit of its limit (the intake in ng/day for a limit in ng/day
+when a daily dose was given, the content in ng/g for a limit in ng/g, else
+the content in ppm), recomputed by stage 5 and rounded to 4 places, or
+"< RL" below the reporting limit, and the record's judgement. The
+letterhead, the Methods, the Specification of a result without a limit and
+the Document Revision belong to the report form, not to the Sample. The
+signature area names this Script and the Verification Record, whose Runs'
+actors the Ledger holds, and, below them, the notebook reference the
+weighings name, when they name one.
 
 Outputs, typed in `/outputs/manifest.json`. The xlsx and the PDF are drawn
 from one `Report`, so they cannot disagree:
@@ -27,8 +34,9 @@ from one `Report`, so they cannot disagree:
   `sandbox/synth/report_of_analysis.py`. Letterhead in rows 1 to 5, the
   Client block from row 7 and the metadata block from row 12 (labels in
   column A, values in column B), the results table's columns in row 22 and
-  its row in row 23, and the signature area from row 26, with the
-  notebook reference's label and value in row 31.
+  its rows from row 23, and the signature area from two rows below the
+  last result (row 26 for one result), with the notebook reference's label
+  and value five rows below that.
 - `report_of_analysis.pdf` (`ReportOfAnalysis`): the same report, drawn by
   reportlab with uncompressed page streams and invariant metadata, so the
   stage 6 Evaluation reads its text from the bytes and the same report
@@ -76,8 +84,13 @@ TITLE = "REPORT OF ANALYSIS"
 SHEET = "Report of Analysis"
 DOCUMENT_REVISION = "Rev. 03"
 METHOD = "QAL-SOP-114"
+NITROSAMINE_METHOD = "QAL-SOP-207"
 SPECIFICATION = "Report value"
-RESULT_COLUMNS = ("Test", "Method", "Specification", "Result", "Unit")
+RESULT_COLUMNS = ("Test", "Method", "Specification", "Result", "Unit", "Judgement")
+AVERAGE_CAPSULE_WEIGHT = "Average capsule weight"
+NITROSAMINE_IMPURITIES = "Nitrosamine impurities"
+BELOW_REPORTING_LIMIT = "< RL"
+UNREAD = "unread: "
 SIGNATURE_ROLES = ("Rendered By", "Verified By")
 NOTEBOOK_LABEL = "Notebook Reference"
 
@@ -137,6 +150,7 @@ METADATA: tuple[tuple[str, Source], ...] = (
 )
 
 Value = str | date | time
+Result = tuple[str, str, str, float | str, str, str | None]
 
 
 class ReportError(Exception):
@@ -149,7 +163,7 @@ class Report:
 
     client: tuple[tuple[str, Value], ...]
     metadata: tuple[tuple[str, Value], ...]
-    result: tuple[str, str, str, float, str]
+    results: tuple[Result, ...]
     signatures: tuple[tuple[str, str], ...]
     notebook: str | None
 
@@ -236,21 +250,69 @@ def read_receiving_log(path: Path) -> dict[str, dict[str, object]]:
     }
 
 
-def read_record(path: Path) -> tuple[str, float, str]:
-    """The record's Work Order, recomputed mean and verdict."""
+@dataclass(frozen=True)
+class Verified:
+    work_order: str
+    mean: float | None
+    verdict: str
+    nitrosamines: list[dict]
+
+
+def read_record(path: Path) -> Verified:
+    """The record's Work Order, recomputed mean, verdict and nitrosamine rows."""
     try:
         record = json.loads(path.read_text())
     except json.JSONDecodeError as error:
         raise ReportError(f"the Verification Record is not JSON: {error}") from error
     if record.get("schema") != "verification_record/1":
         raise ReportError("the Verification Record is not verification_record/1")
-    work_order, mean = record.get("work_order"), record.get("mean", {})
+    work_order, mean = record.get("work_order"), record.get("mean") or {}
     value = mean.get("recomputed_g") if isinstance(mean, dict) else None
     if not isinstance(work_order, str) or not work_order:
         raise ReportError("the Verification Record names no Work Order")
-    if not isinstance(value, int | float) or isinstance(value, bool):
-        raise ReportError("the Verification Record has no recomputed mean")
-    return work_order, float(value), str(record.get("verdict"))
+    if value is not None and (
+        not isinstance(value, int | float) or isinstance(value, bool)
+    ):
+        raise ReportError("the Verification Record's mean is not a number")
+    nitrosamines = record.get("nitrosamines", [])
+    if not isinstance(nitrosamines, list):
+        raise ReportError("the Verification Record's nitrosamines is not a list")
+    return Verified(
+        work_order,
+        None if value is None else float(value),
+        str(record.get("verdict")),
+        nitrosamines,
+    )
+
+
+def nitrosamine_row(entry: dict) -> Result:
+    """One analyte's row of the results table, from the record's entry."""
+    limit = entry["limit"]
+    content = entry["content_ppm"]["recomputed"]
+    intake = (entry["intake_ng_day"] or {}).get("recomputed")
+    unit = limit.partition(" ")[2]
+    if unit == "ng/day" and intake is not None:
+        value = intake
+    elif unit == "ng/g":
+        value = None if content is None else content * 1000
+    else:
+        value, unit = content, "ppm"
+    if not isinstance(value, int | float):
+        raise ReportError(f"the record has no recomputed {entry['analyte']} {unit}")
+    if not limit:
+        specification = SPECIFICATION
+    elif limit.startswith(UNREAD):
+        specification = limit.removeprefix(UNREAD)
+    else:
+        specification = f"NMT {limit}"
+    return (
+        f"{NITROSAMINE_IMPURITIES}: {entry['analyte']}",
+        NITROSAMINE_METHOD,
+        specification,
+        BELOW_REPORTING_LIMIT if entry["below_reporting_limit"] else round(value, 4),
+        unit,
+        entry["judgement"],
+    )
 
 
 def build_report(
@@ -260,28 +322,46 @@ def build_report(
     record_id: str,
     notebook: str | None,
 ) -> Report:
-    work_order, mean, verdict = read_record(record)
+    verified = read_record(record)
+    work_order = verified.work_order
     tests = db.execute(
         "SELECT lab_reference, test FROM work_orders WHERE work_order = ?"
         " ORDER BY lab_reference",
         (work_order,),
     ).fetchall()
-    on_log = [(ref, test) for ref, test in tests if ref in receiving_log]
+    on_log = [ref for ref, _ in tests if ref in receiving_log]
     if not on_log:
         raise ReportError(
             f"no Sample of Work Order {work_order} is on the Receiving Log row"
         )
-    ref, test = on_log[0]
+    ref = on_log[0]
     sample = db.execute(
         "SELECT * FROM samples WHERE lab_reference = ?", (ref,)
     ).fetchone()
     if sample is None:
         raise ReportError(f"the carried database has no samples row for {ref}")
-    unit = db.execute(
-        "SELECT unit FROM results WHERE lab_reference = ? AND test = ?", (ref, test)
-    ).fetchone()
-    if unit is None or not unit["unit"]:
-        raise ReportError(f"the carried database has no {test} result for {ref}")
+    results: list[Result] = []
+    for test in sorted({t for r, t in tests if r == ref}):
+        if test == NITROSAMINE_IMPURITIES:
+            results += [
+                nitrosamine_row(entry)
+                for entry in verified.nitrosamines
+                if entry.get("container") == sample["container"]
+            ]
+            continue
+        unit = db.execute(
+            "SELECT unit FROM results WHERE lab_reference = ? AND test = ?",
+            (ref, test),
+        ).fetchone()
+        if unit is None or not unit["unit"]:
+            raise ReportError(f"the carried database has no {test} result for {ref}")
+        if verified.mean is None:
+            raise ReportError("the Verification Record has no recomputed mean")
+        results.append(
+            (test, METHOD, SPECIFICATION, round(verified.mean, 4), unit["unit"], None)
+        )
+    if not results:
+        raise ReportError(f"the Verification Record has no result for {ref}")
     row = receiving_log[ref]
 
     def value(label: str, source: Source) -> Value:
@@ -304,12 +384,12 @@ def build_report(
     return Report(
         client=tuple((label, value(label, s)) for label, s in CLIENT),
         metadata=tuple((label, value(label, s)) for label, s in METADATA),
-        result=(test, METHOD, SPECIFICATION, round(mean, 4), unit["unit"]),
+        results=tuple(results),
         signatures=(
             ("Rendered By", "render_roa"),
             (
                 "Verified By",
-                f"Verification Record {record_id[:12]}, verdict {verdict}",
+                f"Verification Record {record_id[:12]}, verdict {verified.verdict}",
             ),
         ),
         notebook=notebook,
@@ -339,17 +419,19 @@ def write_xlsx(report: Report, path: Path) -> None:
     results_header = 22
     for col, title in enumerate(RESULT_COLUMNS, start=1):
         ws.cell(results_header, col, title).font = Font(bold=True)
-    for col, value in enumerate(report.result, start=1):
-        ws.cell(results_header + 1, col, value)
+    for row, result in enumerate(report.results, start=results_header + 1):
+        for col, value in enumerate(result, start=1):
+            ws.cell(row, col, value)
+    signed = results_header + len(report.results) + 3
     for i, (role, who) in enumerate(report.signatures):
         col = 1 + 2 * i
-        ws.cell(26, col, role).font = Font(bold=True)
-        ws.cell(27, col, who)
-        ws.cell(28, col, "Signature: ______________")
-        ws.cell(29, col, "Date: ______________")
+        ws.cell(signed, col, role).font = Font(bold=True)
+        ws.cell(signed + 1, col, who)
+        ws.cell(signed + 2, col, "Signature: ______________")
+        ws.cell(signed + 3, col, "Date: ______________")
     if report.notebook is not None:
-        ws.cell(31, 1, NOTEBOOK_LABEL).font = Font(bold=True)
-        ws.cell(31, 2, report.notebook)
+        ws.cell(signed + 5, 1, NOTEBOOK_LABEL).font = Font(bold=True)
+        ws.cell(signed + 5, 2, report.notebook)
     ws.column_dimensions["A"].width = 22
     ws.column_dimensions["B"].width = 44
     wb.save(path)
@@ -381,12 +463,13 @@ def write_pdf(report: Report, path: Path) -> None:
             line(label, font="Helvetica-Bold")
             line(text_of(value), x=200)
     down(28)
-    xs = (72, 232, 312, 412, 492)
+    xs = (72, 262, 330, 420, 480, 530)
     for x, title in zip(xs, RESULT_COLUMNS, strict=True):
         line(title, x=x, font="Helvetica-Bold")
-    down(14)
-    for x, value in zip(xs, report.result, strict=True):
-        line(f"{value:.4f}" if isinstance(value, float) else value, x=x)
+    for result in report.results:
+        down(14)
+        for x, value in zip(xs, result, strict=True):
+            line(f"{value:.4f}" if isinstance(value, float) else value or "", x=x)
     down(42)
     top = y
     for i, (role, who) in enumerate(report.signatures):

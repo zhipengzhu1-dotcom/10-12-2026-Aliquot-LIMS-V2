@@ -1,7 +1,21 @@
 [
   {
     "container": 1,
-    "weight_of_20_g": 11.6715,
-    "weight_taken_g": 0.588
+    "nitrosamines": {
+      "weight_taken_mg": 226.14,
+      "final_volume_ml": 5.0,
+      "dilution": 1.0,
+      "max_daily_dose_mg": 1000.0,
+      "readings": {
+        "NDEA": {
+          "concentration_ng_ml": 1.6781,
+          "reporting_limit_ng_ml": 0.05
+        },
+        "NDMA": {
+          "concentration_ng_ml": 0.4993,
+          "reporting_limit_ng_ml": 0.05
+        }
+      }
+    }
   }
 ]

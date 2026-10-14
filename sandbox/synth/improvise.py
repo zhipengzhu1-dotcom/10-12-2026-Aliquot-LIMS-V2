@@ -23,7 +23,10 @@ received, Client (the company line) and receiver's initials are the first
 row's. Each line is one Sample in one container, as the lab logs one row per
 line, so its `Comments:` entry is `1 x <unit>`, the unit of the row's QTY
 RECD as the package. The weighings number the form's containers on from 1 in
-line order, as stage 2 numbers them.
+line order, as stage 2 numbers them. An FP line's container is weighed for
+Average capsule weight; an RM or IP line's carries nitrosamine readings
+instead (#85), drawn from a second generator so that the first draws
+what it drew before.
 
 Everything the log does not hold is invented with one seeded generator: the
 date submitted, contacts, streets, cities, phones and emails, the TAT code,
@@ -87,7 +90,7 @@ class LogRow:
 class Improvised:
     stem: str
     form: FilledForm
-    weighings: tuple[dict[str, float | int], ...]
+    weighings: tuple[dict, ...]
 
 
 def _text(value: object) -> str:
@@ -275,6 +278,7 @@ def _unlogged(rows: list[LogRow], rng: random.Random) -> LogRow:
 def improvise(log: Path) -> list[Improvised]:
     rows = read_log(log)
     inventor = Inventor(SEED)
+    readings = random.Random(SEED + 1)
     planned = submissions(rows)
     planned.append(("unlogged-sample", [_unlogged(rows, inventor.rng)]))
     tat_codes = sorted(TAT_CODES)
@@ -286,8 +290,38 @@ def improvise(log: Path) -> list[Improvised]:
             lines = tuple(replace(line, lot=_mistyped(line.lot)) for line in form.lines)
             form = replace(form, lines=lines)
         containers = sum(line.containers for line in form.lines)
-        out.append(Improvised(stem, form, inventor.weighings(containers)))
+        weighings = inventor.weighings(containers)
+        out.append(Improvised(stem, form, _with_readings(form, weighings, readings)))
     return out
+
+
+def _with_readings(
+    form: FilledForm, weighings: tuple[dict, ...], rng: random.Random
+) -> tuple[dict, ...]:
+    """The weighings, with each nitrosamine line's container weighed for its
+    analytes instead of for Average capsule weight."""
+    out = list(weighings)
+    for n, line in enumerate(form.lines):
+        if line.tests == TEST_REQUESTED:
+            continue
+        analytes = [a.strip() for a in line.tests.split(":", 1)[1].split(",")]
+        out[n] = {
+            "container": weighings[n]["container"],
+            "nitrosamines": {
+                "weight_taken_mg": round(rng.uniform(200, 500), 2),
+                "final_volume_ml": 5.0,
+                "dilution": 1.0,
+                "max_daily_dose_mg": float(rng.choice((500, 1000, 1500, 3000))),
+                "readings": {
+                    a: {
+                        "concentration_ng_ml": round(rng.uniform(0.02, 2.0), 4),
+                        "reporting_limit_ng_ml": 0.05,
+                    }
+                    for a in analytes
+                },
+            },
+        }
+    return tuple(out)
 
 
 def _party(party: Party) -> dict[str, str]:

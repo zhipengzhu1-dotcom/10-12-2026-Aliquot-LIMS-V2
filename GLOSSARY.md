@@ -337,8 +337,12 @@ What the lab knows about a Test: its name, the words in a Client's request that 
 _Avoid_: test type, test code
 
 **Nitrosamine impurities**:
-The Test for N-nitrosamines in a drug substance or product. Its analytes are the nitrosamines the Client names: a small nitrosamine such as NDMA or NDEA, or a drug-substance-related one named "N-nitroso-…". A request that says nitrosamines without naming one is refused, asking which. Computing its results is #85.
+The Test for N-nitrosamines in a drug substance or product. Its analytes are the nitrosamines the Client names: a small nitrosamine such as NDMA or NDEA, or a drug-substance-related one named "N-nitroso-…". A request that says nitrosamines without naming one is refused, asking which. Stage 4 computes each analyte's content in ppm (ng per mg) and, with a maximum daily dose, its intake in ng/day, and judges it against its limit in the limit's own unit.
 _Avoid_: NDSRI testing, nitrosamine screen
+
+**Reporting limit**:
+The lowest concentration of an analyte the method reports as a number, in ng/mL, given with each reading. A reading below it is reported "< RL" and passes any limit.
+_Avoid_: LOQ, detection limit
 
 **Analyte**:
 The substance a Test measures in a Sample, one row of the Work Order each, with its limit from the form's LIMITS. A Test such as Average capsule weight has none.

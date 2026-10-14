@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
-from test_script_compute_results import WEIGHINGS, WEIGHINGS_ID, results
+from test_script_compute_results import (
+    WEIGHINGS,
+    WEIGHINGS_ID,
+    nitrosamine_results,
+    results,
+)
 from test_script_create_work_order import XLSX, put, run
 
 WORKSHEET_ID = "d" * 64
@@ -87,6 +92,9 @@ def test_it_passes_the_worksheet_compute_results_wrote(tmp_path):
             "within_tolerance": True,
         },
         "missing_containers": [],
+        "tolerance_relative": 1e-06,
+        "nitrosamines": [],
+        "missing_readings": [],
         "verdict": "pass",
     }
     assert "WO-2026-0001: pass" in result.stdout
@@ -149,3 +157,79 @@ def test_it_refuses_a_worksheet_without_the_columns_row(tmp_path):
     assert result.returncode == 1
     assert "no row of the Result Worksheet's columns" in result.stderr
     assert list(outputs.iterdir()) == []
+
+
+def nitrosamine_worksheet(tmp_path: Path) -> tuple[Path, Path]:
+    made, outputs = nitrosamine_results(tmp_path / "stage4")
+    assert made.returncode == 0, made.stderr
+    return outputs / "result_worksheet.xlsx", tmp_path / "stage4" / "readings.json"
+
+
+def test_it_recomputes_each_nitrosamine_result_and_judgement_from_the_readings(
+    tmp_path,
+):
+    sheet, readings = nitrosamine_worksheet(tmp_path)
+
+    result, outputs = verification(tmp_path, sheet, readings)
+
+    assert result.returncode == 0, result.stderr
+    record = record_of(outputs)
+    assert record["verdict"] == "pass"
+    assert (record["rows"], record["mean"], record["missing_readings"]) == (
+        [],
+        None,
+        [],
+    )
+    first, *_, last = record["nitrosamines"]
+    assert first == {
+        "row": 6,
+        "container": 1,
+        "analyte": "NDEA",
+        "limit": "46.4 ng/day",
+        "below_reporting_limit": False,
+        "content_ppm": {
+            "formula": "=G6/F6",
+            "recomputed": pytest.approx(0.03),
+            "expected": pytest.approx(0.03),
+            "within_tolerance": True,
+        },
+        "intake_ng_day": {
+            "formula": "=I6*J6",
+            "recomputed": pytest.approx(45.0),
+            "expected": pytest.approx(45.0),
+            "within_tolerance": True,
+        },
+        "judgement": "Pass",
+        "expected_judgement": "Pass",
+    }
+    assert (last["container"], last["analyte"], last["intake_ng_day"]) == (
+        2,
+        "NDMA",
+        None,
+    )
+    assert [n["judgement"] for n in record["nitrosamines"]] == [
+        "Pass",
+        "Fail",
+        "Pass",
+        "Pass",
+    ]
+
+
+def test_it_fails_a_typed_measurement_or_a_judgement_that_disagrees(tmp_path):
+    sheet, readings = nitrosamine_worksheet(tmp_path)
+    copy = tmp_path / "typed.xlsx"
+    wb = load_workbook(sheet)
+    wb.active["G7"] = 0.9
+    wb.active["M9"] = "Fail"
+    wb.save(copy)
+
+    result, outputs = verification(tmp_path, copy, readings)
+
+    assert result.returncode == 0, result.stderr
+    record = record_of(outputs)
+    ndea, ndma, _, last = record["nitrosamines"]
+    assert ndea["content_ppm"]["within_tolerance"] is True
+    assert ndma["content_ppm"]["recomputed"] == pytest.approx(0.018)
+    assert ndma["content_ppm"]["within_tolerance"] is False
+    assert (last["judgement"], last["expected_judgement"]) == ("Fail", "Pass")
+    assert record["verdict"] == "fail"

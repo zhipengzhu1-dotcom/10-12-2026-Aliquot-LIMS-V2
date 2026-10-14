@@ -1,23 +1,79 @@
 [
   {
     "container": 1,
-    "weight_of_20_g": 7.6651,
-    "weight_taken_g": 0.4125
+    "nitrosamines": {
+      "weight_taken_mg": 447.37,
+      "final_volume_ml": 5.0,
+      "dilution": 1.0,
+      "max_daily_dose_mg": 1000.0,
+      "readings": {
+        "NMPA": {
+          "concentration_ng_ml": 1.5845,
+          "reporting_limit_ng_ml": 0.05
+        },
+        "NMBA": {
+          "concentration_ng_ml": 1.3665,
+          "reporting_limit_ng_ml": 0.05
+        }
+      }
+    }
   },
   {
     "container": 2,
-    "weight_of_20_g": 7.7486,
-    "weight_taken_g": 0.3724
+    "nitrosamines": {
+      "weight_taken_mg": 246.98,
+      "final_volume_ml": 5.0,
+      "dilution": 1.0,
+      "max_daily_dose_mg": 500.0,
+      "readings": {
+        "NMPA": {
+          "concentration_ng_ml": 0.8783,
+          "reporting_limit_ng_ml": 0.05
+        },
+        "NDIPA": {
+          "concentration_ng_ml": 1.1739,
+          "reporting_limit_ng_ml": 0.05
+        }
+      }
+    }
   },
   {
     "container": 3,
-    "weight_of_20_g": 7.8699,
-    "weight_taken_g": 0.3655
+    "nitrosamines": {
+      "weight_taken_mg": 229.84,
+      "final_volume_ml": 5.0,
+      "dilution": 1.0,
+      "max_daily_dose_mg": 1500.0,
+      "readings": {
+        "NMPA": {
+          "concentration_ng_ml": 1.1296,
+          "reporting_limit_ng_ml": 0.05
+        },
+        "NEIPA": {
+          "concentration_ng_ml": 0.2874,
+          "reporting_limit_ng_ml": 0.05
+        }
+      }
+    }
   },
   {
     "container": 4,
-    "weight_of_20_g": 7.7335,
-    "weight_taken_g": 0.3543
+    "nitrosamines": {
+      "weight_taken_mg": 344.53,
+      "final_volume_ml": 5.0,
+      "dilution": 1.0,
+      "max_daily_dose_mg": 1500.0,
+      "readings": {
+        "NEIPA": {
+          "concentration_ng_ml": 1.6227,
+          "reporting_limit_ng_ml": 0.05
+        },
+        "NDBA": {
+          "concentration_ng_ml": 1.5486,
+          "reporting_limit_ng_ml": 0.05
+        }
+      }
+    }
   },
   {
     "container": 5,
