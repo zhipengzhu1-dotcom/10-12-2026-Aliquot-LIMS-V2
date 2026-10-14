@@ -6,6 +6,8 @@ import { openChains } from "../chain/chains.js";
 import { personOf } from "../cli-support.js";
 import { type Command, UsageError } from "../command.js";
 import { openLedger } from "../ledger.js";
+import { useSandbox } from "../sandbox/runner.js";
+import { openWarmSandbox } from "../sandbox/warm.js";
 import type { SchedulerOptions } from "../scheduler/plan.js";
 import { openScheduler } from "../scheduler/scheduler.js";
 import { loginFrom, loginText } from "../turn/auth.js";
@@ -110,7 +112,8 @@ const stopSignal = () =>
  * from start to SIGINT or SIGTERM, so a command that writes meanwhile is
  * refused by the writer lock, and closes it before it exits. Unless
  * `--no-schedule`, the Scheduler ticks meanwhile, and the Ledger closes only
- * once the Turns it started have finished.
+ * once the Turns it started have finished. Every Run it starts is a warm
+ * Run (ADR-0020), and it stops its warm containers before it exits.
  */
 export const serveCommand: Command = {
 	args: "[--port 8787] [--bind 127.0.0.1] [--access-team <team> --access-aud <aud> --operator-email <email>...] [--tick 15s] [--duty 30m] [--concurrency 2] [--budget <tokens>] [--no-schedule]",
@@ -169,6 +172,8 @@ export const serveCommand: Command = {
 				? { tag: "Local", email: personOf(ctx).email }
 				: { tag: "Access", admit: cloudflareAccess(access, { say }) };
 		const ledger = openLedger({ home, writer: true });
+		const sandbox = openWarmSandbox();
+		const restoreSandbox = useSandbox(sandbox);
 		let signal: NodeJS.Signals;
 		try {
 			const model = schedule ? chosenModel() : undefined;
@@ -204,6 +209,8 @@ export const serveCommand: Command = {
 			await serving.close();
 			await chains.settled();
 		} finally {
+			restoreSandbox();
+			await sandbox.close();
 			ledger.close();
 		}
 		ctx.stdout.write(`Stopped on ${signal}; the Ledger is closed\n`);

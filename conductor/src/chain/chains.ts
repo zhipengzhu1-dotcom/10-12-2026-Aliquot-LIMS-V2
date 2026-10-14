@@ -21,9 +21,10 @@ import { STAGES, type Stage, type StageArtifact } from "../workflow/stages.js";
 
 /**
  * How long the Operator waits for the reply to a receipt or results, from
- * their MessageSent to the Conductor's. #79's warm Sandbox brings it to 1 s.
+ * their MessageSent to the Conductor's, when the serve runs the Chain in its
+ * warm Sandbox (ADR-0020).
  */
-export const REPLY_BOUND_MS = 5_000;
+export const REPLY_BOUND_MS = 1_000;
 
 const CONDUCTOR = { tag: "Conductor" } as const;
 
@@ -171,7 +172,7 @@ export type Chains = {
 };
 
 /**
- * The Conductor's Chains (ADR-0020): it runs the Chain an Operator's Message
+ * The Conductor's Chains (ADR-0021): it runs the Chain an Operator's Message
  * starts, with no Turn and no model, and replies in the Room. Each of its
  * Events names its cause, back to the Message. Chains run one at a time,
  * since each reads the toy LIMS database the one before wrote.

@@ -21,8 +21,9 @@ A Message the Conductor takes, and its reply, wake no Agent: the Scheduler count
 
 ## Consequences
 
-- `aliquot serve` answers a receipt within 5 s of the Message and needs no model for it, so it answers under `--no-schedule` too. #79's warm Sandbox is to bring the bound to 1 s; the bound is one named constant, `REPLY_BOUND_MS`.
+- `aliquot serve` answers a receipt or results within 1 s of the Message, running each Run in its warm Sandbox (ADR-0020), and needs no model for it, so it answers under `--no-schedule` too. The bound is one named constant, `REPLY_BOUND_MS`.
 - A receipt or results said with `room say` on the command line is not taken: the Chain runs only in the serve. It goes to the Agents as before.
 - A Chain that stops at a stage fails its Task, naming why, and the reply says where it stopped.
-- If the serve stops while a Chain runs, the taken Message has no reply and no Agent takes it up. The Operator says it again.
+- On SIGINT or SIGTERM the serve waits for the running and queued Chains before it closes the Ledger. If the serve dies while a Chain runs, the taken Message has no reply and no Agent takes it up. The Operator says it again.
+- The first Run after the serve starts also starts its warm container, so the first Message's reply includes that start; it was 503 ms when first measured.
 - A Chain's carried Artifacts, such as the toy LIMS database, are the latest of their type a Run wrote whose Evaluation passed, so a Chain's Task need not be Done for the next Chain to carry its database.

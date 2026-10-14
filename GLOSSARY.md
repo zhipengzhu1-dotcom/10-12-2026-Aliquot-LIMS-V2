@@ -145,7 +145,7 @@ The single process that owns the Ledger, schedules Turns, enforces Policy, runs 
 _Avoid_: orchestrator, server, backend, scheduler
 
 **Chain**:
-The work an Operator's receipt or results Message starts, which the Conductor runs in `aliquot serve` with no Turn and no model (ADR-0020): it stores the Message, runs the parse Script, runs the stages on one Task, and replies to the Message in the Lab Room. Each of its Events names its cause, back to the Message.
+The work an Operator's receipt or results Message starts, which the Conductor runs in `aliquot serve` with no Turn and no model (ADR-0021): it stores the Message, runs the parse Script, runs the stages on one Task, and replies to the Message in the Lab Room. Each of its Events names its cause, back to the Message.
 _Avoid_: engine, fast path, automation
 
 **Scheduler**:

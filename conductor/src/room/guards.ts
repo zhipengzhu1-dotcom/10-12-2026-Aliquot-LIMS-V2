@@ -29,7 +29,7 @@ const roomOpened: AppendGuard = (projections, event) => {
 /**
  * A Message is said by a member of an open Room, and answers one in it. The
  * Conductor belongs to no Room, but it answers an Operator's Message it took
- * to run as a Chain (ADR-0020), and only that one.
+ * to run as a Chain (ADR-0021), and only that one.
  */
 const messageSent: AppendGuard = (projections, event) => {
 	if (event.kind !== "MessageSent") return undefined;

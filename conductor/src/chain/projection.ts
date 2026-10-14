@@ -2,7 +2,7 @@ import type { RoomId, Seq } from "../ids.js";
 import { type Projection, Refusal } from "../reduce.js";
 import type { Message } from "../room/projection.js";
 
-/** The Operator's Messages the Conductor took to run as Chains (ADR-0020). */
+/** The Operator's Messages the Conductor took to run as Chains (ADR-0021). */
 export type ChainState = {
 	/**
 	 * Each taken Message's seq and Room. The Conductor takes a Message by

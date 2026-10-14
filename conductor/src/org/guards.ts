@@ -129,7 +129,7 @@ const CONDUCTOR_ACTS: ReadonlySet<EventKind> = new Set([
 ]);
 
 /**
- * The Events the Conductor records when it runs a Chain (ADR-0020), the work
+ * The Events the Conductor records when it runs a Chain (ADR-0021), the work
  * an Operator's Message starts. Each names its cause, so the causes of every
  * one reach that Message; the rules an Agent's act of the same kind meets
  * apply unchanged.

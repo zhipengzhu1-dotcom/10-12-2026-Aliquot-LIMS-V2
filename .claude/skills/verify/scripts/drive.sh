@@ -289,8 +289,8 @@ drive_chat() {
 		replied=$(sql "select round((julianday(r.ts) - julianday(o.ts)) * 86400000) from events o join events r on r.causation_id = o.seq and r.kind = 'MessageSent' and r.actor = '$conductor' where o.seq = $m")
 		replied=${replied%.0}
 		printf 'seq %s answered after %s ms\n' "$m" "$replied" >>"$out/reply-times.txt"
-		expect "the Conductor's reply to seq $m was appended ${replied:-never} ms after it, within the 5000 ms bound ([reply-times.txt]($feature/reply-times.txt))" \
-			test "${replied:-99999}" -lt 5000
+		expect "the Conductor's reply to seq $m was appended ${replied:-never} ms after it, within the 1000 ms bound ([reply-times.txt]($feature/reply-times.txt))" \
+			test "${replied:-99999}" -lt 1000
 	done
 	expect "no Agent got a Turn: no TurnStarted since the drive began" \
 		same "$(sql "select count(*) from events where seq > $base and kind = 'TurnStarted'")" 0

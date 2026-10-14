@@ -61,7 +61,7 @@ export const storeMessage = (ctx: ToolContext, actor: Actor, seq: Seq) => {
 /**
  * Store an Operator's Message as `storeMessage` does, by `actor`, which the
  * caller has already found may store it: an Agent of its Room, or the
- * Conductor taking it for a Chain (ADR-0020).
+ * Conductor taking it for a Chain (ADR-0021).
  */
 export const storeOperatorMessage = (
 	ctx: Pick<ToolContext, "ledger" | "home">,

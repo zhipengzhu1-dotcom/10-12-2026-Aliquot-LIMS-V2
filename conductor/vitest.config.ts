@@ -10,8 +10,12 @@ const IN_PROCESS = [
 	"ui/**/*.test.ts",
 ];
 
-// The Chains' tests assert how soon the Conductor replies, so they run after
-// every other suite, with the machine's Docker to themselves.
+// The warm Sandbox suite times its Runs against a bound, so it runs after
+// every other suite, when their containers no longer take the CPU.
+const ALONE = ["src/sandbox/warm.test.ts"];
+
+// The Chains' tests time the Conductor's reply against a bound, so they run
+// last of all, after the warm Sandbox suite too.
 const TIMED = ["src/chain/chains.test.ts"];
 
 export default defineConfig({
@@ -29,9 +33,19 @@ export default defineConfig({
 				test: {
 					name: "long timeouts",
 					include: ["src/**/*.test.ts"],
-					exclude: [...IN_PROCESS, ...TIMED],
+					exclude: [...IN_PROCESS, ...ALONE, ...TIMED],
 					testTimeout: 30_000,
 					hookTimeout: 30_000,
+				},
+			},
+			{
+				extends: true,
+				test: {
+					name: "alone",
+					include: ALONE,
+					testTimeout: 30_000,
+					hookTimeout: 30_000,
+					sequence: { groupOrder: 1 },
 				},
 			},
 			{
@@ -41,7 +55,7 @@ export default defineConfig({
 					include: TIMED,
 					testTimeout: 30_000,
 					hookTimeout: 30_000,
-					sequence: { groupOrder: 1 },
+					sequence: { groupOrder: 2 },
 				},
 			},
 		],

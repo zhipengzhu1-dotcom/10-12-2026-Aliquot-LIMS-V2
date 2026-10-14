@@ -16,11 +16,13 @@ import { AppendRefused } from "../append-guard.js";
 import type { Event } from "../events.js";
 import { decideGate } from "../gate/lifecycle.js";
 import { gateState } from "../gate/projection.js";
-import { ArtifactId, GateId, type Seq, type Sha256 } from "../ids.js";
+import { ArtifactId, GateId, type Seq, type Sha256, TaskId } from "../ids.js";
 import { say } from "../room/lifecycle.js";
 import { seedRooms } from "../room/seed.js";
 import { openArtifacts } from "../sandbox/artifacts.js";
 import { buildImage, scriptsRoot } from "../sandbox/image.js";
+import { useSandbox } from "../sandbox/runner.js";
+import { openWarmSandbox } from "../sandbox/warm.js";
 import { plan } from "../scheduler/plan.js";
 import { serve } from "../serve/http.js";
 import { dockerAvailable, requireDocker } from "../test-support/docker.js";
@@ -196,11 +198,14 @@ describe.skipIf(!requireDocker())(suite, () => {
 	});
 
 	/**
-	 * The serve with the Conductor's Chains on the scenario's Ledger, and how
-	 * the Operator says a Message in the Chat view: through `room-say`, timing
-	 * the Conductor's reply from the Operator's MessageSent.
+	 * The serve with the Conductor's Chains on the scenario's Ledger and the
+	 * warm Sandbox `aliquot serve` installs, and how the Operator says a
+	 * Message in the Chat view: through `room-say`, timing the Conductor's
+	 * reply from the Operator's MessageSent.
 	 */
 	const serving = async () => {
+		const warm = openWarmSandbox();
+		const restore = useSandbox(warm);
 		const engine = openChains({ ledger: s.ledger, home });
 		const server = await serve(s.ledger, {
 			port: 0,
@@ -240,7 +245,12 @@ describe.skipIf(!requireDocker())(suite, () => {
 				stop();
 			}
 		};
-		return { sayInChat, close: () => server.close() };
+		const close = async () => {
+			await server.close();
+			restore();
+			await warm.close();
+		};
+		return { sayInChat, close };
 	};
 
 	/** Stages 1 to 3 on the Fixture, so the home holds a toy LIMS database. */
@@ -300,9 +310,10 @@ describe.skipIf(!requireDocker())(suite, () => {
 
 	it("logs the README's receipt on a home holding a toy LIMS database and replies with the Lab References and the due date within the bound, with no Turn", async () => {
 		registerLabRoomScripts(s, home, image);
-		await holdDatabase();
 		const chat = await serving();
 		try {
+			// The Fixture's Runs start the warm container, as the serve's first Run does.
+			await holdDatabase();
 			const { seq, reply, ms } = await chat.sayInChat(READABLE);
 
 			expect(reply?.payload).toMatchObject({
@@ -338,6 +349,56 @@ describe.skipIf(!requireDocker())(suite, () => {
 			expect(after.filter((e) => e.kind === "TurnStarted")).toEqual([]);
 			expect(wokenByMessages()).toEqual([]);
 			expect(leadsBackTo(seq)).toEqual([]);
+			expect(s.ledger.verify().ok).toBe(true);
+		} finally {
+			await chat.close();
+		}
+	}, 300_000);
+
+	it("continues the Lab References and the Work Orders across two receipts in a row, on one database, though the first Chain's Task waits UnderReview", async () => {
+		registerLabRoomScripts(s, home, image);
+		const chat = await serving();
+		try {
+			const first = await chat.sayInChat(READABLE);
+			const second = await chat.sayInChat(READABLE.replace("2403A", "2404B"));
+
+			expect(first.reply?.payload).toMatchObject({
+				body: expect.stringMatching(
+					/^Logged LR-2026-0001, LR-2026-0002, LR-2026-0003 on WO-2026-0001, due /,
+				),
+			});
+			expect(
+				s.ledger.projections.tasks.tasks.get(TaskId.parse("T-1"))?.state.tag,
+			).toBe("UnderReview");
+			expect(second.reply?.payload).toMatchObject({
+				body: expect.stringMatching(
+					/^Logged LR-2026-0004, LR-2026-0005, LR-2026-0006 on WO-2026-0002, due /,
+				),
+			});
+			expect(
+				second.ms,
+				`the second reply came ${second.ms} ms after its Message`,
+			).toBeLessThan(REPLY_BOUND_MS);
+			const databases = s
+				.events()
+				.flatMap((e) =>
+					e.kind === "ArtifactStored" &&
+					e.payload.artifact_type === "LimsDatabase"
+						? [e.payload.id]
+						: [],
+				);
+			const secondReceipt = s
+				.events()
+				.find(
+					(e) =>
+						e.kind === "RunStarted" &&
+						e.task_id === "T-2" &&
+						e.payload.script.id === `S-${RECEIPT.script}`,
+				);
+			expect(
+				secondReceipt?.kind === "RunStarted" && secondReceipt.payload.inputs[1],
+				"the second receipt's stage 2 carries the database the first Chain's stage 3 wrote",
+			).toBe(databases[1]);
 			expect(s.ledger.verify().ok).toBe(true);
 		} finally {
 			await chat.close();
